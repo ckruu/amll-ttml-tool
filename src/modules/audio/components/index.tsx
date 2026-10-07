@@ -220,7 +220,7 @@ export const AudioControls: FC = memo(() => {
 				<AuditionKeyBinding />
 				<Flex direction="column">
 					<div style={{ display: spectrogramVisible ? "flex" : "none" }}>
-						<AudioSpectrogram />
+						<AudioSpectrogram visible={spectrogramVisible} />
 					</div>
 					<Flex align="center" px="2" gapX="2">
 						<HoverCard.Root>

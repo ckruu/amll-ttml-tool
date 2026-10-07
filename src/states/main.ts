@@ -126,6 +126,24 @@ export const showUnselectedLinesAtom = atomWithStorage(
 	"showUnselectedLines",
 	true,
 );
+/**
+ * Shared follow-playback toggle for Edit and Sync tabs: when on, the
+ * lyric list auto-scrolls to keep the currently playing line centered.
+ */
+export const lyricAutoFollowAtom = atomWithStorage("lyricAutoFollow", false);
+/**
+ * Smooth scrolling for follow-playback line switches. Only takes effect
+ * while {@link lyricAutoFollowAtom} is on.
+ */
+export const lyricAutoFollowSmoothAtom = atomWithStorage(
+	"lyricAutoFollowSmooth",
+	false,
+);
+/**
+ * Index of the line currently hit by follow-playback. Transient: reset
+ * whenever follow is off or the mode leaves Edit/Sync.
+ */
+export const followActiveLineIndexAtom = atom<number | null>(null);
 export const bgLyricIgnoreSyncAtom = atom(false);
 export const showEndTimeAsDurationAtom = atom(false);
 

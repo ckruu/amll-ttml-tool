@@ -30,14 +30,18 @@ import { useFileOpener } from "$/hooks/useFileOpener.ts";
 import { audioEngine } from "$/modules/audio/audio-engine.ts";
 import { useLyricListDrag } from "$/modules/lyric-drag/useLyricListDrag";
 import {
+	followActiveLineIndexAtom,
+	isDraggingGlobalAtom,
 	locateActionAtom,
+	lyricAutoFollowAtom,
+	lyricAutoFollowSmoothAtom,
 	lyricLinesAtom,
 	selectedLinesAtom,
 	ToolMode,
 	toolModeAtom,
 } from "$/states/main.ts";
 import { outlineJumpActionAtom } from "$/states/sidebar.ts";
-import { type LyricLine, newLyricLine } from "$/types/ttml.ts";
+import { newLyricLine } from "$/types/ttml.ts";
 import styles from "./index.module.css";
 import { LyricLineView } from "./lyric-line-view";
 
@@ -60,28 +64,7 @@ const lyricIdToIndexMapAtom = selectAtom(lyricLineIdsAtom, (ids) => {
 	return map;
 });
 
-const findCurrentLineIndex = (lines: LyricLine[], currentTime: number) => {
-	const scan = (predicate?: (line: LyricLine) => boolean) => {
-		let previousIndex = -1;
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (predicate && !predicate(line)) continue;
-			if (line.endTime <= line.startTime) continue;
-			if (currentTime < line.startTime) {
-				return previousIndex !== -1 ? previousIndex : i;
-			}
-			if (currentTime >= line.startTime && currentTime <= line.endTime) {
-				return i;
-			}
-			previousIndex = i;
-		}
-		return previousIndex;
-	};
-
-	const mainIndex = scan((line) => !line.isBG);
-	if (mainIndex !== -1) return mainIndex;
-	return scan();
-};
+import { findCurrentLineIndex } from "$/modules/lyric-editor/utils/lyric-states.ts";
 
 export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 	const store = useStore();
@@ -91,6 +74,9 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 	const toolMode = useAtomValue(toolModeAtom);
 	const locateAction = useAtomValue(locateActionAtom);
 	const jumpAction = useAtomValue(outlineJumpActionAtom);
+	const lyricAutoFollow = useAtomValue(lyricAutoFollowAtom);
+	const lyricAutoFollowSmooth = useAtomValue(lyricAutoFollowSmoothAtom);
+	const setFollowActiveLineIndex = useSetAtom(followActiveLineIndexAtom);
 
 	const { t } = useTranslation();
 	const { openFile } = useFileOpener();
@@ -99,6 +85,7 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 	const viewElRef = useRef<HTMLDivElement>(null);
 	const lastHandledLocateRef = useRef(locateAction);
 	const lastHandledJumpRef = useRef<number | null>(null);
+	const lastFollowedIndexRef = useRef(-1);
 
 	const handlePasteTTML = useCallback(async () => {
 		try {
@@ -149,6 +136,46 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 		});
 	}, []);
 
+	/**
+	 * Scroll the follow-active line to the exact vertical center of the
+	 * viewport, measured from the rendered row so lines of any height land
+	 * dead-center. Falls back to the list jump (then re-measures, bounded)
+	 * when the row isn't rendered yet, e.g. after a far seek.
+	 */
+	const scrollActiveLineToCenter = useCallback(
+		(index: number, smooth: boolean, retries = 2) => {
+			const viewEl = viewElRef.current;
+			// NOTE: viewEl itself is the scroll container (overflowY: auto);
+			// its parent does not scroll. Rows are positioned relative to
+			// viewEl (position: relative), so offsetTop is already in the
+			// scroller's coordinate space.
+			if (!viewEl) return;
+			const row = viewEl.querySelector(
+				`[data-absolute-index="${index}"]`,
+			) as HTMLElement | null;
+			if (row) {
+				const target =
+					row.offsetTop - viewEl.clientHeight / 2 + row.clientHeight / 2;
+				viewEl.scrollTo({
+					top: Math.max(0, target),
+					behavior: smooth ? "smooth" : "auto",
+				});
+				return;
+			}
+			if (retries <= 0) return;
+			viewRef.current?.scrollToIndex({
+				index,
+				offset: viewEl.clientHeight / -2,
+			});
+			requestAnimationFrame(() =>
+				requestAnimationFrame(() =>
+					scrollActiveLineToCenter(index, false, retries - 1),
+				),
+			);
+		},
+		[],
+	);
+
 	const handleLocate = useCallback(() => {
 		const lines = store.get(lyricLinesAtom).lyricLines;
 		const currentTime = audioEngine.musicCurrentTime * 1000;
@@ -182,6 +209,60 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 			scrollToLineIndex(targetIndex);
 		}
 	}, [jumpAction, store, scrollToLineIndex]);
+
+	// Shared follow-playback: keep the currently playing line centered in
+	// Edit and Sync tabs. The highlight strictly follows the line's own
+	// [startTime, endTime] window: it clears in gaps (holding scroll
+	// position) and reappears when the next line starts.
+	useEffect(() => {
+		lastFollowedIndexRef.current = -1;
+		setFollowActiveLineIndex(null);
+		if (!lyricAutoFollow) return;
+		if (toolMode !== ToolMode.Edit && toolMode !== ToolMode.Sync) return;
+		const clearHighlight = () => {
+			if (lastFollowedIndexRef.current !== -2) {
+				lastFollowedIndexRef.current = -2;
+				setFollowActiveLineIndex(null);
+			}
+		};
+		const onTick = () => {
+			if (store.get(isDraggingGlobalAtom)) return;
+			const lines = store.get(lyricLinesAtom).lyricLines;
+			const now = audioEngine.musicCurrentTime * 1000;
+			const index = findCurrentLineIndex(lines, now);
+			if (index === -1) {
+				clearHighlight();
+				return;
+			}
+			const line = lines[index];
+			const covering =
+				line != null &&
+				line.endTime > line.startTime &&
+				now >= line.startTime &&
+				now <= line.endTime;
+			if (!covering) {
+				clearHighlight();
+				return;
+			}
+			if (index === lastFollowedIndexRef.current) return;
+			lastFollowedIndexRef.current = index;
+			setFollowActiveLineIndex(index);
+			scrollActiveLineToCenter(index, lyricAutoFollowSmooth);
+		};
+		audioEngine.onTimeUpdate(onTick);
+		return () => {
+			audioEngine.offTimeUpdate(onTick);
+			lastFollowedIndexRef.current = -1;
+			setFollowActiveLineIndex(null);
+		};
+	}, [
+		lyricAutoFollow,
+		lyricAutoFollowSmooth,
+		toolMode,
+		store,
+		scrollActiveLineToCenter,
+		setFollowActiveLineIndex,
+	]);
 
 	const { onPointerDown } = useLyricListDrag({
 		containerRef: viewElRef,
@@ -225,6 +306,8 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 						maxHeight: "100%",
 						overflowY: "auto",
 						position: "relative",
+						scrollBehavior:
+							lyricAutoFollow && lyricAutoFollowSmooth ? "smooth" : "auto",
 					}}
 					ref={viewElRef}
 				>

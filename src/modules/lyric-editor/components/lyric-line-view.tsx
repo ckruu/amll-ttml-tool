@@ -48,11 +48,14 @@ import {
 	showLineTranslationAtom,
 	showTimestampsAtom,
 	showWordRomanizationInputAtom,
+	syncWrapWordsAtom,
 } from "$/modules/settings/states/index.ts";
 import { visualizeTimestampUpdateAtom } from "$/modules/settings/states/sync.ts";
 import {
 	dragSourceAtom,
+	followActiveLineIndexAtom,
 	isDraggingGlobalAtom,
+	lyricAutoFollowAtom,
 	lyricLinesAtom,
 	selectedLinesAtom,
 	selectedWordsAtom,
@@ -287,10 +290,17 @@ export const LyricLineView: FC<{
 	);
 	const words = useAtomValue(wordsAtom);
 	const lineSelected = useAtomValue(lineSelectedAtom);
+	const lyricAutoFollow = useAtomValue(lyricAutoFollowAtom);
+	const followActiveLineIndex = useAtomValue(followActiveLineIndexAtom);
+	const followActive =
+		lyricAutoFollow &&
+		followActiveLineIndex != null &&
+		followActiveLineIndex === lineIndex;
 	const editLyricLines = useSetImmerAtom(lyricLinesAtom);
 	const lyricLines = useAtomValue(lyricLinesAtom);
 	const visualizeTimestampUpdate = useAtomValue(visualizeTimestampUpdateAtom);
 	const showTimestamps = useAtomValue(showTimestampsAtom);
+	const wrapWords = useAtomValue(syncWrapWordsAtom);
 	const showEndTimeAsDuration = useAtomValue(showEndTimeAsDurationAtom);
 	const toolMode = useAtomValue(toolModeAtom);
 	const isDragging = useAtomValue(isDraggingGlobalAtom);
@@ -343,10 +353,12 @@ export const LyricLineView: FC<{
 		const animation = startTimeRef.current?.animate(
 			[
 				{
-					backgroundColor: "var(--green-a8)",
+					backgroundColor:
+						"color-mix(in srgb, var(--timing-start, #46a758) 80%, transparent)",
 				},
 				{
-					backgroundColor: "var(--green-a4)",
+					backgroundColor:
+						"color-mix(in srgb, var(--timing-start, #46a758) 38%, transparent)",
 				},
 			],
 			{
@@ -371,10 +383,12 @@ export const LyricLineView: FC<{
 		const animation = endTimeRef.current?.animate(
 			[
 				{
-					backgroundColor: "var(--red-a8)",
+					backgroundColor:
+						"color-mix(in srgb, var(--timing-end, #e5484d) 80%, transparent)",
 				},
 				{
-					backgroundColor: "var(--red-a4)",
+					backgroundColor:
+						"color-mix(in srgb, var(--timing-end, #e5484d) 38%, transparent)",
 				},
 			],
 			{
@@ -524,6 +538,7 @@ export const LyricLineView: FC<{
 						className={classNames(
 							styles.lyricLine,
 							lineSelected && styles.selected,
+							followActive && styles.followActive,
 							toolMode === ToolMode.Sync && styles.sync,
 							toolMode === ToolMode.Edit && styles.edit,
 							line.ignoreSync && styles.ignoreSync,
@@ -566,6 +581,7 @@ export const LyricLineView: FC<{
 										styles.lyricWordsContainer,
 										toolMode === ToolMode.Edit && styles.edit,
 										toolMode === ToolMode.Sync && styles.sync,
+										toolMode === ToolMode.Sync && wrapWords && styles.wrap,
 										!showTimestamps && styles.hideTimestamps,
 									)}
 									ref={wordsContainerRef}

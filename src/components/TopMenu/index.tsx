@@ -14,6 +14,7 @@ import {
 } from "$/states/keybindings.ts";
 import { useKeyBindingAtom } from "$/utils/keybindings.ts";
 import { HeaderFileInfo } from "./HeaderFileInfo";
+import { SyncProgressBar } from "./SyncProgressBar";
 import { EditMenu } from "./modals/EditMenu";
 import { FileMenu } from "./modals/FileMenu";
 import { HelpMenu } from "./modals/HelpMenu";
@@ -113,6 +114,9 @@ export const TopMenu: FC = () => {
 			)}
 			<Box style={{ marginLeft: "16px" }}>
 				<HeaderFileInfo />
+			</Box>
+			<Box style={{ marginLeft: "8px" }}>
+				<SyncProgressBar />
 			</Box>
 		</Flex>
 	);

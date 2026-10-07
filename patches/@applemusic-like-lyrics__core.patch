@@ -1,0 +1,376 @@
+diff --git a/dist/amll-core.cjs b/dist/amll-core.cjs
+index fbd090aa45196ed1ba08ac4be703e227fae547f2..a46f3c6c2c57b2d6976d3826a33643a25b9b2803 100644
+--- a/dist/amll-core.cjs
++++ b/dist/amll-core.cjs
+@@ -4376,32 +4376,45 @@ const INTERVAL_EXPONENT = .2;
+ * @returns 弹簧参数配置 {@link SpringParams}
+ */
+ function getPosYSpringPolicy(isSeeking, isInterludeActive, intervalMs, isEndOfSong = false) {
+-	if (isSeeking || isInterludeActive) return {
+-		stiffness: SLOW_STIFFNESS,
+-		damping: SLOW_DAMPING
+-	};
+-	if (isEndOfSong) return {
+-		stiffness: MEDIUM_STIFFNESS,
+-		damping: MEDIUM_DAMPING
+-	};
+-	if (intervalMs == null) return {
+-		stiffness: SLOW_STIFFNESS,
+-		damping: SLOW_DAMPING
+-	};
++	if (isSeeking || isInterludeActive) return applySpringSpeed(SLOW_STIFFNESS, SLOW_DAMPING);
++	if (isEndOfSong) return applySpringSpeed(MEDIUM_STIFFNESS, MEDIUM_DAMPING);
++	if (intervalMs == null) return applySpringSpeed(SLOW_STIFFNESS, SLOW_DAMPING);
+ 	let ratio = 1 - (Math.min(Math.max(intervalMs, MIN_INTERVAL), MAX_INTERVAL) - MIN_INTERVAL) / 700;
+ 	ratio = ratio ** INTERVAL_EXPONENT;
+ 	const targetStiffness = MIN_STIFFNESS + ratio * 50;
+-	return {
+-		stiffness: targetStiffness,
+-		damping: Math.sqrt(targetStiffness) * DAMPING_MULTIPLIER
+-	};
++	return applySpringSpeed(targetStiffness, Math.sqrt(targetStiffness) * DAMPING_MULTIPLIER);
++}
++/**
++* Patched by amll-ttml-tool: user-facing visual tuning multipliers.
++*
++* All defaults reproduce stock behavior. Updated at runtime via
++* setVisualTuning(); read live on every frame so no rebuild is needed.
++*/
++const visualTuning = { emphasis: 1, glow: 1, lift: 1, cascade: 1, inactiveScale: .97, blur: 1, animSpeed: 1 };
++function applySpringSpeed(stiffness, damping) {
++	const speed = visualTuning.animSpeed > 0 ? visualTuning.animSpeed : 1;
++	return { stiffness: stiffness * speed, damping: damping * Math.sqrt(speed) };
++}
++function setVisualTuning(patch) {
++	if (!patch || typeof patch !== "object") return { ...visualTuning };
++	for (const key of Object.keys(visualTuning)) {
++		const v = patch[key];
++		if (typeof v === "number" && Number.isFinite(v)) visualTuning[key] = v;
++	}
++	return { ...visualTuning };
++}
++function getVisualTuning() {
++	return { ...visualTuning };
+ }
+ //#endregion
+ //#region src/lyric-player/base/timeline.ts
+ /**
+ * 判定为间奏所需的最小空隙时长
++*
++* Patched by amll-ttml-tool: Apple Music shows waiting dots from ~3s,
++* upstream default was 7s which hid most instrumental breaks.
+ */
+-const MIN_INTERLUDE_GAP = Duration.fromMillis(7e3);
++const MIN_INTERLUDE_GAP = Duration.fromMillis(3e3);
+ var TimelineController = class {
+ 	lyricBounds = [];
+ 	/**
+@@ -5346,7 +5359,7 @@ var LyricPlayerBase = class extends EventTarget {
+ 		visual.isNarrowViewport = window.innerWidth <= 1024;
+ 		const activeCount = result.lineCount;
+ 		let delay = Duration.ZERO;
+-		let baseDelay = strategy.disableStagger ? Duration.ZERO : Duration.fromSecs(.05);
++		let baseDelay = strategy.disableStagger ? Duration.ZERO : Duration.fromSecs(.05 * visualTuning.cascade);
+ 		for (let i = 0; i < activeCount; i++) {
+ 			const group = this.currentLyricGroups[i];
+ 			const instruction = result.lineInstructions[i];
+@@ -5396,7 +5409,8 @@ var LyricPlayerBase = class extends EventTarget {
+ 		if (this.scrollState.isTouchScrolled || isFocused) return 0;
+ 		const scrollToIndex = snapshot.scrollToIndex;
+ 		const level = 1 + (index < scrollToIndex ? Math.abs(scrollToIndex - index) + 1 : Math.abs(index - this.visualFrame.latestIndex));
+-		return this.visualFrame.isNarrowViewport ? level * .8 : level;
++		const tuned = level * visualTuning.blur;
++		return this.visualFrame.isNarrowViewport ? tuned * .8 : tuned;
+ 	}
+ 	/**
+ 	* 设置所有歌词行、底栏和间奏点在横坐标上的弹簧属性，包括重量、弹力和阻力。
+@@ -6248,12 +6262,12 @@ var LyricLineGroupBase = class {
+ 		const enableScale = this.lyricPlayer.getEnableScale();
+ 		const isPlaying = this.lyricPlayer.getIsPlaying();
+ 		const renderMode = this.isActive ? LyricLineRenderMode.GRADIENT : LyricLineRenderMode.SOLID;
+-		const SCALE_ASPECT = enableScale ? 97 : 100;
++		const SCALE_ASPECT = enableScale ? 100 * visualTuning.inactiveScale : 100;
+ 		let mainScale = 100;
+ 		if (!this.isActive && isPlaying) mainScale = SCALE_ASPECT;
+ 		this.mainLine.setTransform(mainScale, 1, 0, delay, renderMode);
+ 		let bgScale = 100;
+-		if (!this.isActive && isPlaying) bgScale = 75;
++		if (!this.isActive && isPlaying) bgScale = 75 * visualTuning.inactiveScale;
+ 		this.bgLine?.setTransform(bgScale, 1, 0, delay, renderMode);
+ 	}
+ 	update(delta = Duration.ZERO) {
+@@ -6321,7 +6335,11 @@ var LyricLineGroup = class extends LyricLineGroupBase {
+ 	}
+ 	isInRenderRange(includeOverscan = true) {
+ 		const top = this.posY.getCurrentPosition();
+-		const index = this.lyricPlayer.currentLyricGroups.indexOf(this);
++		// Patched by amll-ttml-tool: O(1) index lookup instead of O(N)
++		// indexOf — this runs per group per frame, which was O(N^2) total.
++		// lyricGroupIndexMap is populated on every rebuild; fallback keeps
++		// the old miss semantics.
++		const index = this.lyricPlayer.lyricGroupIndexMap?.get(this) ?? this.lyricPlayer.currentLyricGroups.indexOf(this);
+ 		const height = index !== -1 ? this.lyricPlayer.getLineHeight(index) : this.lyricPlayer.defaultLineHeight;
+ 		const viewportHeight = this.lyricPlayer.size[1];
+ 		if (viewportHeight <= 0 || height <= 0) return false;
+@@ -6995,6 +7013,8 @@ function calculateEmphasizeParams(options) {
+ 	}
+ 	amount = Math.min(1.2, amount);
+ 	blur = Math.min(.8, blur);
++	amount *= visualTuning.emphasis;
++	blur *= visualTuning.glow;
+ 	return {
+ 		amount,
+ 		blur,
+@@ -7026,7 +7046,7 @@ function generateFloatKeyframes(isBG) {
+ 		if (isBG) y *= 2;
+ 		return {
+ 			offset: x,
+-			transform: `translateY(${-y * .05}em)`
++			transform: `translateY(${-y * .05 * visualTuning.lift}em)`
+ 		};
+ 	});
+ }
+@@ -7075,7 +7095,7 @@ function createFloatAnimation(wordEl, options) {
+ 	const { word, lineStartTime, isBG } = options;
+ 	const delay = word.startTime - lineStartTime;
+ 	const duration = Math.max(1e3, word.endTime - word.startTime);
+-	let up = .05;
++	let up = .05 * visualTuning.lift;
+ 	if (isBG) up *= 2;
+ 	const a = wordEl.animate([{ transform: "translateY(0px)" }, { transform: `translateY(${-up}em)` }], {
+ 		duration: Number.isFinite(duration) ? duration : 0,
+@@ -7879,6 +7899,7 @@ exports.createKMeansPalette = createKMeansPalette;
+ exports.createOctTreePalette = createOctTreePalette;
+ exports.createPaletteFromImage = createPaletteFromImage;
+ exports.createThemeColor = createThemeColor;
++exports.getVisualTuning = getVisualTuning;
+ exports.hsvToRgb = hsvToRgb;
+ exports.labToRgb = labToRgb;
+ exports.labToXyz = labToXyz;
+@@ -7888,6 +7909,7 @@ exports.rgbLStarIsDark = rgbLStarIsDark;
+ exports.rgbToHsv = rgbToHsv;
+ exports.rgbToLab = rgbToLab;
+ exports.rgbToXyz = rgbToXyz;
++exports.setVisualTuning = setVisualTuning;
+ Object.defineProperty(exports, "spring", {
+ 	enumerable: true,
+ 	get: function() {
+diff --git a/dist/amll-core.d.cts b/dist/amll-core.d.cts
+index 9139f86d814e64e9189173f347be722cce5c48f6..f639ca72175ef7acc1feb8a04e2ac38550fe5b29 100644
+--- a/dist/amll-core.d.cts
++++ b/dist/amll-core.d.cts
+@@ -881,6 +881,22 @@ declare const LayoutReasonStrategyMap: Record<LayoutReason, LayoutStrategy>;
+  * 此时首帧 update 的 delta 携带整个挂起时长，直接透传会导致动画以数秒的时长过冲
+  */
+ declare const MAX_FRAME_DELTA: Duration;
++/**
++* Patched by amll-ttml-tool: user-facing visual tuning multipliers.
++* All defaults reproduce stock behavior (inactiveScale defaults to 0.97,
++* matching the stock 97 inactive scale).
++*/
++interface VisualTuning {
++  emphasis: number;
++  glow: number;
++  lift: number;
++  cascade: number;
++  inactiveScale: number;
++  blur: number;
++  animSpeed: number;
++}
++declare function setVisualTuning(patch: Partial<VisualTuning>): VisualTuning;
++declare function getVisualTuning(): VisualTuning;
+ //#endregion
+ //#region src/lyric-player/base/line.d.ts
+ interface LineTransforms {
+@@ -2412,5 +2428,5 @@ declare class DomLyricPlayer extends LyricPlayerBase {
+   override dispose(): void;
+ }
+ //#endregion
+-export { AbstractBaseRenderer, BackgroundRender, BaseRenderer, type BottomLine, type BottomLineTransforms, type ColorCount, type ColorVec3, CreatePaletteOptions, type Disposable, DomLyricPlayer, DomLyricPlayer as LyricPlayer, Duration, GLProgram, type GLRenderingContext, type HSVColor, type HasElement, type HistogramSource, type InterludeDotsBase, type InterludeDotsSnapshot, IsolationRenderer, type IsolationRendererOptions, LayoutAlignAnchor, LayoutReason, LayoutReasonStrategyMap, LayoutStrategy, type LyricDataConfig, type LyricLine, type LyricLineBase, LyricLineMouseEvent, LyricLineMouseEventListener, LyricLineRenderMode, LyricPlayerBase, type LyricWord, type LyricWordBase, MAX_FRAME_DELTA, MaskObsceneWordsMode, MediaTime, MeshGradientRenderer, type OptimizeLyricOptions, PaletteAlgorithm, type PaletteIntent, type PaletteResult, PixiRenderer, type ThemeColorResult, buildColorHistogram, channelToLinear, createAutoPalette, createKMeansPalette, createOctTreePalette, createPaletteFromImage, createThemeColor, hsvToRgb, labToRgb, labToXyz, paletteRgbLStarIsDark, paletteRgbLStarIsLight, rgbLStarIsDark, rgbToHsv, rgbToLab, rgbToXyz, spring_d_exports as spring, srgbToOkLab, xyzToLab, xyzToRgb, yToLStar };
++export { AbstractBaseRenderer, BackgroundRender, BaseRenderer, type BottomLine, type BottomLineTransforms, type ColorCount, type ColorVec3, CreatePaletteOptions, type Disposable, DomLyricPlayer, DomLyricPlayer as LyricPlayer, Duration, GLProgram, type GLRenderingContext, type HSVColor, type HasElement, type HistogramSource, type InterludeDotsBase, type InterludeDotsSnapshot, IsolationRenderer, type IsolationRendererOptions, LayoutAlignAnchor, LayoutReason, LayoutReasonStrategyMap, LayoutStrategy, type LyricDataConfig, type LyricLine, type LyricLineBase, LyricLineMouseEvent, LyricLineMouseEventListener, LyricLineRenderMode, LyricPlayerBase, type LyricWord, type LyricWordBase, MAX_FRAME_DELTA, MaskObsceneWordsMode, MediaTime, MeshGradientRenderer, type OptimizeLyricOptions, PaletteAlgorithm, type PaletteIntent, type PaletteResult, PixiRenderer, type ThemeColorResult, type VisualTuning, buildColorHistogram, channelToLinear, createAutoPalette, createKMeansPalette, createOctTreePalette, createPaletteFromImage, createThemeColor, getVisualTuning, hsvToRgb, labToRgb, labToXyz, paletteRgbLStarIsDark, paletteRgbLStarIsLight, rgbLStarIsDark, rgbToHsv, rgbToLab, rgbToXyz, setVisualTuning, spring_d_exports as spring, srgbToOkLab, xyzToLab, xyzToRgb, yToLStar };
+ //# sourceMappingURL=amll-core.d.cts.map
+\ No newline at end of file
+diff --git a/dist/amll-core.d.mts b/dist/amll-core.d.mts
+index ae6a1fe5bef2a9c19e79f880cf264cfbb52d36ee..d818c0b51ed5f2351aad01502fc9672a24f51984 100644
+--- a/dist/amll-core.d.mts
++++ b/dist/amll-core.d.mts
+@@ -880,6 +880,22 @@ declare const LayoutReasonStrategyMap: Record<LayoutReason, LayoutStrategy>;
+  * 此时首帧 update 的 delta 携带整个挂起时长，直接透传会导致动画以数秒的时长过冲
+  */
+ declare const MAX_FRAME_DELTA: Duration;
++/**
++* Patched by amll-ttml-tool: user-facing visual tuning multipliers.
++* All defaults reproduce stock behavior (inactiveScale defaults to 0.97,
++* matching the stock 97 inactive scale).
++*/
++interface VisualTuning {
++  emphasis: number;
++  glow: number;
++  lift: number;
++  cascade: number;
++  inactiveScale: number;
++  blur: number;
++  animSpeed: number;
++}
++declare function setVisualTuning(patch: Partial<VisualTuning>): VisualTuning;
++declare function getVisualTuning(): VisualTuning;
+ //#endregion
+ //#region src/lyric-player/base/line.d.ts
+ interface LineTransforms {
+@@ -2411,5 +2427,5 @@ declare class DomLyricPlayer extends LyricPlayerBase {
+   override dispose(): void;
+ }
+ //#endregion
+-export { AbstractBaseRenderer, BackgroundRender, BaseRenderer, type BottomLine, type BottomLineTransforms, type ColorCount, type ColorVec3, CreatePaletteOptions, type Disposable, DomLyricPlayer, DomLyricPlayer as LyricPlayer, Duration, GLProgram, type GLRenderingContext, type HSVColor, type HasElement, type HistogramSource, type InterludeDotsBase, type InterludeDotsSnapshot, IsolationRenderer, type IsolationRendererOptions, LayoutAlignAnchor, LayoutReason, LayoutReasonStrategyMap, LayoutStrategy, type LyricDataConfig, type LyricLine, type LyricLineBase, LyricLineMouseEvent, LyricLineMouseEventListener, LyricLineRenderMode, LyricPlayerBase, type LyricWord, type LyricWordBase, MAX_FRAME_DELTA, MaskObsceneWordsMode, MediaTime, MeshGradientRenderer, type OptimizeLyricOptions, PaletteAlgorithm, type PaletteIntent, type PaletteResult, PixiRenderer, type ThemeColorResult, buildColorHistogram, channelToLinear, createAutoPalette, createKMeansPalette, createOctTreePalette, createPaletteFromImage, createThemeColor, hsvToRgb, labToRgb, labToXyz, paletteRgbLStarIsDark, paletteRgbLStarIsLight, rgbLStarIsDark, rgbToHsv, rgbToLab, rgbToXyz, spring_d_exports as spring, srgbToOkLab, xyzToLab, xyzToRgb, yToLStar };
++export { AbstractBaseRenderer, BackgroundRender, BaseRenderer, type BottomLine, type BottomLineTransforms, type ColorCount, type ColorVec3, CreatePaletteOptions, type Disposable, DomLyricPlayer, DomLyricPlayer as LyricPlayer, Duration, GLProgram, type GLRenderingContext, type HSVColor, type HasElement, type HistogramSource, type InterludeDotsBase, type InterludeDotsSnapshot, IsolationRenderer, type IsolationRendererOptions, LayoutAlignAnchor, LayoutReason, LayoutReasonStrategyMap, LayoutStrategy, type LyricDataConfig, type LyricLine, type LyricLineBase, LyricLineMouseEvent, LyricLineMouseEventListener, LyricLineRenderMode, LyricPlayerBase, type LyricWord, type LyricWordBase, MAX_FRAME_DELTA, MaskObsceneWordsMode, MediaTime, MeshGradientRenderer, type OptimizeLyricOptions, PaletteAlgorithm, type PaletteIntent, type PaletteResult, PixiRenderer, type ThemeColorResult, type VisualTuning, buildColorHistogram, channelToLinear, createAutoPalette, createKMeansPalette, createOctTreePalette, createPaletteFromImage, createThemeColor, getVisualTuning, hsvToRgb, labToRgb, labToXyz, paletteRgbLStarIsDark, paletteRgbLStarIsLight, rgbLStarIsDark, rgbToHsv, rgbToLab, rgbToXyz, setVisualTuning, spring_d_exports as spring, srgbToOkLab, xyzToLab, xyzToRgb, yToLStar };
+ //# sourceMappingURL=amll-core.d.mts.map
+\ No newline at end of file
+diff --git a/dist/amll-core.mjs b/dist/amll-core.mjs
+index b38e570ef34f599d6bbd2e3bdd5191bcc51d5f34..dd6bafb3f871d7570a9be25eb9a38718d3b7591b 100644
+--- a/dist/amll-core.mjs
++++ b/dist/amll-core.mjs
+@@ -4343,32 +4343,45 @@ const INTERVAL_EXPONENT = .2;
+ * @returns 弹簧参数配置 {@link SpringParams}
+ */
+ function getPosYSpringPolicy(isSeeking, isInterludeActive, intervalMs, isEndOfSong = false) {
+-	if (isSeeking || isInterludeActive) return {
+-		stiffness: SLOW_STIFFNESS,
+-		damping: SLOW_DAMPING
+-	};
+-	if (isEndOfSong) return {
+-		stiffness: MEDIUM_STIFFNESS,
+-		damping: MEDIUM_DAMPING
+-	};
+-	if (intervalMs == null) return {
+-		stiffness: SLOW_STIFFNESS,
+-		damping: SLOW_DAMPING
+-	};
++	if (isSeeking || isInterludeActive) return applySpringSpeed(SLOW_STIFFNESS, SLOW_DAMPING);
++	if (isEndOfSong) return applySpringSpeed(MEDIUM_STIFFNESS, MEDIUM_DAMPING);
++	if (intervalMs == null) return applySpringSpeed(SLOW_STIFFNESS, SLOW_DAMPING);
+ 	let ratio = 1 - (Math.min(Math.max(intervalMs, MIN_INTERVAL), MAX_INTERVAL) - MIN_INTERVAL) / 700;
+ 	ratio = ratio ** INTERVAL_EXPONENT;
+ 	const targetStiffness = MIN_STIFFNESS + ratio * 50;
+-	return {
+-		stiffness: targetStiffness,
+-		damping: Math.sqrt(targetStiffness) * DAMPING_MULTIPLIER
+-	};
++	return applySpringSpeed(targetStiffness, Math.sqrt(targetStiffness) * DAMPING_MULTIPLIER);
++}
++/**
++* Patched by amll-ttml-tool: user-facing visual tuning multipliers.
++*
++* All defaults reproduce stock behavior. Updated at runtime via
++* setVisualTuning(); read live on every frame so no rebuild is needed.
++*/
++const visualTuning = { emphasis: 1, glow: 1, lift: 1, cascade: 1, inactiveScale: .97, blur: 1, animSpeed: 1 };
++function applySpringSpeed(stiffness, damping) {
++	const speed = visualTuning.animSpeed > 0 ? visualTuning.animSpeed : 1;
++	return { stiffness: stiffness * speed, damping: damping * Math.sqrt(speed) };
++}
++function setVisualTuning(patch) {
++	if (!patch || typeof patch !== "object") return { ...visualTuning };
++	for (const key of Object.keys(visualTuning)) {
++		const v = patch[key];
++		if (typeof v === "number" && Number.isFinite(v)) visualTuning[key] = v;
++	}
++	return { ...visualTuning };
++}
++function getVisualTuning() {
++	return { ...visualTuning };
+ }
+ //#endregion
+ //#region src/lyric-player/base/timeline.ts
+ /**
+ * 判定为间奏所需的最小空隙时长
++*
++* Patched by amll-ttml-tool: Apple Music shows waiting dots from ~3s,
++* upstream default was 7s which hid most instrumental breaks.
+ */
+-const MIN_INTERLUDE_GAP = Duration.fromMillis(7e3);
++const MIN_INTERLUDE_GAP = Duration.fromMillis(3e3);
+ var TimelineController = class {
+ 	lyricBounds = [];
+ 	/**
+@@ -5313,7 +5326,7 @@ var LyricPlayerBase = class extends EventTarget {
+ 		visual.isNarrowViewport = window.innerWidth <= 1024;
+ 		const activeCount = result.lineCount;
+ 		let delay = Duration.ZERO;
+-		let baseDelay = strategy.disableStagger ? Duration.ZERO : Duration.fromSecs(.05);
++		let baseDelay = strategy.disableStagger ? Duration.ZERO : Duration.fromSecs(.05 * visualTuning.cascade);
+ 		for (let i = 0; i < activeCount; i++) {
+ 			const group = this.currentLyricGroups[i];
+ 			const instruction = result.lineInstructions[i];
+@@ -5363,7 +5376,8 @@ var LyricPlayerBase = class extends EventTarget {
+ 		if (this.scrollState.isTouchScrolled || isFocused) return 0;
+ 		const scrollToIndex = snapshot.scrollToIndex;
+ 		const level = 1 + (index < scrollToIndex ? Math.abs(scrollToIndex - index) + 1 : Math.abs(index - this.visualFrame.latestIndex));
+-		return this.visualFrame.isNarrowViewport ? level * .8 : level;
++		const tuned = level * visualTuning.blur;
++		return this.visualFrame.isNarrowViewport ? tuned * .8 : tuned;
+ 	}
+ 	/**
+ 	* 设置所有歌词行、底栏和间奏点在横坐标上的弹簧属性，包括重量、弹力和阻力。
+@@ -6215,12 +6229,12 @@ var LyricLineGroupBase = class {
+ 		const enableScale = this.lyricPlayer.getEnableScale();
+ 		const isPlaying = this.lyricPlayer.getIsPlaying();
+ 		const renderMode = this.isActive ? LyricLineRenderMode.GRADIENT : LyricLineRenderMode.SOLID;
+-		const SCALE_ASPECT = enableScale ? 97 : 100;
++		const SCALE_ASPECT = enableScale ? 100 * visualTuning.inactiveScale : 100;
+ 		let mainScale = 100;
+ 		if (!this.isActive && isPlaying) mainScale = SCALE_ASPECT;
+ 		this.mainLine.setTransform(mainScale, 1, 0, delay, renderMode);
+ 		let bgScale = 100;
+-		if (!this.isActive && isPlaying) bgScale = 75;
++		if (!this.isActive && isPlaying) bgScale = 75 * visualTuning.inactiveScale;
+ 		this.bgLine?.setTransform(bgScale, 1, 0, delay, renderMode);
+ 	}
+ 	update(delta = Duration.ZERO) {
+@@ -6288,7 +6302,11 @@ var LyricLineGroup = class extends LyricLineGroupBase {
+ 	}
+ 	isInRenderRange(includeOverscan = true) {
+ 		const top = this.posY.getCurrentPosition();
+-		const index = this.lyricPlayer.currentLyricGroups.indexOf(this);
++		// Patched by amll-ttml-tool: O(1) index lookup instead of O(N)
++		// indexOf — this runs per group per frame, which was O(N^2) total.
++		// lyricGroupIndexMap is populated on every rebuild; fallback keeps
++		// the old miss semantics.
++		const index = this.lyricPlayer.lyricGroupIndexMap?.get(this) ?? this.lyricPlayer.currentLyricGroups.indexOf(this);
+ 		const height = index !== -1 ? this.lyricPlayer.getLineHeight(index) : this.lyricPlayer.defaultLineHeight;
+ 		const viewportHeight = this.lyricPlayer.size[1];
+ 		if (viewportHeight <= 0 || height <= 0) return false;
+@@ -6962,6 +6980,8 @@ function calculateEmphasizeParams(options) {
+ 	}
+ 	amount = Math.min(1.2, amount);
+ 	blur = Math.min(.8, blur);
++	amount *= visualTuning.emphasis;
++	blur *= visualTuning.glow;
+ 	return {
+ 		amount,
+ 		blur,
+@@ -6993,7 +7013,7 @@ function generateFloatKeyframes(isBG) {
+ 		if (isBG) y *= 2;
+ 		return {
+ 			offset: x,
+-			transform: `translateY(${-y * .05}em)`
++			transform: `translateY(${-y * .05 * visualTuning.lift}em)`
+ 		};
+ 	});
+ }
+@@ -7042,7 +7062,7 @@ function createFloatAnimation(wordEl, options) {
+ 	const { word, lineStartTime, isBG } = options;
+ 	const delay = word.startTime - lineStartTime;
+ 	const duration = Math.max(1e3, word.endTime - word.startTime);
+-	let up = .05;
++	let up = .05 * visualTuning.lift;
+ 	if (isBG) up *= 2;
+ 	const a = wordEl.animate([{ transform: "translateY(0px)" }, { transform: `translateY(${-up}em)` }], {
+ 		duration: Number.isFinite(duration) ? duration : 0,
+@@ -7820,6 +7840,6 @@ var DomLyricPlayer = class extends LyricPlayerBase {
+ 	}
+ };
+ //#endregion
+-export { AbstractBaseRenderer, BackgroundRender, BaseRenderer, DomLyricPlayer, DomLyricPlayer as LyricPlayer, Duration, GLProgram, IsolationRenderer, LayoutAlignAnchor, LayoutReason, LayoutReasonStrategyMap, LyricLineMouseEvent, LyricLineRenderMode, LyricPlayerBase, MAX_FRAME_DELTA, MaskObsceneWordsMode, MediaTime, MeshGradientRenderer, PixiRenderer, buildColorHistogram, channelToLinear, createAutoPalette, createKMeansPalette, createOctTreePalette, createPaletteFromImage, createThemeColor, hsvToRgb, labToRgb, labToXyz, paletteRgbLStarIsDark, paletteRgbLStarIsLight, rgbLStarIsDark, rgbToHsv, rgbToLab, rgbToXyz, spring_exports as spring, srgbToOkLab, xyzToLab, xyzToRgb, yToLStar };
++export { AbstractBaseRenderer, BackgroundRender, BaseRenderer, DomLyricPlayer, DomLyricPlayer as LyricPlayer, Duration, GLProgram, IsolationRenderer, LayoutAlignAnchor, LayoutReason, LayoutReasonStrategyMap, LyricLineMouseEvent, LyricLineRenderMode, LyricPlayerBase, MAX_FRAME_DELTA, MaskObsceneWordsMode, MediaTime, MeshGradientRenderer, PixiRenderer, buildColorHistogram, channelToLinear, createAutoPalette, createKMeansPalette, createOctTreePalette, createPaletteFromImage, createThemeColor, getVisualTuning, hsvToRgb, labToRgb, labToXyz, paletteRgbLStarIsDark, paletteRgbLStarIsLight, rgbLStarIsDark, rgbToHsv, rgbToLab, rgbToXyz, setVisualTuning, spring_exports as spring, srgbToOkLab, xyzToLab, xyzToRgb, yToLStar };
+ 
+ //# sourceMappingURL=amll-core.mjs.map

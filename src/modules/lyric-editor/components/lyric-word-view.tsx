@@ -804,10 +804,12 @@ const LyricSyncWordView: FC<{
 		const animation = startTimeRef.current?.animate(
 			[
 				{
-					backgroundColor: "var(--green-a8)",
+					backgroundColor:
+						"color-mix(in srgb, var(--timing-start, #46a758) 80%, transparent)",
 				},
 				{
-					backgroundColor: "var(--green-a4)",
+					backgroundColor:
+						"color-mix(in srgb, var(--timing-start, #46a758) 38%, transparent)",
 				},
 			],
 			{
@@ -826,10 +828,12 @@ const LyricSyncWordView: FC<{
 		const animation = endTimeRef.current?.animate(
 			[
 				{
-					backgroundColor: "var(--red-a8)",
+					backgroundColor:
+						"color-mix(in srgb, var(--timing-end, #e5484d) 80%, transparent)",
 				},
 				{
-					backgroundColor: "var(--red-a4)",
+					backgroundColor:
+						"color-mix(in srgb, var(--timing-end, #e5484d) 38%, transparent)",
 				},
 			],
 			{

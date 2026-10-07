@@ -4,7 +4,7 @@ import { atomWithStorage } from "jotai/utils";
 /**
  * 侧边栏可显示的标签页 ID
  */
-export type SidebarTabId = "outline" | "bpm";
+export type SidebarTabId = "outline" | "bpm" | "preview";
 
 /**
  * 侧边栏可能显示的面板类型
@@ -125,3 +125,8 @@ export const sidebarWidthAtom = atomWithStorage("sidebarWidth", 300);
 export const outlineJumpActionAtom = atom<{ id: string; ts: number } | null>(
 	null,
 );
+
+/**
+ * 用于触发大纲列表跳转到当前播放行的事件 Atom（由表头按钮触发）
+ */
+export const outlineScrollToCurrentAtom = atom(0);

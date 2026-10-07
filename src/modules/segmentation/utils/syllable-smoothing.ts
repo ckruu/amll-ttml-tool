@@ -34,6 +34,17 @@ export interface SyllableSmoothingOptions {
 	mergeSyllables?: boolean;
 }
 
+/**
+ * 对平滑/合并的逐词覆盖，用于预览中用户取消某些簇的合并或平滑
+ *
+ * - skipSmoothWordIds: 这些词不参与平滑（保持原始时间戳与分词）
+ * - skipMergeWordIds: 这些词所在的簇仍做时间戳平滑，但跳过文本合并
+ */
+export interface SyllableSmoothingOverrides {
+	skipSmoothWordIds?: Set<string>;
+	skipMergeWordIds?: Set<string>;
+}
+
 const CJK_FULL_REGEX =
 	/^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}]+$/u;
 
@@ -237,11 +248,12 @@ function smoothClusterTimestamps(cluster: LyricWord[]): LyricWord[] {
 }
 
 /**
- * 将平滑后的音节簇合并为一个音节
- * @param cluster 平滑后的音节簇
+ * 将一组音节合并为一个音节（文本相连，取首尾时间戳）
+ * @param words 按行内顺序排列的音节（含空格音节会被并入文本）
  * @returns 合并后的单个音节
  */
-function mergeCluster(cluster: LyricWord[]): LyricWord {
+export function mergeWordGroup(words: LyricWord[]): LyricWord {
+	const cluster = words;
 	const contentWords = cluster.filter((w) => !isSpaceSyllable(w));
 	const first = contentWords[0] ?? cluster[0];
 	const last =
@@ -274,14 +286,143 @@ function mergeCluster(cluster: LyricWord[]): LyricWord {
 }
 
 /**
+ * 找出满足平滑条件的音节簇（仅返回长度 > 1 的簇，不含空格单例）
+ *
+ * 与 smoothSyllables 使用完全相同的判定逻辑，抽出来供预览复用
+ */
+export function findSmoothClusters(
+	line: LyricLine,
+	threshold: number = SyllableSmoothThreshold.MEDIUM,
+	overrides?: SyllableSmoothingOverrides,
+): LyricWord[][] {
+	if (!line.words || line.words.length <= 1) return [];
+	const skipSmooth = overrides?.skipSmoothWordIds;
+	const clusters: LyricWord[][] = [];
+	let i = 0;
+
+	while (i < line.words.length) {
+		const current = line.words[i];
+		if (isSpaceSyllable(current) || skipSmooth?.has(current.id)) {
+			i++;
+			continue;
+		}
+		const cluster: LyricWord[] = [current];
+		let lastContentWord = current;
+
+		while (i + 1 < line.words.length) {
+			let nextIndex = i + 1;
+			const pendingSpaces: LyricWord[] = [];
+			while (
+				nextIndex < line.words.length &&
+				isSpaceSyllable(line.words[nextIndex])
+			) {
+				pendingSpaces.push(line.words[nextIndex]);
+				nextIndex++;
+			}
+			if (nextIndex >= line.words.length) break;
+			const nextWord = line.words[nextIndex];
+			if (skipSmooth?.has(nextWord.id)) break;
+			// 被排除平滑的词会成为簇边界：若当前簇已包含被排除词则不再扩展
+			if (cluster.some((w) => skipSmooth?.has(w.id))) break;
+
+			const isCurrentCJK = isAllCJK(lastContentWord.word);
+			const isNextCJK = isAllCJK(nextWord.word);
+			const isCurrentRubyEligible = isRubyEligibleForSmoothing(lastContentWord);
+			const isNextRubyEligible = isRubyEligibleForSmoothing(nextWord);
+
+			if (
+				isCurrentCJK &&
+				isNextCJK &&
+				isCurrentRubyEligible &&
+				isNextRubyEligible
+			) {
+				const gap = getGapBetween(lastContentWord, nextWord, pendingSpaces);
+				const variation = calculateSyllableVariation(lastContentWord, nextWord);
+				const gapVariation = calculateSyllableVariation(
+					lastContentWord,
+					nextWord,
+					gap,
+				);
+				const clusterVariation = calculateClusterVariation(cluster, nextWord);
+				if (
+					variation < threshold &&
+					gapVariation < threshold &&
+					clusterVariation < threshold
+				) {
+					cluster.push(...pendingSpaces, nextWord);
+					lastContentWord = nextWord;
+					i = nextIndex;
+					continue;
+				}
+			}
+			break;
+		}
+
+		if (cluster.length > 1) clusters.push(cluster);
+		i++;
+	}
+	return clusters;
+}
+
+export interface SmoothClusterPreview {
+	words: LyricWord[];
+	mergedText: string;
+	spanStart: number;
+	spanEnd: number;
+	/** 该簇在当前阈值下是否会被平滑（恒为 true，保留字段以便扩展） */
+	willSmooth: boolean;
+}
+
+export interface SmoothLinePreview {
+	clusters: SmoothClusterPreview[];
+	/** 是否有任何簇会被处理 */
+	changed: boolean;
+	/** 仅平滑（不合并）后的行文本 */
+	smoothedText: string;
+	/** 平滑 + 合并后的行文本 */
+	mergedText: string;
+}
+
+/**
+ * 计算一行的预览信息（纯函数，不修改原行）
+ */
+export function previewSmoothLine(
+	line: LyricLine,
+	options?: SyllableSmoothingOptions,
+): SmoothLinePreview {
+	const threshold = options?.threshold ?? SyllableSmoothThreshold.MEDIUM;
+	const clusters = findSmoothClusters(line, threshold).map((words) => {
+		const smoothed = smoothClusterTimestamps(words);
+		const merged = mergeWordGroup(smoothed);
+		return {
+			words,
+			mergedText: merged.word,
+			spanStart: words[0]?.startTime ?? 0,
+			spanEnd: words[words.length - 1]?.endTime ?? 0,
+			willSmooth: true,
+		} as SmoothClusterPreview;
+	});
+	const smoothedLine = smoothSyllables(line, { threshold });
+	const mergedLine = smoothSyllables(line, { threshold, mergeSyllables: true });
+	return {
+		clusters,
+		changed: clusters.length > 0,
+		smoothedText: smoothedLine.words.map((w) => w.word).join(""),
+		mergedText: mergedLine.words.map((w) => w.word).join(""),
+	};
+}
+
+/**
  * 对一行歌词中的音节应用基于变异参数的平滑处理
  * @param line 歌词行对象
  * @param options 配置选项（可配置阈值及是否合并音节）
+ * @param overrides 用户在预览中对特定词的排除（保持其原始时间戳/分词）
  * @returns 平滑后的歌词行对象
  */
 export function smoothSyllables(
 	line: LyricLine,
 	options?: SyllableSmoothingOptions,
+	overrides?: SyllableSmoothingOverrides,
 ): LyricLine {
 	if (!line.words || line.words.length <= 1) {
 		return line;
@@ -289,6 +430,8 @@ export function smoothSyllables(
 
 	const threshold = options?.threshold ?? SyllableSmoothThreshold.MEDIUM;
 	const shouldMerge = options?.mergeSyllables ?? false;
+	const skipSmooth = overrides?.skipSmoothWordIds;
+	const skipMerge = overrides?.skipMergeWordIds;
 
 	const resultWords: LyricWord[] = [];
 	let i = 0;
@@ -297,6 +440,12 @@ export function smoothSyllables(
 		const current = line.words[i];
 
 		if (isSpaceSyllable(current)) {
+			resultWords.push(current);
+			i++;
+			continue;
+		}
+
+		if (skipSmooth?.has(current.id)) {
 			resultWords.push(current);
 			i++;
 			continue;
@@ -322,6 +471,7 @@ export function smoothSyllables(
 			}
 
 			const nextWord = line.words[nextIndex];
+			if (skipSmooth?.has(nextWord.id)) break;
 
 			const isCurrentCJK = isAllCJK(lastContentWord.word);
 			const isNextCJK = isAllCJK(nextWord.word);
@@ -362,12 +512,22 @@ export function smoothSyllables(
 		if (cluster.length === 1) {
 			resultWords.push(cluster[0]);
 		} else {
-			const smoothed = smoothClusterTimestamps(cluster);
-
-			if (shouldMerge) {
-				resultWords.push(mergeCluster(smoothed));
+			// 簇内若包含被排除平滑的词：整簇保持原样，避免打乱已同步的时间
+			if (cluster.some((w) => skipSmooth?.has(w.id))) {
+				resultWords.push(...cluster);
 			} else {
-				resultWords.push(...smoothed);
+				const smoothed = smoothClusterTimestamps(cluster);
+				const skipMergeHere =
+					shouldMerge &&
+					(skipMerge
+						? cluster.some((w) => skipMerge.has(w.id))
+						: false);
+
+				if (shouldMerge && !skipMergeHere) {
+					resultWords.push(mergeWordGroup(smoothed));
+				} else {
+					resultWords.push(...smoothed);
+				}
 			}
 		}
 
@@ -378,4 +538,121 @@ export function smoothSyllables(
 		...line,
 		words: resultWords,
 	};
+}
+
+/**
+ * 手动合并编辑器的间隙模型：只考虑非空格音节
+ */
+export interface MergeGapModel {
+	/** 非空格音节在 line.words 中的下标（行内顺序） */
+	contentIndices: number[];
+	/**
+	 * 间隙 g（位于第 g 个与第 g+1 个非空格音节之间）是否被自动算法连接
+	 * 长度为 contentIndices.length - 1
+	 */
+	autoJoined: boolean[];
+}
+
+/**
+ * 为一行构建间隙模型：自动簇内部的相邻非空格音节视为已连接
+ */
+export function buildMergeGapModel(
+	line: LyricLine,
+	threshold: number = SyllableSmoothThreshold.MEDIUM,
+): MergeGapModel {
+	const contentIndices: number[] = [];
+	line.words.forEach((w, i) => {
+		if (!isSpaceSyllable(w)) contentIndices.push(i);
+	});
+	const autoJoined: boolean[] = new Array(
+		Math.max(0, contentIndices.length - 1),
+	).fill(false);
+	if (contentIndices.length > 1) {
+		const posOfWordIndex = new Map<number, number>();
+		for (let p = 0; p < contentIndices.length; p++) {
+			posOfWordIndex.set(contentIndices[p], p);
+		}
+		for (const cluster of findSmoothClusters(line, threshold)) {
+			const members = cluster
+				.map((w) => line.words.indexOf(w))
+				.filter((wi) => wi >= 0)
+				.map((wi) => posOfWordIndex.get(wi))
+				.filter((p): p is number => p !== undefined)
+				.sort((a, b) => a - b);
+			for (let k = 0; k + 1 < members.length; k++) {
+				if (members[k + 1] === members[k] + 1) {
+					autoJoined[members[k]] = true;
+				}
+			}
+		}
+	}
+	return { contentIndices, autoJoined };
+}
+
+/**
+ * 按间隙连接决策把非空格音节序列切分为合并组（每组为内容位置区间）
+ * @param contentCount 非空格音节总数
+ * @param isJoined 间隙 g 是否连接
+ */
+export function computeMergeGroups(
+	contentCount: number,
+	isJoined: (gap: number) => boolean,
+): number[][] {
+	if (contentCount <= 0) return [];
+	const groups: number[][] = [];
+	let run = [0];
+	for (let g = 0; g < contentCount - 1; g++) {
+		if (isJoined(g)) {
+			run.push(g + 1);
+		} else {
+			groups.push(run);
+			run = [g + 1];
+		}
+	}
+	groups.push(run);
+	return groups;
+}
+
+/**
+ * 按合并组重写一行的分词：每组覆盖从首词到尾词（含中间空格），
+ * 多词组合并为一个音节，单例与组外空格保持原样
+ * @param line 已平滑（或原始）行
+ * @param contentIndices 非空格音节在 line.words 中的下标
+ * @param groups 内容位置分组（computeMergeGroups 的输出）
+ */
+export function applyMergeGroups(
+	line: LyricLine,
+	contentIndices: number[],
+	groups: number[][],
+): LyricLine {
+	const words = line.words;
+	if (contentIndices.length === 0 || groups.length === 0) return line;
+	const groupOf = new Map<number, number[]>();
+	for (const group of groups) {
+		if (group.length === 0) continue;
+		for (const p of group) {
+			if (!groupOf.has(p)) groupOf.set(p, group);
+		}
+	}
+	const result: LyricWord[] = [];
+	let i = 0;
+	let p = 0;
+	while (p < contentIndices.length) {
+		const group = groupOf.get(p) ?? [p];
+		const first = contentIndices[group[0]];
+		const last = contentIndices[group[group.length - 1]];
+		while (i < first) {
+			result.push(words[i]);
+			i++;
+		}
+		const slice = words.slice(first, last + 1);
+		result.push(group.length > 1 ? mergeWordGroup(slice) : slice[0]);
+		i = last + 1;
+		p = group[group.length - 1] + 1;
+	}
+	while (i < words.length) {
+		result.push(words[i]);
+		i++;
+	}
+	return { ...line, words: result };
 }

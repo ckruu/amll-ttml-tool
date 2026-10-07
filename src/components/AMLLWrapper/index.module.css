@@ -3,9 +3,37 @@
 	flex-grow: 1;
 	padding: 0;
 	height: 100%;
+	position: relative;
 
 	--amll-lp-color: var(--gray-12);
 	&.isDark {
 		--amll-lp-color: var(--white-12);
 	}
+}
+
+.playerLayer {
+	position: relative;
+	z-index: 1;
+	height: 100%;
+	background: transparent;
+}
+
+.plusLighter :global(.FmKaba_lyricLineWrapper) {
+	mix-blend-mode: plus-lighter;
+}
+
+/*
+ * Core isolates every line wrapper in its own stacking context
+ * (will-change + inline opacity/filter) inside a contain:strict player
+ * root that already blends once as a unit — so inner blending alone is a
+ * silent no-op. The visible enhancement comes from the inherited glow
+ * below, applied to every line wrapper EXCEPT the one containing the
+ * active line (core marks only inner lines with FmKaba_active).
+ * text-shadow is used (rather than filter:brightness) because core
+ * overwrites inline filter/opacity/transform on wrappers, while it only
+ * ever sets text-shadow on its own WAAPI-animated emphasized chars
+ * (which keep core's glow).
+ */
+.plusLighter :global(.FmKaba_lyricLineWrapper:not(:has(.FmKaba_active))) {
+	text-shadow: 0 0 14px rgba(255, 255, 255, 0.35);
 }

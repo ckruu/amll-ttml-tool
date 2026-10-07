@@ -119,8 +119,8 @@ export const BpmPanel: FC = () => {
 		(isCompleted && bpmState.calculationTime === 0);
 
 	return (
-		<Box p="4">
-			<Flex direction="column" gap="4">
+		<Box p="3">
+			<Flex direction="column" gap="3">
 				<Flex
 					direction="column"
 					align="center"
@@ -134,12 +134,12 @@ export const BpmPanel: FC = () => {
 					<Flex
 						align="center"
 						justify="center"
-						gap="5"
+						gap="3"
 						style={{ width: "100%" }}
 					>
 						<Tooltip content={t("sidebar.bpm.halve", "减半 BPM")}>
 							<Button
-								size="2"
+								size="1"
 								variant="soft"
 								color="gray"
 								disabled={!isCompleted}
@@ -151,7 +151,7 @@ export const BpmPanel: FC = () => {
 						</Tooltip>
 
 						<Text
-							size={isAnalyzing ? "6" : "8"}
+							size={isAnalyzing ? "5" : "6"}
 							weight="bold"
 							style={{
 								fontFamily: "var(--default-font-family-mono)",
@@ -163,7 +163,7 @@ export const BpmPanel: FC = () => {
 
 						<Tooltip content={t("sidebar.bpm.double", "加倍 BPM")}>
 							<Button
-								size="2"
+								size="1"
 								variant="soft"
 								color="gray"
 								disabled={!isCompleted}
@@ -178,7 +178,7 @@ export const BpmPanel: FC = () => {
 					{isCompleted && isModified && (
 						<Tooltip content={t("sidebar.bpm.reset", "重置 BPM")}>
 							<IconButton
-								size="2"
+								size="1"
 								variant="ghost"
 								color="gray"
 								onClick={handleResetBpm}
@@ -189,7 +189,7 @@ export const BpmPanel: FC = () => {
 									transform: "translateY(-50%)",
 								}}
 							>
-								<ArrowResetRegular style={{ fontSize: 18 }} />
+								<ArrowResetRegular style={{ fontSize: 16 }} />
 							</IconButton>
 						</Tooltip>
 					)}

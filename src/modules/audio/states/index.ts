@@ -32,6 +32,12 @@ export const stretchAlgorithmAtom = atomWithStorage<StretchAlgorithm>(
 );
 export const audioPlayingAtom = atom(false);
 export const loadedAudioAtom = atom(new Blob([]));
+/**
+ * Bumped every time a track finishes decoding (cover art final — present
+ * or definitively absent). Cover bytes themselves are read imperatively
+ * from the engine; this is only the reactive "ready" signal.
+ */
+export const coverNonceAtom = atom(0);
 export const currentDurationAtom = atom(0);
 export const isAuditioningAtom = atom(false);
 export const audioErrorAtom = atom<string | null>(null);

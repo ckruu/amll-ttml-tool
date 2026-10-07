@@ -7,6 +7,32 @@ import {
 } from "$/states/main.ts";
 import type { LyricLine, LyricWord, LyricWordBase } from "$/types/ttml";
 
+export function findCurrentLineIndex(
+	lines: LyricLine[],
+	currentTime: number,
+) {
+	const scan = (predicate?: (line: LyricLine) => boolean) => {
+		let previousIndex = -1;
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			if (predicate && !predicate(line)) continue;
+			if (line.endTime <= line.startTime) continue;
+			if (currentTime < line.startTime) {
+				return previousIndex !== -1 ? previousIndex : i;
+			}
+			if (currentTime >= line.startTime && currentTime <= line.endTime) {
+				return i;
+			}
+			previousIndex = i;
+		}
+		return previousIndex;
+	};
+
+	const mainIndex = scan((line) => !line.isBG);
+	if (mainIndex !== -1) return mainIndex;
+	return scan();
+}
+
 export interface LineLocationResult {
 	lines: LyricLine[];
 	line: LyricLine;

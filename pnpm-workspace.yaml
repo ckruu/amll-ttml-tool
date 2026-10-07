@@ -5,4 +5,5 @@ minimumReleaseAgeExclude:
   - '@applemusic-like-lyrics/lyric@1.1.0'
   - '@applemusic-like-lyrics/react@0.6.0'
 patchedDependencies:
+  '@applemusic-like-lyrics/core': patches/@applemusic-like-lyrics__core.patch
   jotai-babel@0.2.0: patches/jotai-babel@0.2.0.patch

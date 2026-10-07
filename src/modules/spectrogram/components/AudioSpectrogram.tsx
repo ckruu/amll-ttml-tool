@@ -67,7 +67,9 @@ import {
 const TILE_DURATION_S = 5;
 const LOD_WIDTHS = [512, 1024, 2048, 4096, 8192];
 
-export const AudioSpectrogram: FC = () => {
+export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
+	visible = true,
+}) => {
 	const pcmDataReady = useAtomValue(pcmDataReadyAtom);
 	const currentDurationMs = useAtomValue(currentDurationAtom);
 	const engineState = useAtomValue(audioEngineStateAtom);
@@ -146,16 +148,18 @@ export const AudioSpectrogram: FC = () => {
 	}, []);
 
 	useEffect(() => {
+		if (!visible) return;
 		syncCursorsToDOM(audioEngine.musicCurrentTime);
 		audioEngine.onTimeUpdate(syncCursorsToDOM);
 
 		return () => audioEngine.offTimeUpdate(syncCursorsToDOM);
-	}, [syncCursorsToDOM]);
+	}, [syncCursorsToDOM, visible]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: 因为暂停时不发射进度，依赖视口状态作为 Trigger 强制同步游标
 	useEffect(() => {
+		if (!visible) return;
 		syncCursorsToDOM(audioEngine.musicCurrentTime);
-	}, [zoom, scrollLeft, containerWidth, syncCursorsToDOM]);
+	}, [zoom, scrollLeft, containerWidth, syncCursorsToDOM, visible]);
 
 	const [isHovering, setIsHovering] = useState(false);
 	const hoverPx = useAtomValue(spectrogramHoverPxAtom);
@@ -286,32 +290,35 @@ export const AudioSpectrogram: FC = () => {
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: lastTileTimestamp 用来重运行这个 effect
 	useEffect(() => {
+		if (!visible) return;
 		updateVisibleTiles();
-	}, [updateVisibleTiles, lastTileTimestamp]);
+	}, [updateVisibleTiles, lastTileTimestamp, visible]);
 
 	const handleRulerSeek = (timeInSeconds: number) => {
 		audioEngine.seekMusic(timeInSeconds);
 	};
 
 	useLayoutEffect(() => {
+		if (!visible) return;
 		if (lastTileTimestamp === 0) {
 			return;
 		}
 		rulerRef.current?.draw(scrollLeft);
 		updateVisibleTilesRef.current();
-	}, [scrollLeft, lastTileTimestamp]);
+	}, [scrollLeft, lastTileTimestamp, visible]);
 
 	useLayoutEffect(() => {
+		if (!visible) return;
 		if (lastTileTimestamp === 0 && !pcmDataReady && !currentDurationMs) {
 			return;
 		}
 		rulerRef.current?.draw(scrollLeft);
 		updateVisibleTilesRef.current();
-	}, [scrollLeft, lastTileTimestamp, pcmDataReady, currentDurationMs]);
+	}, [scrollLeft, lastTileTimestamp, pcmDataReady, currentDurationMs, visible]);
 
 	useEffect(() => {
 		const container = scrollContainerRef.current;
-		if (!pcmDataReady || !container || !currentDurationMs) return;
+		if (!visible || !pcmDataReady || !container || !currentDurationMs) return;
 
 		const observer = new ResizeObserver((entries) => {
 			if (entries[0]) {
@@ -323,7 +330,7 @@ export const AudioSpectrogram: FC = () => {
 		setContainerWidth(container.clientWidth);
 
 		return () => observer.disconnect();
-	}, [setContainerWidth, pcmDataReady, currentDurationMs]);
+	}, [setContainerWidth, pcmDataReady, currentDurationMs, visible]);
 
 	const handleMouseEnter = () => setIsHovering(true);
 	const handleMouseLeave = () => setIsHovering(false);

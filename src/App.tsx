@@ -27,11 +27,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { platform, version } from "@tauri-apps/plugin-os";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAtomValue, useSetAtom, useStore } from "jotai";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
-import { ToastContainer, toast } from "react-toastify";
+import { ToastContainer } from "react-toastify";
 import saveFile from "save-file";
 import semverGt from "semver/functions/gt";
 import styles from "./App.module.css";
@@ -39,6 +39,7 @@ import DarkThemeDetector from "./components/DarkThemeDetector";
 import RibbonBar from "./components/RibbonBar";
 import { Sidebar } from "./components/Sidebar/index.tsx";
 import { TitleBar } from "./components/TitleBar";
+import { PreviewFullscreenHost } from "./components/PreviewFullscreenHost.tsx";
 import { useFileOpener } from "./hooks/useFileOpener.ts";
 import AudioControls from "./modules/audio/components/index.tsx";
 import { useAudioFeedback } from "./modules/audio/hooks/useAudioFeedback.ts";
@@ -55,13 +56,27 @@ import {
 	customBackgroundMaskAtom,
 	customBackgroundOpacityAtom,
 } from "./modules/settings/states/custom-background";
+import {
+	resolvedHighlightAtom,
+	resolvedThemeAccentAtom,
+	resolvedTimingAtom,
+} from "./modules/settings/states/theme.ts";
+import {
+	fontStacksAtom,
+	fontUiStackAtom,
+	initCustomFontsAtom,
+} from "./modules/settings/states/fonts.ts";
 import { showTouchSyncPanelAtom } from "./modules/settings/states/sync.ts";
+import {
+	previewFullscreenAtom,
+	previewViewFontSizeAtom,
+	usePreviewFpsCap,
+} from "./modules/settings/states/preview.ts";
 import {
 	amllToTTML,
 	ttmlLyricToAmllResult,
 } from "./modules/ttml-processor/index.ts";
 import { useTtmlErrorHandler } from "./modules/ttml-processor/useTtmlErrorHandler.ts";
-import { settingsDialogAtom, settingsTabAtom } from "./states/dialogs.ts";
 import {
 	isDarkThemeAtom,
 	isGlobalFileDraggingAtom,
@@ -69,7 +84,6 @@ import {
 	ToolMode,
 	toolModeAtom,
 } from "./states/main.ts";
-import { useAppUpdate } from "./utils/useAppUpdate.ts";
 
 const LyricLinesView = lazy(() => import("./modules/lyric-editor/components"));
 const AMLLWrapper = lazy(() => import("./components/AMLLWrapper"));
@@ -156,48 +170,24 @@ function App() {
 	);
 	const [hasBackground, setHasBackground] = useState(false);
 	const effectiveTheme = isDarkTheme ? "dark" : "light";
-	const { checkUpdate, status, update } = useAppUpdate();
-	const hasNotifiedRef = useRef(false);
-	const setSettingsOpen = useSetAtom(settingsDialogAtom);
-	const setSettingsTab = useSetAtom(settingsTabAtom);
+	const resolvedAccent = useAtomValue(resolvedThemeAccentAtom);
+	const highlightHex = useAtomValue(resolvedHighlightAtom);
+	const timingColors = useAtomValue(resolvedTimingAtom);
+	const fontUiStack = useAtomValue(fontUiStackAtom);
+	const fontStacks = useAtomValue(fontStacksAtom);
+	const editorFontStack =
+		toolMode === ToolMode.Sync ? fontStacks.sync : fontStacks.edit;
+	const previewViewFontSize = useAtomValue(previewViewFontSizeAtom);
+	const previewFpsCap = usePreviewFpsCap();
+	const previewFullscreen = useAtomValue(previewFullscreenAtom);
 	const initCustomBackgroundImage = useSetAtom(customBackgroundImageInitAtom);
-	const { t } = useTranslation();
+	const initCustomFonts = useSetAtom(initCustomFontsAtom);
 	const store = useStore();
 
 	useEffect(() => {
 		initCustomBackgroundImage();
-	}, [initCustomBackgroundImage]);
-
-	useEffect(() => {
-		if (import.meta.env.TAURI_ENV_PLATFORM) {
-			checkUpdate(true);
-		}
-	}, [checkUpdate]);
-
-	useEffect(() => {
-		if (status === "available" && update && !hasNotifiedRef.current) {
-			hasNotifiedRef.current = true;
-
-			toast.info(
-				() => (
-					<div>
-						<div style={{ fontWeight: "bold" }}>
-							{t("app.update.updateAvailable", "发现新版本: {version}", {
-								version: update.version,
-							})}
-						</div>
-					</div>
-				),
-				{
-					autoClose: 5000,
-					onClick: () => {
-						setSettingsTab("about");
-						setSettingsOpen(true);
-					},
-				},
-			);
-		}
-	}, [status, update, t, setSettingsOpen, setSettingsTab]);
+		initCustomFonts();
+	}, [initCustomBackgroundImage, initCustomFonts]);
 
 	const setIsGlobalDragging = useSetAtom(isGlobalFileDraggingAtom);
 	const { openFile } = useFileOpener();
@@ -311,8 +301,27 @@ function App() {
 			appearance={effectiveTheme}
 			panelBackground="solid"
 			hasBackground={hasBackground}
-			accentColor={effectiveTheme === "dark" ? "jade" : "green"}
+			accentColor={resolvedAccent.accent}
 			className={styles.radixTheme}
+			style={
+				resolvedAccent.customHex
+					? ({
+							"--accent-9": resolvedAccent.customHex,
+							"--accent-10": resolvedAccent.customHex,
+							"--font-stack-preview": fontStacks.preview,
+							"--default-font-family": fontUiStack,
+							"--hl": highlightHex,
+							"--timing-start": timingColors.start,
+							"--timing-end": timingColors.end,
+						} as import("react").CSSProperties)
+					: ({
+							"--font-stack-preview": fontStacks.preview,
+							"--default-font-family": fontUiStack,
+							"--hl": highlightHex,
+							"--timing-start": timingColors.start,
+							"--timing-end": timingColors.end,
+						} as import("react").CSSProperties)
+			}
 		>
 			<ErrorBoundary
 				FallbackComponent={AppErrorPage}
@@ -337,6 +346,9 @@ function App() {
 					<GlobalDragOverlay />
 					{toolMode === ToolMode.Sync && <SyncKeyBinding />}
 					<DarkThemeDetector />
+					{previewFullscreen && toolMode === ToolMode.Preview ? (
+						<PreviewFullscreenHost />
+					) : (
 					<Flex direction="column" height="100vh">
 						<TitleBar />
 						<RibbonBar />
@@ -352,7 +364,9 @@ function App() {
 													height: "100%",
 													maxHeight: "100%",
 													overflowY: "hidden",
-												}}
+													"--default-font-family":
+														editorFontStack,
+												} as import("react").CSSProperties}
 												initial={{ opacity: 0 }}
 												animate={{ opacity: 1 }}
 												exit={{ opacity: 0 }}
@@ -370,7 +384,10 @@ function App() {
 													animate={{ opacity: 1 }}
 													exit={{ opacity: 0 }}
 												>
-													<AMLLWrapper />
+													<AMLLWrapper
+														fontSizePx={previewViewFontSize}
+														fpsCap={previewFpsCap}
+													/>
 												</motion.div>
 											</Box>
 										</SuspensePlaceHolder>
@@ -385,6 +402,7 @@ function App() {
 							<AudioControls />
 						</Box>
 					</Flex>
+					)}
 					<Suspense fallback={null}>
 						<Dialogs />
 					</Suspense>

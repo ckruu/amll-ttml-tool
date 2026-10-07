@@ -138,10 +138,20 @@
 
 .startTime {
 	background-color: var(--green-a4);
+	background-color: color-mix(
+		in srgb,
+		var(--timing-start, #46a758) 38%,
+		transparent
+	);
 }
 
 .endTime {
 	background-color: var(--red-a4);
+	background-color: color-mix(
+		in srgb,
+		var(--timing-end, #e5484d) 38%,
+		transparent
+	);
 }
 
 .endTimeButton {
@@ -245,6 +255,12 @@
 		border-left: solid 1px var(--gray-a5);
 		border-right: solid 1px var(--gray-a5);
 
+		&.wrap {
+			flex-wrap: wrap;
+			overflow: visible;
+			row-gap: var(--space-1);
+		}
+
 		&.hideTimestamps {
 			border-left: none;
 			border-right: none;
@@ -282,6 +298,11 @@
 .lyricLine:not(.error):hover {
 	box-shadow: 0 0 0 2px var(--accent-a5);
 	background-color: var(--accent-a3);
+}
+
+.lyricLine.followActive:not(.selected):not(.error) {
+	background-color: var(--accent-a3);
+	box-shadow: inset 3px 0 0 var(--accent-a7);
 }
 
 .lyricWord.selected:not(.error),
@@ -330,9 +351,11 @@
 
 .lyricWord.sync.active {
 	background-color: var(--blue-a5);
+	background-color: color-mix(in srgb, var(--hl, #2f6fde) 30%, transparent);
 
 	&.selected {
 		background-color: var(--blue-a7);
+		background-color: color-mix(in srgb, var(--hl, #2f6fde) 50%, transparent);
 	}
 }
 

@@ -1,6 +1,7 @@
 import { Card } from "@radix-ui/themes";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePageVisible } from "$/hooks/usePageVisible";
 import { audioEngine } from "$/modules/audio/audio-engine";
 import {
 	audioEngineStateAtom,
@@ -29,6 +30,9 @@ export const AudioSlider = () => {
 	const isScrubbingRef = useRef(false);
 	const scrubProgressRef = useRef(0);
 	const [sliderWidthPx, setSliderWidthPx] = useState(0);
+	const pageVisible = usePageVisible();
+	const pageVisibleRef = useRef(pageVisible);
+	pageVisibleRef.current = pageVisible;
 
 	const {
 		hoverState,
@@ -60,30 +64,40 @@ export const AudioSlider = () => {
 		return () => observer.disconnect();
 	}, []);
 
-	useEffect(() => {
-		let rafId: number;
-		const renderCursor = () => {
-			if (currentDuration > 0 && cursorRef.current && sliderWidthPx > 0) {
-				let progress = 0;
-
-				if (isScrubbingRef.current) {
-					progress = scrubProgressRef.current;
-				} else {
-					progress = audioEngine.musicCurrentTime / (currentDuration / 1000);
-				}
-
-				const xPos = progress * sliderWidthPx;
-				cursorRef.current.style.transform = `translateX(${xPos}px)`;
-
-				if (maskRef.current) {
-					maskRef.current.style.transform = `scaleX(${progress})`;
-				}
-			}
-			rafId = requestAnimationFrame(renderCursor);
-		};
-		rafId = requestAnimationFrame(renderCursor);
-		return () => cancelAnimationFrame(rafId);
+	// Event-driven cursor: the engine emits ticks only while playing (plus
+	// one-shot updates on seek/pause), so no always-on rAF loop is needed.
+	// Scrub gestures paint directly; hidden pages skip paints and repaint
+	// once on return.
+	const paintCursorAt = useCallback((timeSeconds: number) => {
+		if (currentDuration <= 0 || sliderWidthPx <= 0) return;
+		const progress = isScrubbingRef.current
+			? scrubProgressRef.current
+			: timeSeconds / (currentDuration / 1000);
+		const clamped = Math.max(0, Math.min(1, progress));
+		const xPos = clamped * sliderWidthPx;
+		if (cursorRef.current) {
+			cursorRef.current.style.transform = `translateX(${xPos}px)`;
+		}
+		if (maskRef.current) {
+			maskRef.current.style.transform = `scaleX(${clamped})`;
+		}
 	}, [currentDuration, sliderWidthPx]);
+
+	useEffect(() => {
+		const onTick = (t: number) => {
+			if (!pageVisibleRef.current) return;
+			paintCursorAt(t);
+		};
+		paintCursorAt(audioEngine.musicCurrentTime);
+		audioEngine.onTimeUpdate(onTick);
+		return () => {
+			audioEngine.offTimeUpdate(onTick);
+		};
+	}, [paintCursorAt]);
+
+	useEffect(() => {
+		if (pageVisible) paintCursorAt(audioEngine.musicCurrentTime);
+	}, [pageVisible, paintCursorAt]);
 
 	const selectedRegions = useMemo(() => {
 		if (currentDuration <= 0 || sliderWidthPx <= 0) return [];
@@ -115,9 +129,11 @@ export const AudioSlider = () => {
 
 			isScrubbingRef.current = true;
 			scrubProgressRef.current = calculateProgress(e.clientX);
+			paintCursorAt(audioEngine.musicCurrentTime);
 
 			const handleScrubMove = (moveEvent: MouseEvent) => {
 				scrubProgressRef.current = calculateProgress(moveEvent.clientX);
+				paintCursorAt(audioEngine.musicCurrentTime);
 			};
 
 			const handleScrubUp = (upEvent: MouseEvent) => {
@@ -132,7 +148,7 @@ export const AudioSlider = () => {
 			window.addEventListener("mousemove", handleScrubMove);
 			window.addEventListener("mouseup", handleScrubUp);
 		},
-		[currentDuration, sliderWidthPx, isDraggingRef],
+		[currentDuration, sliderWidthPx, isDraggingRef, paintCursorAt],
 	);
 
 	return (

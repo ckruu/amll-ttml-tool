@@ -50,6 +50,12 @@ const FileMenuItems = () => {
 					保存 TTML 文件到剪切板
 				</Trans>
 			</DropdownMenu.Item>
+			<DropdownMenu.Item onSelect={menu.onCopyAppleTTMLToClipboard}>
+				<Trans i18nKey="topBar.menu.copyAppleTTML">复制 Apple TTML 到剪贴板</Trans>
+			</DropdownMenu.Item>
+			<DropdownMenu.Item onSelect={menu.onSaveAppleTTMLFile}>
+				<Trans i18nKey="topBar.menu.saveAppleTTML">保存 Apple TTML 文件</Trans>
+			</DropdownMenu.Item>
 			<DropdownMenu.Separator />
 			<ImportExportLyric />
 			<DropdownMenu.Separator />

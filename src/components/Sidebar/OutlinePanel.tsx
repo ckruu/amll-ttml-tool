@@ -1,9 +1,11 @@
-import { ContextMenu } from "@radix-ui/themes";
+import { Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
 import { useAtomValue, useSetAtom, useStore } from "jotai";
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, type FC } from "react";
 import { useTranslation } from "react-i18next";
 import { LyricLineMenu } from "$/components/Menus/lyric-line-menu";
+import { audioEngine } from "$/modules/audio/audio-engine";
 import { useLyricListDrag } from "$/modules/lyric-drag/useLyricListDrag";
+import { findCurrentLineIndex } from "$/modules/lyric-editor/utils/lyric-states";
 import {
 	dragSourceAtom,
 	isDraggingGlobalAtom,
@@ -12,8 +14,35 @@ import {
 	ToolMode,
 	toolModeAtom,
 } from "$/states/main.ts";
-import { outlineJumpActionAtom } from "$/states/sidebar.ts";
+import { outlineJumpActionAtom, outlineScrollToCurrentAtom } from "$/states/sidebar.ts";
 import styles from "./OutlinePanel.module.css";
+
+/**
+ * Outline tab header controls (rendered in the sidebar top row):
+ * line count + jump-to-current button.
+ */
+export const OutlineHeaderControls: FC = () => {
+	const { t } = useTranslation();
+	const { lyricLines } = useAtomValue(lyricLinesAtom);
+	const triggerScroll = useSetAtom(outlineScrollToCurrentAtom);
+	return (
+		<Flex align="center" gap="1" flexShrink="0">
+			<Text size="1" color="gray">
+				{t("sidebar.outline.count", "{count} lines", {
+					count: lyricLines.length,
+				})}
+			</Text>
+			<Button
+				size="1"
+				variant="ghost"
+				color="gray"
+				onClick={() => triggerScroll((n) => n + 1)}
+			>
+				{t("sidebar.outline.jumpToCurrent", "Current")}
+			</Button>
+		</Flex>
+	);
+};
 
 export const OutlinePanel = memo(() => {
 	const { t } = useTranslation();
@@ -29,6 +58,8 @@ export const OutlinePanel = memo(() => {
 	const setJumpAction = useSetAtom(outlineJumpActionAtom);
 
 	const containerRef = useRef<HTMLDivElement>(null);
+	const scrollToCurrent = useAtomValue(outlineScrollToCurrentAtom);
+	const lastHandledScrollRef = useRef(0);
 
 	const { onPointerDown } = useLyricListDrag({
 		containerRef,
@@ -65,11 +96,32 @@ export const OutlinePanel = memo(() => {
 		[store, isDragging],
 	);
 
+	useEffect(() => {
+		if (scrollToCurrent === 0 || scrollToCurrent === lastHandledScrollRef.current) {
+			return;
+		}
+		lastHandledScrollRef.current = scrollToCurrent;
+		const index = findCurrentLineIndex(
+			lyricLines,
+			audioEngine.musicCurrentTime * 1000,
+		);
+		if (index < 0) return;
+		const el = containerRef.current?.querySelector(
+			`[data-absolute-index="${index}"]`,
+		);
+		el?.scrollIntoView({ block: "center", behavior: "smooth" });
+	}, [scrollToCurrent, lyricLines]);
+
 	return (
 		<div
 			className={`${styles.outlineContainer} ${isDragging ? styles.isDraggingGlobal : ""}`}
 			ref={containerRef}
-			style={{ position: "relative" }}
+			style={{
+				position: "relative",
+				flexGrow: 1,
+				minHeight: 0,
+				height: "auto",
+			}}
 		>
 			<div className={styles.dropIndicator} />
 
@@ -130,6 +182,6 @@ export const OutlinePanel = memo(() => {
 					</div>
 				);
 			})}
-		</div>
+			</div>
 	);
 });

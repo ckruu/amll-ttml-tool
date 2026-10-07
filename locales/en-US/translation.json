@@ -70,7 +70,10 @@
 			"auxiliaryLineDisplay": "Auxiliary Line Display",
 			"views": "Views",
 			"showOutline": "Outline",
-			"showBpmPanel": "BPM"
+			"showBpmPanel": "BPM",
+			"showPreview": "Preview",
+			"followPlayback": "Follow playback",
+			"followPlaybackSmooth": "Smooth scrolling"
 		},
 		"previewMode": {
 			"lyrics": "Lyrics",
@@ -96,7 +99,44 @@
 			"keyBindingReference": "Hotkey Cheatsheet",
 			"startSync": "Mark Begin",
 			"continuousSync": "Commit",
-			"endSync": "Mark End"
+			"endSync": "Mark End",
+			"views": "Views",
+			"showOutline": "Outline",
+			"showBpmPanel": "BPM",
+			"showPreview": "Preview",
+			"followPlayback": "Follow playback",
+			"wrapWords": "Wrap words",
+			"followPlaybackSmooth": "Smooth scrolling"
+		},
+		"previewView": {
+			"title": "View",
+			"fontSize": "Preview font size",
+			"vsync": "VSync",
+			"detectedHz": "{hz} Hz detected",
+			"detecting": "Detecting…",
+			"fullscreen": "Fullscreen",
+			"fullscreenGo": "Go fullscreen"
+		},
+		"previewStyle": {
+			"title": "Lyric style",
+			"emphasis": "Emphasis",
+			"glow": "Glow",
+			"wordLift": "Word lift",
+			"animSpeed": "Anim speed",
+			"inactiveScale": "Idle scale",
+			"cascade": "Cascade",
+			"inactiveBlur": "Idle blur",
+			"blurStrength": "Blur amount",
+			"plusLighter": "Plus lighter"
+		},
+		"previewBg": {
+			"title": "Background",
+			"enabled": "Shader BG",
+			"static": "Static",
+			"brightness": "Brightness",
+			"contrast": "Contrast",
+			"saturation": "Saturation",
+			"autoContrast": "Auto contrast"
 		},
 		"loading": "Panel loading…"
 	},
@@ -203,6 +243,48 @@
 			"themeLight": "Light",
 			"themeDark": "Dark",
 			"themeAuto": "Auto"
+		},
+		"theme": {
+			"title": "Interface colors",
+			"accent": "Interface accent color",
+			"accentDesc": "Pick a Radix preset for light and dark mode, or enter an exact hex color.",
+			"lightAccent": "Light mode accent",
+			"darkAccent": "Dark mode accent",
+			"useCustom": "Use custom hex",
+			"schemes": "Color schemes",
+			"duplicate": "Duplicate",
+			"newScheme": "New scheme",
+			"newSchemePlaceholder": "New scheme name…",
+			"untitledScheme": "Untitled scheme",
+			"copyName": "{name} copy",
+			"schemesHint": "Click a scheme name to rename. Applying a scheme changes the accent immediately and is saved automatically.",
+			"highlight": "Active word highlight",
+			"highlightDesc": "Color of the currently playing word in the sync view. Stored per light/dark appearance.",
+			"highlightLight": "Light appearance",
+			"highlightDark": "Dark appearance",
+			"timing": "Timing chips",
+			"timingDesc": "Start/end timestamp colors in the time view. Kept distinct so start and end are easy to tell apart.",
+			"timingStart": "Start time",
+			"timingEnd": "End time"
+		},
+		"fonts": {
+			"title": "Fonts",
+			"uiTitle": "Interface font",
+			"uiDesc": "Applies to the title bar, ribbon, sidebar, dialogs and other interface chrome. Lyric views keep their own fonts below.",
+			"mode": "Font mode",
+			"modeDesc": "Simple mode uses one Latin + one CJK font everywhere. Advanced mode sets them per view (edit / sync / preview).",
+			"simple": "Simple",
+			"advanced": "Advanced",
+			"latin": "Latin font",
+			"latinDesc": "Used for Latin glyphs; CJK glyphs fall through to the CJK font.",
+			"cjk": "CJK font",
+			"editView": "Edit view",
+			"syncView": "Sync view",
+			"previewView": "Preview",
+			"customTitle": "Custom fonts",
+			"customFiles": "Installed font files",
+			"addFile": "Add font file…",
+			"customFilesEmpty": "No custom fonts installed. Supported: .ttf .otf .woff .woff2 .ttc. Files are stored locally."
 		}
 	},
 	"topBar": {
@@ -228,6 +310,10 @@
 			"saveLyric": "Save lyrics",
 			"restoreFromHistory": "Restore from history…",
 			"saveLyricToClipboard": "Save TTML to clipboard",
+			"copyAppleTTML": "Copy Apple TTML",
+			"saveAppleTTML": "Save Apple TTML",
+			"copyAppleTTMLSuccess": "Apple TTML copied to clipboard",
+			"copyAppleTTMLFailed": "Failed to copy Apple TTML",
 			"uploadToAMLLDB": "Upload to database (CN only)",
 			"file": "File",
 			"helpDoc": "Documentation (CN)",
@@ -269,7 +355,18 @@
 	"header": {
 		"status": {
 			"autoSavedAt": "Autosaved at {time}"
+		},
+		"syncProgress": {
+			"label": "{synced}/{total} synced ({percent}%)",
+			"short": "{percent}%",
+			"empty": "No synchronizable words",
+			"emptyShort": "—"
 		}
+	},
+	"previewFullscreen": {
+		"play": "Play",
+		"pause": "Pause",
+		"exit": "Exit fullscreen"
 	},
 	"contextMenu": {
 		"deleteWords": "Delete {count, plural, one {word} other {words}}",
@@ -689,7 +786,15 @@
 	"sidebar": {
 		"outline": {
 			"emptyLine": "Empty",
-			"title": "Outline"
+			"title": "Outline",
+			"count": "{count} lines",
+			"jumpToCurrent": "Current"
+		},
+		"preview": {
+			"title": "Preview",
+			"fontSizeLabel": "Preview font size",
+			"followRibbon": "Follow ribbon size",
+			"followRibbonShort": "Auto"
 		},
 		"bpm": {
 			"title": "BPM",
@@ -718,6 +823,44 @@
 		"customThresholdInput": "Threshold",
 		"mergeSyllables": "Merge Syllables",
 		"mergeSyllablesHint": "Produces Apple Music-like lyrics where CJK characters are merged together, but not suitable for regular use.",
-		"description": "Smooth the timeline for CJK syllables.\nDoes not smooth syllables from other languages."
+		"customizeMerge": "Customize merge…",
+		"disableMerge": "Don't merge",
+		"mergeSummary": "{count} lines will merge{customized}; adjust per-word in the merge editor.",
+		"mergeCustomized": " (customized)",
+		"description": "Smooth the timeline for CJK syllables.\nDoes not smooth syllables from other languages.",
+		"previewTitle": "Merge preview ({count} lines will change)",
+		"previewHint": "Unchecking Smooth keeps the cluster's original timestamps; unchecking Merge smooths timing but keeps words split, so synced timing is not lost.",
+		"previewEmpty": "No lyric lines in the selected scope.",
+		"lineN": "Line {n}",
+		"noChange": "No change",
+		"smooth": "Smooth",
+		"merge": "Merge",
+		"mergeAll": "Merge all",
+		"mergeNone": "Merge none"
+	},
+	"mergeDialog": {
+		"title": "Merge Syllables",
+		"description": "Click a divider between words to join or cut it; blue means manually adjusted. Drag across words to merge a range. Green pills are merged groups.",
+		"threshold": "Smoothing threshold",
+		"custom": "Custom",
+		"mergeAll": "Merge all",
+		"mergeNone": "Merge none",
+		"noLines": "No mergeable lyric lines in the selected scope.",
+		"lineN": "Line {n}",
+		"mergeLine": "Merge",
+		"smoothLine": "Smooth",
+		"smoothDetails": "Per-cluster",
+		"smoothCluster": "Smooth “{text}”",
+		"before": "Before",
+		"after": "After",
+		"beforeAfter": "Before / After",
+		"songPreview": "Song preview",
+		"previewFontSize": "Preview font size",
+		"auto": "Auto",
+		"play": "Play",
+		"pause": "Pause",
+		"previewHint": "Preview plays the merge draft; lyrics are unchanged until applied.",
+		"backgroundPaused": "Background preview paused while the merge editor is open.",
+		"applyDraft": "Apply to smoothing settings"
 	}
 }

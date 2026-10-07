@@ -41,16 +41,26 @@ import {
 } from "$/modules/settings/states";
 import {
 	editingTimeFieldAtom,
+	lyricAutoFollowAtom,
+	lyricAutoFollowSmoothAtom,
 	lyricLinesAtom,
 	requestFocusAtom,
 	selectedLinesAtom,
 	selectedWordsAtom,
 	showEndTimeAsDurationAtom,
 } from "$/states/main.ts";
-import { openSidebarTabsAtom, toggleTabAtom } from "$/states/sidebar.ts";
+import {
+	activeSidebarTabAtom,
+	openSidebarTabsAtom,
+	toggleTabAtom,
+} from "$/states/sidebar.ts";
 import { type LyricLine, type LyricWord, newLyricLine } from "$/types/ttml";
 import { msToTimestamp, parseTimespan } from "$/utils/timestamp.ts";
 import { RibbonFrame, RibbonSection } from "./common";
+import {
+	PreviewFontSizeField,
+	PreviewVsyncField,
+} from "./PreviewViewFields";
 
 const MULTIPLE_VALUES = Symbol("multiple-values");
 
@@ -715,10 +725,19 @@ export const EditModeRibbonBar: FC = forwardRef<HTMLDivElement>(
 	(_props, ref) => {
 		const openTabs = useAtomValue(openSidebarTabsAtom);
 		const toggleTab = useSetAtom(toggleTabAtom);
+		const activePanel = useAtomValue(activeSidebarTabAtom);
+		const [autoFollow, setAutoFollow] = useAtom(lyricAutoFollowAtom);
+		const [autoFollowSmooth, setAutoFollowSmooth] = useAtom(
+			lyricAutoFollowSmoothAtom,
+		);
 		const isOutlineOpen = openTabs.includes("outline");
 		const isBpmOpen = openTabs.includes("bpm");
+		const isPreviewOpen = openTabs.includes("preview");
 		const idOutline = useId();
 		const idBpm = useId();
+		const idPreview = useId();
+		const idFollow = useId();
+		const idFollowSmooth = useId();
 
 		const editLyricLines = useSetImmerAtom(lyricLinesAtom);
 		const { t } = useTranslation();
@@ -871,49 +890,117 @@ export const EditModeRibbonBar: FC = forwardRef<HTMLDivElement>(
 				</RibbonSection>
 				<RibbonSection label={t("ribbonBar.editMode.views", "视图")}>
 					<Flex
-						direction="column"
-						gap="1"
+						direction="row"
+						gap="5"
 						flexGrow="1"
 						align="start"
 						justify="center"
 					>
-						<Flex gap="3" align="center">
-							<Text size="1" asChild>
-								<label
-									htmlFor={idOutline}
-									style={{
-										userSelect: "none",
+						<Flex direction="column" gap="1" align="start" justify="center">
+							<Flex gap="3" align="center">
+								<Text size="1" asChild>
+									<label
+										htmlFor={idOutline}
+										style={{
+											userSelect: "none",
+										}}
+									>
+										{t("ribbonBar.editMode.showOutline", "大纲")}
+									</label>
+								</Text>
+								<Checkbox
+									id={idOutline}
+									checked={isOutlineOpen}
+									onCheckedChange={(checked) => {
+										toggleTab({ tabId: "outline", open: Boolean(checked) });
 									}}
-								>
-									{t("ribbonBar.editMode.showOutline", "大纲")}
-								</label>
-							</Text>
-							<Checkbox
-								id={idOutline}
-								checked={isOutlineOpen}
-								onCheckedChange={(checked) => {
-									toggleTab({ tabId: "outline", open: Boolean(checked) });
-								}}
-							/>
+								/>
+							</Flex>
+							<Flex gap="3" align="center">
+								<Text size="1" asChild>
+									<label
+										htmlFor={idBpm}
+										style={{
+											userSelect: "none",
+										}}
+									>
+										{t("ribbonBar.editMode.showBpmPanel", "BPM")}
+									</label>
+								</Text>
+								<Checkbox
+									id={idBpm}
+									checked={isBpmOpen}
+									onCheckedChange={(checked) => {
+										toggleTab({ tabId: "bpm", open: Boolean(checked) });
+									}}
+								/>
+							</Flex>
+							<Flex gap="3" align="center">
+								<Text size="1" asChild>
+									<label
+										htmlFor={idPreview}
+										style={{
+											userSelect: "none",
+										}}
+									>
+										{t("ribbonBar.editMode.showPreview", "预览")}
+									</label>
+								</Text>
+								<Checkbox
+									id={idPreview}
+									checked={isPreviewOpen}
+									onCheckedChange={(checked) => {
+										toggleTab({ tabId: "preview", open: Boolean(checked) });
+									}}
+								/>
+							</Flex>
 						</Flex>
-						<Flex gap="3" align="center">
-							<Text size="1" asChild>
-								<label
-									htmlFor={idBpm}
-									style={{
-										userSelect: "none",
+						<Flex direction="column" gap="1" align="start" justify="center">
+							<Flex gap="3" align="center">
+								<Text size="1" asChild>
+									<label
+										htmlFor={idFollow}
+										style={{
+											userSelect: "none",
+										}}
+									>
+										{t("ribbonBar.editMode.followPlayback", "跟随播放")}
+									</label>
+								</Text>
+								<Checkbox
+									id={idFollow}
+									checked={autoFollow}
+									onCheckedChange={(checked) => {
+										setAutoFollow(Boolean(checked));
 									}}
-								>
-									{t("ribbonBar.editMode.showBpmPanel", "BPM")}
-								</label>
-							</Text>
-							<Checkbox
-								id={idBpm}
-								checked={isBpmOpen}
-								onCheckedChange={(checked) => {
-									toggleTab({ tabId: "bpm", open: Boolean(checked) });
-								}}
-							/>
+								/>
+							</Flex>
+							<Flex gap="3" align="center">
+								<Text size="1" asChild>
+									<label
+										htmlFor={idFollowSmooth}
+										style={{
+											userSelect: "none",
+										}}
+									>
+										{t("ribbonBar.editMode.followPlaybackSmooth", "平滑滚动")}
+									</label>
+								</Text>
+								<Checkbox
+									id={idFollowSmooth}
+									checked={autoFollowSmooth}
+									disabled={!autoFollow}
+									onCheckedChange={(checked) => {
+										setAutoFollowSmooth(Boolean(checked));
+									}}
+								/>
+							</Flex>
+							{activePanel === "preview" && (
+								<>
+									<PreviewFontSizeField target="sidebar" />
+									<PreviewVsyncField />
+								</>
+							)}
 						</Flex>
 					</Flex>
 				</RibbonSection>

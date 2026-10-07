@@ -24,6 +24,12 @@ import {
 	defaultTtmlAuthorGithubLoginAtom,
 } from "$/modules/settings/states";
 import { ttmlToAmll } from "$/modules/ttml-processor";
+import {
+	detectLegacyTTML,
+	extractXmlLang,
+	getLegacyFixNotice,
+	repairLegacyImport,
+} from "$/modules/ttml-processor/legacyCompat";
 import type { AmllLyricResult } from "$/modules/ttml-processor/types";
 import { useTtmlErrorHandler } from "$/modules/ttml-processor/useTtmlErrorHandler";
 import { confirmDialogAtom } from "$/states/dialogs.ts";
@@ -217,7 +223,29 @@ export const useFileOpener = () => {
 					const result = ttmlToAmll(text);
 
 					if (result.success) {
-						lyricData = normalizeAmllLyricResult(result.data);
+						// Repair legacy import so Apple re-export is fixed automatically:
+						// agentId->isDuet, BG parens, empty interludes. Never changes shape.
+						const repaired = repairLegacyImport(result.data, text);
+						lyricData = normalizeAmllLyricResult(repaired.result);
+						// Preserve xml:lang (ttmlToAmll drops "language" metadata).
+						// Old files carry none -> stays absent; user can add it manually.
+						if (
+							!lyricData.metadata.some(
+								(m) => m.key.toLowerCase() === "language",
+							)
+						) {
+							const rawLang = extractXmlLang(text);
+							if (rawLang) lyricData.metadata.push({ key: "language", value: [rawLang] });
+						}
+						const legacy = detectLegacyTTML(text);
+						if (legacy.isLegacy) {
+							fileOpenerLogger.info(
+								`Legacy TTML detected (${legacy.reasons.join(", ")}), repairs: ${repaired.fixes.join("; ") || "none"}`,
+							);
+							toast.info(getLegacyFixNotice(legacy.reasons));
+						} else if (repaired.fixes.length > 0) {
+							fileOpenerLogger.info(`TTML import repairs: ${repaired.fixes.join("; ")}`);
+						}
 					} else {
 						handleTtmlError(
 							result.error,

@@ -29,9 +29,36 @@ export const SidebarTabBar: FC<SidebarTabBarProps> = ({
 	}, [tabs]);
 
 	if (tabs.length === 1) {
+		const tab = tabs[0];
+		const isActive = activePanel === tab.id;
 		return (
-			<div className={styles.singleTitleContainer}>
-				<span className={styles.singleTitle}>{tabs[0].getTitle(t)}</span>
+			<div className={styles.tabBar} role="tablist">
+				<div
+					role="tab"
+					tabIndex={0}
+					aria-selected={isActive}
+					className={styles.tabItem}
+					data-active={isActive}
+					onClick={() => onSelectTab(tab.id)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter" || e.key === " ") {
+							onSelectTab(tab.id);
+						}
+					}}
+				>
+					<span className={styles.tabTitle}>{tab.getTitle(t)}</span>
+					<button
+						type="button"
+						className={styles.closeButton}
+						aria-label={t("common.close", "关闭")}
+						onClick={(e) => {
+							e.stopPropagation();
+							onCloseTab(tab.id);
+						}}
+					>
+						<DismissRegular style={{ fontSize: 15 }} />
+					</button>
+				</div>
 			</div>
 		);
 	}

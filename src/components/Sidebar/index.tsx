@@ -19,9 +19,11 @@ import {
 	type SidebarPanelType,
 	sidebarWidthAtom,
 } from "$/states/sidebar.ts";
+import { ToolMode, toolModeAtom } from "$/states/main.ts";
 import { BpmPanel } from "./BpmPanel";
 import styles from "./index.module.css";
-import { OutlinePanel } from "./OutlinePanel";
+import { OutlineHeaderControls, OutlinePanel } from "./OutlinePanel";
+import { PreviewHeaderControls, PreviewPanel } from "./PreviewPanel";
 import { SidebarTabBar } from "./SidebarTabBar";
 
 const MIN_WIDTH = 200;
@@ -32,6 +34,8 @@ export interface SidebarTab {
 	id: Exclude<SidebarPanelType, "none">;
 	getTitle: (t: TFunction) => string;
 	component: FC;
+	/** Optional controls rendered in the sidebar top row when active */
+	headerControls?: FC;
 }
 
 export const SIDEBAR_TABS: SidebarTab[] = [
@@ -39,11 +43,18 @@ export const SIDEBAR_TABS: SidebarTab[] = [
 		id: "outline",
 		getTitle: (t) => t("sidebar.outline.title", "大纲"),
 		component: OutlinePanel,
+		headerControls: OutlineHeaderControls,
 	},
 	{
 		id: "bpm",
 		getTitle: (t) => t("sidebar.bpm.title", "BPM"),
 		component: BpmPanel,
+	},
+	{
+		id: "preview",
+		getTitle: (t) => t("sidebar.preview.title", "预览"),
+		component: PreviewPanel,
+		headerControls: PreviewHeaderControls,
 	},
 ];
 
@@ -52,6 +63,13 @@ export const Sidebar = () => {
 	const openTabs = useAtomValue(openSidebarTabsAtom);
 	const [activePanel, setActivePanel] = useAtom(activeSidebarTabAtom);
 	const closeTab = useSetAtom(closeTabAtom);
+	const toolMode = useAtomValue(toolModeAtom);
+	// The sidebar Preview tab is redundant in Preview tool mode (which already
+	// shows the full preview). Hide it there without touching persisted atoms,
+	// so everything restores when leaving Preview mode.
+	const previewHidden = toolMode === ToolMode.Preview;
+	const effectiveActivePanel: SidebarPanelType =
+		previewHidden && activePanel === "preview" ? "none" : activePanel;
 	const [savedWidth, setSavedWidth] = useAtom(sidebarWidthAtom);
 
 	const [isDragging, setIsDragging] = useState(false);
@@ -62,8 +80,9 @@ export const Sidebar = () => {
 		() =>
 			openTabs
 				.map((id) => SIDEBAR_TABS.find((tab) => tab.id === id))
-				.filter((tab): tab is SidebarTab => tab !== undefined),
-		[openTabs],
+				.filter((tab): tab is SidebarTab => tab !== undefined)
+				.filter((tab) => !(previewHidden && tab.id === "preview")),
+		[openTabs, previewHidden],
 	);
 
 	const lastNonEmptyTabsCountRef = useRef(visibleTabs.length);
@@ -77,7 +96,7 @@ export const Sidebar = () => {
 
 	const contentWidth = tempWidth > 0 ? tempWidth : savedWidth;
 
-	const isOpen = activePanel !== "none" && visibleTabs.length > 0;
+	const isOpen = effectiveActivePanel !== "none" && visibleTabs.length > 0;
 
 	const handlePointerDown = useCallback((e: React.PointerEvent) => {
 		e.preventDefault();
@@ -151,24 +170,37 @@ export const Sidebar = () => {
 					<div className={styles.header} data-single-tab={isSingleTab}>
 						<SidebarTabBar
 							tabs={visibleTabs}
-							activePanel={activePanel}
+							activePanel={effectiveActivePanel}
 							onSelectTab={setActivePanel}
 							onCloseTab={(id) => closeTab(id)}
 						/>
-						<IconButton
-							variant="ghost"
-							color="gray"
-							radius="full"
-							onClick={() => setActivePanel("none")}
-							aria-label={t("common.close", "关闭")}
-						>
-							<Dismiss16Regular />
-						</IconButton>
+						{(() => {
+							const ActiveControls = SIDEBAR_TABS.find(
+								(tab) => tab.id === effectiveActivePanel,
+							)?.headerControls;
+							return ActiveControls ? (
+								<div className={styles.headerControls}>
+									<ActiveControls />
+								</div>
+							) : null;
+						})()}
+						{!isSingleTab && (
+							<IconButton
+								variant="ghost"
+								color="gray"
+								radius="full"
+								className={styles.globalClose}
+								onClick={() => setActivePanel("none")}
+								aria-label={t("common.close", "关闭")}
+							>
+								<Dismiss16Regular />
+							</IconButton>
+						)}
 					</div>
 
 					<Box className={styles.content}>
 						{SIDEBAR_TABS.map((tab) => {
-							if (activePanel !== tab.id) return null;
+							if (effectiveActivePanel !== tab.id) return null;
 							const Comp = tab.component;
 							return <Comp key={tab.id} />;
 						})}

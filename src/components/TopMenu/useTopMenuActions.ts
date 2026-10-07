@@ -3,6 +3,7 @@ import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { useSetImmerAtom, withImmer } from "jotai-immer";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "react-toastify";
 import saveFile from "save-file";
 import { uid } from "uid";
 import { useFileOpener } from "$/hooks/useFileOpener.ts";
@@ -15,6 +16,10 @@ import { predictLineRomanization } from "$/modules/segmentation/utils/Transliter
 import { applyRomanizationWarnings } from "$/modules/segmentation/utils/Transliteration/roman-warning";
 import { useSegmentationConfig } from "$/modules/segmentation/utils/useSegmentationConfig";
 import { amllToTTML, ttmlLyricToAmllResult } from "$/modules/ttml-processor";
+import {
+	getAppleTTMLWarnings,
+	toAppleTTML,
+} from "$/modules/ttml-processor/appleTtml";
 import { useTtmlErrorHandler } from "$/modules/ttml-processor/useTtmlErrorHandler";
 import {
 	advancedSegmentationDialogAtom,
@@ -208,6 +213,68 @@ export const useTopMenuActions = () => {
 			topMenuLogger.error("Failed to save TTML file into clipboard", e);
 		}
 	}, [store, handleTtmlError]);
+
+	async function copyTextWithFallback(text: string): Promise<void> {
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(text);
+				return;
+			}
+			throw new Error("clipboard not available");
+		} catch {
+			// Tauri / insecure context fallback
+			const textarea = document.createElement("textarea");
+			textarea.value = text;
+			textarea.style.position = "fixed";
+			textarea.style.opacity = "0";
+			textarea.style.pointerEvents = "none";
+			document.body.appendChild(textarea);
+			textarea.select();
+			const ok = document.execCommand("copy");
+			document.body.removeChild(textarea);
+			if (!ok) throw new Error("execCommand copy failed");
+		}
+	}
+
+	const onCopyAppleTTMLToClipboard = useCallback(async () => {
+		try {
+			const lyric = store.get(lyricLinesAtom);
+			const warnings = getAppleTTMLWarnings(lyric);
+			if (warnings.length > 0) {
+				for (const w of warnings) toast.warn(w);
+				topMenuLogger.warn("Apple TTML warnings", warnings);
+			}
+			const langMeta = lyric.metadata.find(
+				(m) => m.key.toLowerCase() === "language",
+			)?.value[0];
+			const data = toAppleTTML(lyric, { lang: langMeta });
+			await copyTextWithFallback(data);
+			toast.success(t("topBar.menu.copyAppleTTMLSuccess", "Apple TTML 已复制到剪贴板"));
+		} catch (e) {
+			topMenuLogger.error("Failed to copy Apple TTML to clipboard", e);
+			toast.error(t("topBar.menu.copyAppleTTMLFailed", "复制 Apple TTML 失败"));
+		}
+	}, [store, t]);
+
+	const onSaveAppleTTMLFile = useCallback(() => {
+		try {
+			const lyric = store.get(lyricLinesAtom);
+			const warnings = getAppleTTMLWarnings(lyric);
+			if (warnings.length > 0) {
+				for (const w of warnings) toast.warn(w);
+			}
+			const langMeta = lyric.metadata.find(
+				(m) => m.key.toLowerCase() === "language",
+			)?.value[0];
+			const data = toAppleTTML(lyric, { lang: langMeta });
+			const b = new Blob([data], { type: "text/xml" });
+			const baseName = saveFileName.replace(/\.[^.]*$/, "");
+			const fileName = `${baseName}.apple.ttml`;
+			saveFile(b, fileName).catch(topMenuLogger.error);
+		} catch (e) {
+			topMenuLogger.error("Failed to save Apple TTML file", e);
+		}
+	}, [saveFileName, store, t]);
 
 	const onSubmitToAMLLDB = useCallback(() => {
 		store.set(submitToAMLLDBDialogAtom, true);
@@ -474,6 +541,8 @@ export const useTopMenuActions = () => {
 		onSaveFile,
 		onOpenHistoryRestore,
 		onSaveFileToClipboard,
+		onCopyAppleTTMLToClipboard,
+		onSaveAppleTTMLFile,
 		onSubmitToAMLLDB,
 		onUndo,
 		onRedo,

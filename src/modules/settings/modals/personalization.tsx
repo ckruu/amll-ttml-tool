@@ -9,10 +9,12 @@ import {
 	SettingsCustomBackgroundSettings,
 } from "./customBackground";
 import { SettingsGroup, SettingsRow } from "./SettingsGroup";
+import { SettingsFontsPage } from "./fonts";
 import {
 	SettingsSpectrogramCustomPalettePage,
 	SettingsSpectrogramPalettePage,
 } from "./spectrogram";
+import { SettingsThemePage } from "./theme";
 
 const contentTransition = {
 	duration: 0.25,
@@ -92,10 +94,24 @@ export const SettingsPersonalizationTab = ({
 								}
 							/>
 
-							<SettingsCustomBackgroundCard
-								onOpen={() => onSubpageChange("customBackground")}
-							/>
-						</SettingsGroup>
+						<SettingsCustomBackgroundCard
+							onOpen={() => onSubpageChange("customBackground")}
+						/>
+					</SettingsGroup>
+
+					<SettingsGroup
+						title={t("settings.theme.title", "Interface colors")}
+					>
+						<div style={{ padding: "12px 16px" }}>
+							<SettingsThemePage />
+						</div>
+					</SettingsGroup>
+
+					<SettingsGroup title={t("settings.fonts.title", "Fonts")}>
+						<div style={{ padding: "12px 16px" }}>
+							<SettingsFontsPage />
+						</div>
+					</SettingsGroup>
 
 						<SettingsGroup title={spectrogramTitle}>
 							<SettingsSpectrogramPalettePage

@@ -16,6 +16,7 @@ import {
 	highlightErrorsAtom,
 	showTimestampsAtom,
 	showWordRomanizationInputAtom,
+	syncWrapWordsAtom,
 } from "$/modules/settings/states/index.ts";
 import {
 	currentEmptyBeatAtom,
@@ -28,7 +29,17 @@ import {
 	keySyncNextAtom,
 	keySyncStartAtom,
 } from "$/states/keybindings.ts";
-import { bgLyricIgnoreSyncAtom, lyricLinesAtom } from "$/states/main.ts";
+import {
+	bgLyricIgnoreSyncAtom,
+	lyricAutoFollowAtom,
+	lyricAutoFollowSmoothAtom,
+	lyricLinesAtom,
+} from "$/states/main.ts";
+import {
+	activeSidebarTabAtom,
+	openSidebarTabsAtom,
+	toggleTabAtom,
+} from "$/states/sidebar.ts";
 import {
 	Checkbox,
 	Flex,
@@ -37,12 +48,16 @@ import {
 	Text,
 	TextField,
 } from "@radix-ui/themes";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useSetImmerAtom } from "jotai-immer";
 import { type FC, forwardRef } from "react";
 import { useTranslation } from "react-i18next";
 import { KeyBinding } from "../KeyBinding/index.tsx";
 import { RibbonFrame, RibbonSection } from "./common";
+import {
+	PreviewFontSizeField,
+	PreviewVsyncField,
+} from "./PreviewViewFields";
 
 const EmptyBeatField = () => {
 	const [currentEmptyBeat, setCurrentEmptyBeat] = useAtom(currentEmptyBeatAtom);
@@ -94,6 +109,14 @@ export const SyncModeRibbonBar: FC = forwardRef<HTMLDivElement>(
 			showWordRomanizationInputAtom,
 		);
 		const [syncTimeOffset, setSyncTimeOffset] = useAtom(syncTimeOffsetAtom);
+		const [wrapWords, setWrapWords] = useAtom(syncWrapWordsAtom);
+		const [autoFollow, setAutoFollow] = useAtom(lyricAutoFollowAtom);
+		const [autoFollowSmooth, setAutoFollowSmooth] = useAtom(
+			lyricAutoFollowSmoothAtom,
+		);
+		const openTabs = useAtomValue(openSidebarTabsAtom);
+		const activePanel = useAtomValue(activeSidebarTabAtom);
+		const toggleTab = useSetAtom(toggleTabAtom);
 		const { t } = useTranslation();
 
 		return (
@@ -191,6 +214,13 @@ export const SyncModeRibbonBar: FC = forwardRef<HTMLDivElement>(
 							checked={highlightErrors}
 							onCheckedChange={(v) => setHighlightErrors(!!v)}
 						/>
+						<Text wrap="nowrap" size="1">
+							{t("ribbonBar.syncMode.wrapWords", "自动换行")}
+						</Text>
+						<Checkbox
+							checked={wrapWords}
+							onCheckedChange={(v) => setWrapWords(!!v)}
+						/>
 						{showWordRomanizationInput && (
 							<>
 								<Text wrap="nowrap" size="1">
@@ -206,6 +236,60 @@ export const SyncModeRibbonBar: FC = forwardRef<HTMLDivElement>(
 							</>
 						)}
 					</Grid>
+				</RibbonSection>
+				<RibbonSection
+					label={t("ribbonBar.syncMode.views", "视图")}
+				>
+					<Flex direction="column" gap="2" flexGrow="1" justify="center">
+						<Grid columns="0fr 0fr" gap="2" gapY="1" align="center">
+						<Text wrap="nowrap" size="1">
+							{t("ribbonBar.syncMode.showOutline", "大纲")}
+						</Text>
+						<Checkbox
+							checked={openTabs.includes("outline")}
+							onCheckedChange={(v) =>
+								toggleTab({ tabId: "outline", open: !!v })
+							}
+						/>
+						<Text wrap="nowrap" size="1">
+							{t("ribbonBar.syncMode.showBpmPanel", "BPM")}
+						</Text>
+						<Checkbox
+							checked={openTabs.includes("bpm")}
+							onCheckedChange={(v) => toggleTab({ tabId: "bpm", open: !!v })}
+						/>
+						<Text wrap="nowrap" size="1">
+							{t("ribbonBar.syncMode.showPreview", "预览")}
+						</Text>
+						<Checkbox
+							checked={openTabs.includes("preview")}
+							onCheckedChange={(v) =>
+								toggleTab({ tabId: "preview", open: !!v })
+							}
+						/>
+						<Text wrap="nowrap" size="1">
+							{t("ribbonBar.syncMode.followPlayback", "跟随播放")}
+						</Text>
+						<Checkbox
+							checked={autoFollow}
+							onCheckedChange={(v) => setAutoFollow(!!v)}
+						/>
+						<Text wrap="nowrap" size="1">
+							{t("ribbonBar.syncMode.followPlaybackSmooth", "平滑滚动")}
+						</Text>
+						<Checkbox
+							checked={autoFollowSmooth}
+							disabled={!autoFollow}
+							onCheckedChange={(v) => setAutoFollowSmooth(!!v)}
+						/>
+						</Grid>
+						{activePanel === "preview" && (
+							<Flex gap="4" align="center">
+								<PreviewFontSizeField target="sidebar" />
+								<PreviewVsyncField />
+							</Flex>
+						)}
+					</Flex>
 				</RibbonSection>
 				<RibbonSection
 					label={t("ribbonBar.syncMode.keyBindingReference", "打轴键位速查")}

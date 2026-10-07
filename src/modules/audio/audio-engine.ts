@@ -2,6 +2,7 @@ import {
 	audioEngineStateAtom,
 	audioErrorAtom,
 	audioPlayingAtom,
+	coverNonceAtom,
 	currentDurationAtom,
 	isAuditioningAtom,
 	loadedAudioAtom,
@@ -53,6 +54,27 @@ class AudioEngineWrapper extends EventTarget {
 		this.gainNode.gain.value = 0.5;
 		this.gainNode.connect(this.ctx.destination);
 		return this.gainNode;
+	}
+	//#endregion
+
+	//#region Beat analysis for visuals
+	private beatAnalyser: AnalyserNode | null = null;
+	/**
+	 * Lazily-created analyser tapped at the master gain. Pass-through only:
+	 * analysis reads the signal without touching the sound.
+	 */
+	getBeatAnalyser(): AnalyserNode | null {
+		try {
+			if (!this.beatAnalyser) {
+				this.beatAnalyser = this.ctx.createAnalyser();
+				this.beatAnalyser.fftSize = 2048;
+				this.beatAnalyser.smoothingTimeConstant = 0.7;
+				this.gain.connect(this.beatAnalyser);
+			}
+			return this.beatAnalyser;
+		} catch {
+			return null;
+		}
 	}
 	//#endregion
 
@@ -296,6 +318,8 @@ class AudioEngineWrapper extends EventTarget {
 		globalStore.set(loadedAudioAtom, src);
 		await this.engine.loadFile(src);
 		this.updateAudioTrackMetadata(src);
+		// Decode finished: cover art (if any) is now final.
+		globalStore.set(coverNonceAtom, globalStore.get(coverNonceAtom) + 1);
 
 		return this.mapAudioMetadataToTTML();
 	}

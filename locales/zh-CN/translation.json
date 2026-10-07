@@ -70,7 +70,10 @@
 			"auxiliaryLineDisplay": "辅助行显示",
 			"views": "视图",
 			"showOutline": "大纲",
-			"showBpmPanel": "BPM"
+			"showBpmPanel": "BPM",
+			"showPreview": "预览",
+			"followPlayback": "跟随播放",
+			"followPlaybackSmooth": "平滑滚动"
 		},
 		"previewMode": {
 			"lyrics": "歌词",
@@ -96,7 +99,44 @@
 			"keyBindingReference": "打轴键位速查",
 			"startSync": "起始轴",
 			"continuousSync": "连续轴",
-			"endSync": "结束轴"
+			"endSync": "结束轴",
+			"views": "视图",
+			"showOutline": "大纲",
+			"showBpmPanel": "BPM",
+			"showPreview": "预览",
+			"followPlayback": "跟随播放",
+			"wrapWords": "自动换行",
+			"followPlaybackSmooth": "平滑滚动"
+		},
+		"previewView": {
+			"title": "视图",
+			"fontSize": "预览字号",
+			"vsync": "垂直同步",
+			"detectedHz": "检出 {hz} Hz",
+			"detecting": "检测中…",
+			"fullscreen": "全屏预览",
+			"fullscreenGo": "进入全屏"
+		},
+		"previewStyle": {
+			"title": "歌词样式",
+			"emphasis": "强调强度",
+			"glow": "辉光强度",
+			"wordLift": "上浮幅度",
+			"animSpeed": "动画速度",
+			"inactiveScale": "非活动缩放",
+			"cascade": "层叠强度",
+			"inactiveBlur": "非活动模糊",
+			"blurStrength": "模糊强度",
+			"plusLighter": "叠光混合"
+		},
+		"previewBg": {
+			"title": "背景",
+			"enabled": "着色器背景",
+			"static": "静止画面",
+			"brightness": "亮度",
+			"contrast": "对比度",
+			"saturation": "饱和度",
+			"autoContrast": "自动对比"
 		},
 		"loading": "面板载入中…"
 	},
@@ -203,6 +243,48 @@
 			"themeLight": "浅色",
 			"themeDark": "深色",
 			"themeAuto": "自动"
+		},
+		"theme": {
+			"title": "界面配色",
+			"accent": "界面强调色",
+			"accentDesc": "为浅色与深色模式分别选择预设，或输入精确的十六进制颜色。",
+			"lightAccent": "浅色模式强调色",
+			"darkAccent": "深色模式强调色",
+			"useCustom": "使用自定义颜色",
+			"schemes": "配色方案",
+			"duplicate": "复制",
+			"newScheme": "新建方案",
+			"newSchemePlaceholder": "新方案名称…",
+			"untitledScheme": "未命名方案",
+			"copyName": "{name} 副本",
+			"schemesHint": "点击方案名称可重命名。应用方案会立即生效并自动保存。",
+			"highlight": "当前音节高亮",
+			"highlightDesc": "打轴视图中当前播放音节的颜色。按浅色 / 深色外观分别存储。",
+			"highlightLight": "浅色外观",
+			"highlightDark": "深色外观",
+			"timing": "时间戳标签",
+			"timingDesc": "打轴视图中起始 / 结束时间戳的颜色。两者保持分明，便于区分。",
+			"timingStart": "起始时间",
+			"timingEnd": "结束时间"
+		},
+		"fonts": {
+			"title": "字体",
+			"uiTitle": "界面字体",
+			"uiDesc": "应用于标题栏、功能区、侧边栏、对话框等界面元素。歌词视图使用下方各自的字体。",
+			"mode": "字体模式",
+			"modeDesc": "简洁模式在所有视图使用同一组拉丁 + CJK 字体；高级模式可为编辑 / 打轴 / 预览视图分别设置。",
+			"simple": "简洁",
+			"advanced": "高级",
+			"latin": "拉丁字体",
+			"latinDesc": "用于拉丁字母字形；CJK 字形会自动落到 CJK 字体。",
+			"cjk": "CJK 字体",
+			"editView": "编辑视图",
+			"syncView": "打轴视图",
+			"previewView": "预览",
+			"customTitle": "自定义字体",
+			"customFiles": "已安装的字体文件",
+			"addFile": "添加字体文件…",
+			"customFilesEmpty": "尚未安装自定义字体。支持 .ttf .otf .woff .woff2 .ttc，文件保存在本地。"
 		}
 	},
 	"topBar": {
@@ -228,6 +310,10 @@
 			"saveLyric": "保存 TTML 文件",
 			"restoreFromHistory": "从历史记录恢复…",
 			"saveLyricToClipboard": "保存 TTML 文件到剪切板",
+			"copyAppleTTML": "复制 Apple TTML 到剪贴板",
+			"saveAppleTTML": "保存 Apple TTML 文件",
+			"copyAppleTTMLSuccess": "Apple TTML 已复制到剪贴板",
+			"copyAppleTTMLFailed": "复制 Apple TTML 失败",
 			"uploadToAMLLDB": "上传到 AMLL 歌词数据库",
 			"file": "文件",
 			"helpDoc": "使用说明",
@@ -269,7 +355,18 @@
 	"header": {
 		"status": {
 			"autoSavedAt": "已自动保存于 {time}"
+		},
+		"syncProgress": {
+			"label": "已同步 {synced}/{total}（{percent}%）",
+			"short": "{percent}%",
+			"empty": "暂无可同步的逐字",
+			"emptyShort": "—"
 		}
+	},
+	"previewFullscreen": {
+		"play": "播放",
+		"pause": "暂停",
+		"exit": "退出全屏"
 	},
 	"contextMenu": {
 		"deleteWords": "删除单词",
@@ -689,7 +786,15 @@
 	"sidebar": {
 		"outline": {
 			"emptyLine": "空",
-			"title": "大纲"
+			"title": "大纲",
+			"count": "共 {count} 行",
+			"jumpToCurrent": "当前行"
+		},
+		"preview": {
+			"title": "预览",
+			"fontSizeLabel": "预览字号",
+			"followRibbon": "跟随功能区字号",
+			"followRibbonShort": "自动"
 		},
 		"bpm": {
 			"title": "BPM",
@@ -718,6 +823,44 @@
 		"customThresholdInput": "阈值",
 		"mergeSyllables": "合并音节",
 		"mergeSyllablesHint": "可以获得类似 Apple Music 的、把 CJK 合并到一起的歌词，但不适合日常使用",
-		"description": "对 CJK 音节的时间轴进行平滑处理\n不会平滑其他语言的音节"
+		"customizeMerge": "自定义合并…",
+		"disableMerge": "不合并",
+		"mergeSummary": "{count} 行会被合并{customized}，可在合并编辑器中逐字调整。",
+		"mergeCustomized": "（已自定义）",
+		"description": "对 CJK 音节的时间轴进行平滑处理\n不会平滑其他语言的音节",
+		"previewTitle": "合并预览（{count} 行会变化）",
+		"previewHint": "取消 Smooth 会保留该簇的原始时间戳；取消 Merge 则只平滑时间、不合并文字，避免丢失已同步的逐字 timing。",
+		"previewEmpty": "所选范围内没有歌词行。",
+		"lineN": "第 {n} 行",
+		"noChange": "无变化",
+		"smooth": "平滑",
+		"merge": "合并",
+		"mergeAll": "全部合并",
+		"mergeNone": "全不合并"
+	},
+	"mergeDialog": {
+		"title": "合并音节",
+		"description": "点击字之间的分隔线可以切换合并 / 断开，蓝色为手动调整；也可以按住拖选一串字来合并。绿色为已合并的组。",
+		"threshold": "平滑阈值",
+		"custom": "自定",
+		"mergeAll": "全部合并",
+		"mergeNone": "全不合并",
+		"noLines": "所选范围内没有可合并的歌词行。",
+		"lineN": "第 {n} 行",
+		"mergeLine": "合并",
+		"smoothLine": "平滑",
+		"smoothDetails": "逐簇",
+		"smoothCluster": "平滑簇“{text}”",
+		"before": "合并前",
+		"after": "合并后",
+		"beforeAfter": "前后对照",
+		"songPreview": "歌曲预览",
+		"previewFontSize": "预览字号",
+		"auto": "自动",
+		"play": "播放",
+		"pause": "暂停",
+		"previewHint": "预览播放的是合并草稿，应用前不会修改歌词。",
+		"backgroundPaused": "后台预览已暂停，关闭合并编辑器后恢复。",
+		"applyDraft": "应用到平滑设置"
 	}
 }

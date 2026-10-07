@@ -1,0 +1,143 @@
+.editorBox {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	background-color: var(--gray-3);
+	border-radius: var(--radius-2);
+	padding: var(--space-4);
+	row-gap: 8px;
+	min-height: 4em;
+	user-select: none;
+	overflow-x: hidden;
+	touch-action: pan-y;
+}
+
+.pill {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	border-radius: var(--radius-2);
+	padding: 2px 4px;
+	background-color: transparent;
+}
+
+.pill[data-merged="true"] {
+	background-color: var(--accent-a5);
+}
+
+.chip {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: var(--radius-2);
+	background-color: var(--gray-5);
+	font-size: 15px;
+	line-height: 1.6;
+	flex: 0 0 auto;
+}
+
+.pillChip {
+	display: inline-block;
+	padding: 2px 4px;
+	font-size: 15px;
+	line-height: 1.6;
+	flex: 0 0 auto;
+	border-radius: var(--radius-1);
+}
+
+.pillChip:hover {
+	background-color: var(--accent-a3);
+}
+
+.chip[data-dragging="true"],
+.pillChip[data-dragging="true"] {
+	background-color: var(--blue-a5);
+}
+
+.gapButton {
+	position: relative;
+	display: inline-block;
+	flex: 0 0 auto;
+	width: 20px;
+	align-self: stretch;
+	min-height: 2.5em;
+	background: none;
+	border: none;
+	padding: 0;
+	margin: 0 -1px;
+	cursor: pointer;
+	appearance: none;
+	z-index: 1;
+}
+
+.gapButton::before {
+	content: "";
+	position: absolute;
+	top: 8px;
+	bottom: 8px;
+	left: 50%;
+	width: 3px;
+	transform: translateX(-50%);
+	border-radius: 1px;
+	background-color: var(--accent-9);
+}
+
+.gapButton:hover::before {
+	background-color: var(--accent-10);
+}
+
+/* user-created split */
+.gapButton[data-joined="false"][data-manual="true"]::before {
+	background-color: var(--blue-9);
+}
+
+/* inside a merged group: faint cue, revealed on hover */
+.gapButton[data-joined="true"]::before {
+	width: 2px;
+	background-color: var(--gray-7);
+}
+
+.gapButton[data-joined="true"]:hover::before {
+	background-color: var(--accent-8);
+}
+
+.gapButton[data-joined="true"][data-manual="true"]::before {
+	background-color: var(--blue-8);
+}
+
+.gapButton[data-joined="true"][data-manual="true"]:hover::before {
+	background-color: var(--blue-9);
+}
+
+.lineCard {
+	border: 1px solid var(--gray-a5);
+	border-radius: var(--radius-3);
+	padding: 8px;
+}
+
+.splitBody {
+	display: flex;
+	align-items: stretch;
+}
+
+.divider {
+	flex: 0 0 10px;
+	position: relative;
+	cursor: col-resize;
+	touch-action: none;
+}
+
+.divider::before {
+	content: "";
+	position: absolute;
+	top: 12px;
+	bottom: 12px;
+	left: 50%;
+	width: 2px;
+	transform: translateX(-50%);
+	border-radius: 1px;
+	background-color: transparent;
+}
+
+.divider:hover::before {
+	background-color: var(--accent-8);
+}
