@@ -1,1 +1,1 @@
-amll ttml tool fork that just does stuff that i wanted to do, especially to be used alongside (Cider)[cider.sh]
+amll ttml tool fork that just does stuff that i wanted to do, especially to be used alongside [Cider](cider.sh) because im sick of syncing lyrics with multiple vocal (or with bg vocals in general) and cider refuses to render properly because some things are missing.
