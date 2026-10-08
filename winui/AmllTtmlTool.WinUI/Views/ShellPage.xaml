@@ -57,10 +57,13 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="0" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" MinWidth="0" />
             </Grid.ColumnDefinitions>
             <Grid Grid.Column="0" ColumnSpacing="4" MinWidth="0">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" MinWidth="0" />
@@ -155,8 +158,12 @@
                 <Button x:Name="RedoButton" x:Uid="ShellPage_Redo" Click="OnRedoClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Redo (Ctrl+Y)">
                     <FontIcon FontSize="14" Glyph="&#xE7A6;" />
                 </Button>
+                <Button x:Uid="ShellPage_HistoryTop" Click="OnStubClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="History">
+                    <FontIcon FontSize="14" Glyph="&#xE81C;" />
+                </Button>
             </StackPanel>
-            <Grid Grid.Column="2" ColumnSpacing="6" Margin="8,0" MinWidth="0">
+            <Border Grid.Column="2" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Grid Grid.Column="3" ColumnSpacing="6" Margin="8,0" MinWidth="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" MinWidth="0" />
@@ -174,8 +181,9 @@
                     TextWrapping="NoWrap" />
             </Grid>
             </Grid>
+            <Border Grid.Column="1" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
             <StackPanel
-                Grid.Column="1"
+                Grid.Column="2"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
@@ -212,13 +220,14 @@
                     </StackPanel>
                 </Border>
                 <Border Style="{StaticResource PillContainerStyle}">
-                    <StackPanel Orientation="Horizontal" Spacing="2">
-                        <RadioButton
-                            x:Name="EditModeButton"
+                    <Grid>
+                        <StackPanel x:Name="ModeButtonRow" Orientation="Horizontal" Spacing="2">
+                            <RadioButton
+                                x:Name="EditModeButton"
                             x:Uid="ShellPage_EditMode"
                             GroupName="Mode"
                             Checked="OnModeChecked"
-                            Style="{StaticResource PillToggleStyle}">
+                            Style="{StaticResource SegmentedToggleStyle}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontSize="16" Glyph="&#xE70F;" />
                                 <TextBlock x:Name="ModeEditLabel" Text="Edit" VerticalAlignment="Center" />
@@ -229,7 +238,7 @@
                             x:Uid="ShellPage_SyncMode"
                             GroupName="Mode"
                             Checked="OnModeChecked"
-                            Style="{StaticResource PillToggleStyle}">
+                            Style="{StaticResource SegmentedToggleStyle}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontSize="16" Glyph="&#xE895;" />
                                 <TextBlock x:Name="ModeSyncLabel" Text="Sync" VerticalAlignment="Center" />
@@ -240,16 +249,26 @@
                             x:Uid="ShellPage_PreviewMode"
                             GroupName="Mode"
                             Checked="OnModeChecked"
-                            Style="{StaticResource PillToggleStyle}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon FontSize="16" Glyph="&#xE8FF;" />
-                                <TextBlock x:Name="ModePreviewLabel" Text="Preview" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </RadioButton>
-                    </StackPanel>
+                            Style="{StaticResource SegmentedToggleStyle}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon FontSize="16" Glyph="&#xE8FF;" />
+                                    <TextBlock x:Name="ModePreviewLabel" Text="Preview" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </RadioButton>
+                        </StackPanel>
+                        <Canvas x:Name="ModeIndicatorCanvas" IsHitTestVisible="False">
+                            <Border x:Name="ModeSlidePill"
+                                    Width="16"
+                                    Height="3"
+                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                    CornerRadius="1.5"
+                                    Visibility="Collapsed" />
+                        </Canvas>
+                    </Grid>
                 </Border>
             </StackPanel>
-            <Grid Grid.Column="2" MinWidth="0">
+            <Border Grid.Column="3" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Grid Grid.Column="4" MinWidth="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="0" />
                     <ColumnDefinition Width="Auto" />
@@ -261,9 +280,6 @@
                 Orientation="Horizontal"
                 Spacing="4"
                 VerticalAlignment="Center">
-                <Button x:Uid="ShellPage_History" Click="OnStubClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="History">
-                    <FontIcon FontSize="14" Glyph="&#xE81C;" />
-                </Button>
                 <Border Style="{StaticResource PillContainerStyle}">
                     <StackPanel Orientation="Horizontal" Spacing="0">
                         <Button x:Uid="ShellPage_SaveNow" Click="OnSaveClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Save (Ctrl+S)">
@@ -298,6 +314,7 @@
                         </Button>
                     </StackPanel>
                 </Border>
+                <Border Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <Button x:Uid="ShellPage_Export" Click="OnExportClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Export…">
                     <FontIcon FontSize="14" Glyph="&#xE7C3;" />
                 </Button>
@@ -308,8 +325,12 @@
 
         <Border
             Grid.Row="1"
-            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-            BorderThickness="0,0,0,1">
+            Margin="8,0,8,8"
+            Padding="4,0"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
             <Grid>
                 <controls:EditCommandBar x:Name="EditBar" />
                 <controls:SyncCommandBar x:Name="SyncBar" Visibility="Collapsed" />

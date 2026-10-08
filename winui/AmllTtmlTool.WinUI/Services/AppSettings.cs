@@ -72,6 +72,12 @@ public static class AppSettings
         set => SetBool("showBpm", value);
     }
 
+    public static bool ShowPreview
+    {
+        get => GetBool("showPreview", true);
+        set => SetBool("showPreview", value);
+    }
+
     public static bool FollowPlayback
     {
         get => GetBool("followPlayback", false);

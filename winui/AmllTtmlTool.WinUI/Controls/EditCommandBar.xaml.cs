@@ -13,8 +13,10 @@ namespace AmllTtmlTool.WinUI.Controls
             {
                 OutlineToggle.IsChecked = AppSettings.ShowOutline;
                 BpmToggle.IsChecked = AppSettings.ShowBpm;
-                PreviewToggle.IsChecked = true;
+                PreviewToggle.IsChecked = AppSettings.ShowPreview;
                 FollowToggle.IsChecked = AppSettings.FollowPlayback;
+                if (ObsceneToggle.IsChecked == true) ObsceneToggle.Content = "Yes";
+                else { ObsceneToggle.IsChecked = false; ObsceneToggle.Content = "No"; }
                 ApplyMasterToggles();
                 AppSettings.DisplayChanged += ApplyMasterToggles;
             };
@@ -46,6 +48,7 @@ namespace AmllTtmlTool.WinUI.Controls
         {
             AppSettings.ShowOutline = OutlineToggle.IsChecked == true;
             AppSettings.ShowBpm = BpmToggle.IsChecked == true;
+            AppSettings.ShowPreview = PreviewToggle.IsChecked == true;
             AppSettings.FollowPlayback = FollowToggle.IsChecked == true;
         }
     }

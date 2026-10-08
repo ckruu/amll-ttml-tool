@@ -59,11 +59,11 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Uid="Ribbon_LineStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" />
                 <NumberBox x:Name="LineStartBox" Grid.Column="1" Minimum="0" Value="0" Width="104" />
-                <ToggleButton x:Name="BgToggle" Grid.Column="2" Content="BG" MinHeight="32" MinWidth="56" Style="{StaticResource PillToggleStyle}" />
-                <ToggleButton x:Name="DuetToggle" Grid.Column="3" Content="V2" MinHeight="32" MinWidth="56" Style="{StaticResource PillToggleStyle}" />
+                <ToggleButton x:Name="BgToggle" Grid.Column="2" Content="BG" MinHeight="32" MinWidth="56" />
+                <ToggleButton x:Name="DuetToggle" Grid.Column="3" Content="V2" MinHeight="32" MinWidth="56" />
                 <TextBlock x:Uid="Ribbon_LineEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" />
                 <NumberBox x:Name="LineEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="104" />
-                <ToggleButton x:Name="IgnoreSyncToggle" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Ignore Sync" HorizontalAlignment="Stretch" MinHeight="32" Style="{StaticResource PillToggleStyle}" />
+                <ToggleButton x:Name="IgnoreSyncToggle" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Ignore Sync" HorizontalAlignment="Stretch" MinHeight="32" />
             </Grid>
             <TextBlock x:Uid="Ribbon_Line" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonCaption}" Text="Line" />
 
@@ -87,7 +87,7 @@
                 <TextBlock x:Uid="Ribbon_WordEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" />
                 <NumberBox x:Name="WordEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="104" />
                 <TextBlock x:Uid="Ribbon_ObsceneLabel" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" />
-                <ToggleButton x:Name="ObsceneToggle" Grid.Row="1" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="32" MinWidth="150" Style="{StaticResource PillToggleStyle}" />
+                <ToggleButton x:Name="ObsceneToggle" Grid.Row="1" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="32" MinWidth="150" />
             </Grid>
             <TextBlock x:Uid="Ribbon_Word" Grid.Row="1" Grid.Column="4" Style="{StaticResource RibbonCaption}" Text="Word" />
 
@@ -128,12 +128,17 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <ToggleButton x:Name="OutlineToggle" Click="OnViewToggleClick" Content="Outline" MinHeight="32" MinWidth="76" Style="{StaticResource PillToggleStyle}" />
-                    <ToggleButton x:Name="BpmToggle" Click="OnViewToggleClick" Content="BPM" MinHeight="32" MinWidth="76" Style="{StaticResource PillToggleStyle}" />
-                    <ToggleButton x:Name="PreviewToggle" Click="OnViewToggleClick" Content="Preview" MinHeight="32" MinWidth="76" Style="{StaticResource PillToggleStyle}" />
-                </StackPanel>
-                <ToggleButton x:Name="FollowToggle" Grid.Row="1" Click="OnViewToggleClick" Content="Follow Playback" HorizontalAlignment="Stretch" MinHeight="32" Style="{StaticResource PillToggleStyle}" />
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ToggleButton x:Name="OutlineToggle" Click="OnViewToggleClick" Content="Outline" MinHeight="32" HorizontalAlignment="Stretch" />
+                    <ToggleButton x:Name="BpmToggle" Grid.Column="1" Click="OnViewToggleClick" Content="BPM" MinHeight="32" HorizontalAlignment="Stretch" />
+                    <ToggleButton x:Name="PreviewToggle" Grid.Column="2" Click="OnViewToggleClick" Content="Preview" MinHeight="32" HorizontalAlignment="Stretch" />
+                </Grid>
+                <ToggleButton x:Name="FollowToggle" Grid.Row="1" Click="OnViewToggleClick" Content="Follow Playback" HorizontalAlignment="Stretch" MinHeight="32" />
             </Grid>
             <TextBlock x:Uid="Ribbon_View" Grid.Row="1" Grid.Column="8" Style="{StaticResource RibbonCaption}" Text="View" />
         </Grid>

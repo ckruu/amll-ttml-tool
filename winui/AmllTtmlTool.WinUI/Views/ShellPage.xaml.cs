@@ -1,10 +1,14 @@
 using AmllTtmlTool.Core.Models;
 using AmllTtmlTool.WinUI.Services;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using System.Numerics;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
 using Windows.Media;
 using Windows.Storage;
 
@@ -42,7 +46,11 @@ namespace AmllTtmlTool.WinUI.Views
                 appWindow.Closing += OnWindowClosing;
                 appWindow.Changed += (_, _) => UpdateCaptionInsets();
             }
-            this.Loaded += (_, _) => UpdateCaptionInsets();
+            this.Loaded += (_, _) =>
+            {
+                UpdateCaptionInsets();
+                SetupMotion();
+            };
         }
 
         private void UpdateCaptionInsets()
@@ -332,6 +340,151 @@ namespace AmllTtmlTool.WinUI.Views
             SyncBar.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
             PreviewBar.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
             _ = ContentFrame.Navigate(_pages[index]);
+            UpdateModeSlide(animate: true);
+        }
+
+        private Compositor? _compositor;
+        private CubicBezierEasingFunction? _decelerate;
+        private bool _motionEnabled = true;
+        private double _pillX = double.NaN;
+        private bool _slideHooked;
+        private readonly Dictionary<ToggleButton, Visual> _popVisuals = new();
+
+        private void SetupMotion()
+        {
+            try
+            {
+                _motionEnabled = new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
+            }
+            catch
+            {
+                _motionEnabled = true;
+            }
+            _compositor = ElementCompositionPreview.GetElementVisual(ModeIndicatorCanvas).Compositor;
+            _decelerate = _compositor.CreateCubicBezierEasingFunction(new Vector2(0, 0), new Vector2(0, 1));
+            foreach (var tb in new ToggleButton[] { RomanToggle, TransToggle, WordRomanToggle })
+            {
+                tb.AddHandler(PointerPressedEvent, new PointerEventHandler(OnPillPointerPressed), true);
+                tb.AddHandler(PointerReleasedEvent, new PointerEventHandler(OnPillPointerReleased), true);
+                tb.AddHandler(PointerCanceledEvent, new PointerEventHandler(OnPillPointerReleased), true);
+                tb.AddHandler(PointerCaptureLostEvent, new PointerEventHandler(OnPillPointerReleased), true);
+            }
+            foreach (var rb in new RadioButton[] { EditModeButton, SyncModeButton, PreviewModeButton })
+            {
+                rb.AddHandler(PointerPressedEvent, new PointerEventHandler(OnPillPointerPressed), true);
+                rb.AddHandler(PointerReleasedEvent, new PointerEventHandler(OnPillPointerReleased), true);
+                rb.AddHandler(PointerCanceledEvent, new PointerEventHandler(OnPillPointerReleased), true);
+                rb.AddHandler(PointerCaptureLostEvent, new PointerEventHandler(OnPillPointerReleased), true);
+            }
+            if (!_slideHooked)
+            {
+                _slideHooked = true;
+                ModeButtonRow.SizeChanged += (_, _) => UpdateModeSlide(animate: false);
+            }
+            UpdateModeSlide(animate: false);
+        }
+
+        private RadioButton CurrentModeButton() =>
+            SyncModeButton.IsChecked == true ? SyncModeButton
+            : PreviewModeButton.IsChecked == true ? PreviewModeButton
+            : EditModeButton;
+
+        private void UpdateModeSlide(bool animate)
+        {
+            if (ModeSlidePill is null || ModeButtonRow.ActualWidth <= 0) return;
+            var button = CurrentModeButton();
+            var transform = button.TransformToVisual(ModeIndicatorCanvas);
+            var bounds = transform.TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
+            var targetX = bounds.X + (bounds.Width - ModeSlidePill.Width) / 2;
+            var targetY = Math.Max(0, ModeIndicatorCanvas.ActualHeight - ModeSlidePill.Height - 4);
+            var first = double.IsNaN(_pillX);
+            var delta = first ? 0 : _pillX - targetX;
+            _pillX = targetX;
+            Canvas.SetLeft(ModeSlidePill, targetX);
+            Canvas.SetTop(ModeSlidePill, targetY);
+            ModeSlidePill.Visibility = Visibility.Visible;
+            if (!animate || first || delta == 0 || !_motionEnabled || _compositor is null) return;
+            var visual = ElementCompositionPreview.GetElementVisual(ModeSlidePill);
+            visual.StopAnimation("Offset.X");
+            visual.Offset = new Vector3((float)delta, 0, 0);
+            var slide = _compositor.CreateScalarKeyFrameAnimation();
+            slide.Duration = TimeSpan.FromMilliseconds(250);
+            slide.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+            slide.InsertKeyFrame(1f, 0f, _decelerate);
+            visual.StartAnimation("Offset.X", slide);
+        }
+
+        private Visual? FindPill(ToggleButton button)
+        {
+            if (_popVisuals.TryGetValue(button, out var cached)) return cached;
+            var queue = new Queue<DependencyObject>();
+            queue.Enqueue(button);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                var count = VisualTreeHelper.GetChildrenCount(current);
+                for (var i = 0; i < count; i++)
+                {
+                    var child = VisualTreeHelper.GetChild(current, i);
+                    if (child is FrameworkElement fe && fe.Name == "SelectionPill")
+                    {
+                        var visual = ElementCompositionPreview.GetElementVisual(fe);
+                        _popVisuals[button] = visual;
+                        return visual;
+                    }
+                    queue.Enqueue(child);
+                }
+            }
+            return null;
+        }
+
+        private void PopPill(ToggleButton button)
+        {
+            if (!_motionEnabled || _compositor is null) return;
+            var visual = FindPill(button);
+            if (visual is null) return;
+            visual.CenterPoint = new Vector3(8, 1.5f, 0);
+            visual.StopAnimation("Scale");
+            visual.StopAnimation("Opacity");
+            visual.Scale = new Vector3(0.4f, 1, 1);
+            visual.Opacity = 0;
+            var scale = _compositor.CreateVector3KeyFrameAnimation();
+            scale.Duration = TimeSpan.FromMilliseconds(170);
+            scale.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+            scale.InsertKeyFrame(1f, new Vector3(1, 1, 1), _decelerate);
+            visual.StartAnimation("Scale", scale);
+            var fade = _compositor.CreateScalarKeyFrameAnimation();
+            fade.Duration = TimeSpan.FromMilliseconds(170);
+            fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+            fade.InsertKeyFrame(1f, 1f, _decelerate);
+            visual.StartAnimation("Opacity", fade);
+        }
+
+        private void OnPillPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_motionEnabled || _compositor is null) return;
+            if (sender is not FrameworkElement fe || fe.ActualWidth <= 0) return;
+            var visual = ElementCompositionPreview.GetElementVisual(fe);
+            visual.CenterPoint = new Vector3((float)fe.ActualWidth / 2, (float)fe.ActualHeight / 2, 0);
+            visual.StopAnimation("Scale");
+            var press = _compositor.CreateVector3KeyFrameAnimation();
+            press.Duration = TimeSpan.FromMilliseconds(100);
+            press.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+            press.InsertKeyFrame(1f, new Vector3(0.96f, 0.96f, 1), _decelerate);
+            visual.StartAnimation("Scale", press);
+        }
+
+        private void OnPillPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_motionEnabled || _compositor is null) return;
+            if (sender is not FrameworkElement fe) return;
+            var visual = ElementCompositionPreview.GetElementVisual(fe);
+            visual.StopAnimation("Scale");
+            var release = _compositor.CreateVector3KeyFrameAnimation();
+            release.Duration = TimeSpan.FromMilliseconds(100);
+            release.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+            release.InsertKeyFrame(1f, new Vector3(1, 1, 1), _decelerate);
+            visual.StartAnimation("Scale", release);
         }
 
         private void OnSideTabChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -360,6 +513,8 @@ namespace AmllTtmlTool.WinUI.Views
             AppSettings.ShowTranslation = TransToggle.IsChecked == true;
             AppSettings.ShowWordRomanization = WordRomanToggle.IsChecked == true;
             AppSettings.NotifyDisplayChanged();
+            if (sender is ToggleButton tb && tb.IsChecked == true)
+                PopPill(tb);
         }
 
         private void OnStubClick(object sender, RoutedEventArgs e) =>
