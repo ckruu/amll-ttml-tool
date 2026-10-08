@@ -1,4 +1,4 @@
-using Windows.Storage;
+using AmllTtmlTool.Core;
 
 namespace AmllTtmlTool.WinUI.Services;
 
@@ -7,17 +7,28 @@ public static class AppSettings
     public static event Action? DisplayChanged;
 
     private static void RaiseDisplayChanged() => DisplayChanged?.Invoke();
-    private static ApplicationDataContainer Local => ApplicationData.Current.LocalSettings;
+
+    private static SettingsStore? _store;
+
+    internal static SettingsStore Store =>
+        _store ??= new SettingsStore(DefaultPath());
+
+    internal static void ResetForTests(SettingsStore store) => _store = store;
+
+    private static string DefaultPath() => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "AmllTtmlTool",
+        "settings.json");
 
     private static string Get(string key, string fallback) =>
-        Local.Values[key] as string ?? fallback;
+        Store.GetString(key, fallback);
 
-    private static void Set(string key, string value) => Local.Values[key] = value;
+    private static void Set(string key, string value) => Store.SetString(key, value);
 
     private static bool GetBool(string key, bool fallback) =>
-        Local.Values[key] is bool b ? b : fallback;
+        Store.GetBool(key, fallback);
 
-    private static void SetBool(string key, bool value) => Local.Values[key] = value;
+    private static void SetBool(string key, bool value) => Store.SetBool(key, value);
 
     public static string LastSaveFormat
     {

@@ -11,14 +11,14 @@ namespace AmllTtmlTool.WinUI.Controls
             this.InitializeComponent();
             this.Loaded += (_, _) =>
             {
+                OutlineToggle.IsChecked = AppSettings.ShowOutline;
+                BpmToggle.IsChecked = AppSettings.ShowBpm;
+                PreviewToggle.IsChecked = true;
+                FollowToggle.IsChecked = AppSettings.FollowPlayback;
                 ApplyMasterToggles();
                 AppSettings.DisplayChanged += ApplyMasterToggles;
             };
             this.Unloaded += (_, _) => AppSettings.DisplayChanged -= ApplyMasterToggles;
-            OutlineToggle.IsChecked = AppSettings.ShowOutline;
-            BpmToggle.IsChecked = AppSettings.ShowBpm;
-            PreviewToggle.IsChecked = true;
-            FollowToggle.IsChecked = AppSettings.FollowPlayback;
         }
 
         private void ApplyMasterToggles()
