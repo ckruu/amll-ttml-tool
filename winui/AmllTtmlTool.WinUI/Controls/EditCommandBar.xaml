@@ -9,7 +9,7 @@
     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
         <StackPanel Orientation="Horizontal" Spacing="4">
             <StackPanel Style="{StaticResource RibbonGroup}">
-                <AppBarButton x:Uid="Ribbon_NewLine" Icon="Add" Label="Lyric line" />
+                <AppBarButton x:Name="NewLineButton" x:Uid="Ribbon_NewLine" Click="OnNewLineClick" Icon="Add" Label="Lyric line" />
                 <TextBlock x:Uid="Ribbon_New" Style="{StaticResource RibbonCaption}" Text="New" />
             </StackPanel>
             <Border Style="{StaticResource RibbonSeparator}" />

@@ -7,19 +7,31 @@
     xmlns:controls="using:AmllTtmlTool.WinUI.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <Grid>
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnOpenAccelerator" />
+        <KeyboardAccelerator Key="S" Modifiers="Control" Invoked="OnSaveAccelerator" />
+        <KeyboardAccelerator Key="S" Modifiers="Control,Shift" Invoked="OnSaveAppleAccelerator" />
+        <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="OnNewAccelerator" />
+        <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="OnPasteAccelerator" />
+        <KeyboardAccelerator Key="Z" Modifiers="Control" Invoked="OnUndoAccelerator" />
+        <KeyboardAccelerator Key="Y" Modifiers="Control" Invoked="OnRedoAccelerator" />
+    </Page.KeyboardAccelerators>
+    <Grid x:Name="RootGrid" AllowDrop="True" DragLeave="OnDragLeave" DragOver="OnDragOver" Drop="OnDrop">
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid x:Name="TitleBarArea" Padding="16,0,12,0" ColumnSpacing="12">
+        <Grid x:Name="TitleBarArea" Padding="16,0,12,0" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
@@ -55,15 +67,43 @@
                     GroupName="Mode"
                     Checked="OnModeChecked" />
             </StackPanel>
+            <StackPanel
+                Grid.Column="3"
+                Orientation="Horizontal"
+                Spacing="4"
+                VerticalAlignment="Center">
+                <Button x:Uid="ShellPage_Open" Click="OnOpenClick" ToolTipService.ToolTip="Open lyrics (Ctrl+O)">
+                    <FontIcon Glyph="&#xE8B7;" />
+                </Button>
+                <Button x:Uid="ShellPage_New" Click="OnNewClick" ToolTipService.ToolTip="New file (Ctrl+N)">
+                    <FontIcon Glyph="&#xE710;" />
+                </Button>
+                <DropDownButton x:Uid="ShellPage_Save" ToolTipService.ToolTip="Save (Ctrl+S)">
+                    <FontIcon Glyph="&#xE74E;" />
+                    <DropDownButton.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem x:Uid="ShellPage_SaveTtml" Click="OnSaveClick" Text="Save TTML">
+                                <MenuFlyoutItem.KeyboardAccelerators>
+                                    <KeyboardAccelerator Key="S" Modifiers="Control" />
+                                </MenuFlyoutItem.KeyboardAccelerators>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Uid="ShellPage_SaveApple" Click="OnSaveAppleClick" Text="Save Apple TTML" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="ShellPage_CopyTtml" Click="OnCopyClick" Text="Copy TTML" />
+                            <MenuFlyoutItem x:Uid="ShellPage_CopyApple" Click="OnCopyAppleClick" Text="Copy Apple TTML" />
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+            </StackPanel>
             <TextBlock
                 x:Name="FileNameText"
-                Grid.Column="3"
+                Grid.Column="4"
                 VerticalAlignment="Center"
                 Style="{StaticResource BodyTextBlockStyle}"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                 Text="lyric.ttml" />
             <StackPanel
-                Grid.Column="4"
+                Grid.Column="5"
                 Orientation="Horizontal"
                 Spacing="8"
                 VerticalAlignment="Center">
@@ -131,16 +171,24 @@
             <Frame x:Name="ContentFrame" Grid.Column="1" />
         </Grid>
 
-        <Border
+        <InfoBar
+            x:Name="NoticeBar"
             Grid.Row="3"
+            Margin="8,4,8,0"
+            IsOpen="False" />
+
+        <Border
+            Grid.Row="4"
             Margin="8,8,8,8"
             Padding="8,4"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1"
             CornerRadius="8">
-            <Grid ColumnSpacing="8">
+            <Grid ColumnSpacing="4">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -149,45 +197,113 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <AppBarButton x:Uid="AudioBar_Load" Icon="Audio" Label="Load" />
+                <AppBarButton x:Name="LoadButton" x:Uid="AudioBar_Load" Click="OnLoadAudioClick" Icon="Audio" IsCompact="True" ToolTipService.ToolTip="Load audio" />
                 <AppBarButton
                     x:Name="PlayButton"
                     x:Uid="AudioBar_Play"
                     Grid.Column="1"
+                    Click="OnPlayPauseClick"
                     Icon="Play"
-                    Label="Play" />
-                <TextBlock
+                    IsCompact="True"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="Play" />
+                <Button
+                    x:Uid="AudioBar_Volume"
                     Grid.Column="2"
+                    ToolTipService.ToolTip="Volume">
+                    <FontIcon Glyph="&#xE992;" />
+                    <Button.Flyout>
+                        <Flyout>
+                            <Slider
+                                x:Name="VolumeSlider"
+                                Header="Volume"
+                                Maximum="1"
+                                Minimum="0"
+                                StepFrequency="0.01"
+                                Value="0.5"
+                                ValueChanged="OnVolumeChanged"
+                                Width="180" />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <Button
+                    x:Name="RateButton"
+                    Grid.Column="3"
+                    Content="1.0x"
+                    ToolTipService.ToolTip="Playback rate">
+                    <Button.Flyout>
+                        <Flyout>
+                            <Slider
+                                x:Name="RateSlider"
+                                Header="Rate"
+                                Maximum="2"
+                                Minimum="0.25"
+                                StepFrequency="0.05"
+                                Value="1"
+                                ValueChanged="OnRateChanged"
+                                Width="180" />
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <TextBlock
+                    x:Name="PositionText"
+                    Grid.Column="4"
                     VerticalAlignment="Center"
                     Text="00:00.000" />
                 <Slider
-                    Grid.Column="3"
+                    x:Name="SeekSlider"
+                    Grid.Column="5"
                     VerticalAlignment="Center"
                     IsEnabled="False"
                     Maximum="100"
                     Minimum="0"
-                    Value="0" />
+                    PointerPressed="OnSeekPointerPressed"
+                    PointerReleased="OnSeekPointerReleased"
+                    Value="0"
+                    ValueChanged="OnSeekValueChanged" />
                 <TextBlock
-                    Grid.Column="4"
+                    x:Name="DurationText"
+                    Grid.Column="6"
                     VerticalAlignment="Center"
                     Text="00:00.000" />
                 <AppBarButton
+                    x:Name="LocateButton"
                     x:Uid="AudioBar_Locate"
-                    Grid.Column="5"
-                    Label="Locate">
+                    Grid.Column="7"
+                    Click="OnLocateClick"
+                    IsCompact="True"
+                    ToolTipService.ToolTip="Locate">
                     <AppBarButton.Icon>
                         <FontIcon Glyph="&#xE138;" />
                     </AppBarButton.Icon>
                 </AppBarButton>
                 <AppBarToggleButton
+                    x:Name="SpectroToggle"
                     x:Uid="AudioBar_Spectrogram"
-                    Grid.Column="6"
-                    Label="Spectrogram">
+                    Grid.Column="8"
+                    Click="OnSpectroClick"
+                    IsCompact="True"
+                    ToolTipService.ToolTip="Spectrogram">
                     <AppBarToggleButton.Icon>
                         <FontIcon Glyph="&#xE70D;" />
                     </AppBarToggleButton.Icon>
                 </AppBarToggleButton>
             </Grid>
+        </Border>
+
+        <Border
+            x:Name="DropOverlay"
+            Grid.RowSpan="5"
+            Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
+            IsHitTestVisible="False"
+            Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" Spacing="12" VerticalAlignment="Center">
+                <FontIcon FontSize="48" Glyph="&#xE896;" />
+                <TextBlock
+                    x:Uid="ShellPage_DropHint"
+                    FontSize="20"
+                    Text="Drop to open" />
+            </StackPanel>
         </Border>
     </Grid>
 </Page>
