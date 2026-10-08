@@ -57,12 +57,11 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="0" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" MinWidth="0" />
             </Grid.ColumnDefinitions>
             <Grid Grid.Column="0" ColumnSpacing="4" MinWidth="0">
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -147,8 +146,9 @@
                     <MenuFlyoutItem x:Uid="Menu_Docs" Click="OnDocsClick" Text="Docs" />
                 </MenuBarItem>
             </MenuBar>
+            <Border Grid.Column="1" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
             <StackPanel
-                Grid.Column="1"
+                Grid.Column="2"
                 Orientation="Horizontal"
                 Spacing="2"
                 VerticalAlignment="Center">
@@ -159,8 +159,8 @@
                     <FontIcon FontSize="14" Glyph="&#xE7A6;" />
                 </Button>
             </StackPanel>
-            <Border Grid.Column="2" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-            <Grid Grid.Column="3" ColumnSpacing="6" Margin="8,0" MinWidth="0">
+            <Border Grid.Column="3" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Grid Grid.Column="4" ColumnSpacing="6" Margin="8,0" MinWidth="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" MinWidth="0" />
@@ -178,9 +178,8 @@
                     TextWrapping="NoWrap" />
             </Grid>
             </Grid>
-            <Border Grid.Column="1" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
             <StackPanel
-                Grid.Column="2"
+                Grid.Column="1"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
@@ -195,8 +194,8 @@
                             Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Romanization lines"
-                            Width="40">
-                            <FontIcon FontSize="16" Glyph="&#xE7DE;" />
+                            Width="32">
+                            <FontIcon FontSize="14" Glyph="&#xE7DE;" />
                         </ToggleButton>
                         <ToggleButton
                             x:Name="TransToggle"
@@ -206,8 +205,8 @@
                             Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Translation lines"
-                            Width="40">
-                            <FontIcon FontSize="16" Glyph="&#xE775;" />
+                            Width="32">
+                            <FontIcon FontSize="14" Glyph="&#xE775;" />
                         </ToggleButton>
                         <ToggleButton
                             x:Name="WordRomanToggle"
@@ -217,8 +216,8 @@
                             Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Per-word romanization"
-                            Width="40">
-                            <FontIcon FontSize="16" Glyph="&#xE8E9;" />
+                            Width="32">
+                            <FontIcon FontSize="14" Glyph="&#xE8E9;" />
                         </ToggleButton>
                     </StackPanel>
                 </Border>
@@ -232,8 +231,8 @@
                             Checked="OnModeChecked"
                             Unchecked="OnSegmentCheckChanged"
                             Style="{StaticResource SegmentedToggleStyle}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon FontSize="16" Glyph="&#xE70F;" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon FontSize="14" Glyph="&#xE70F;" />
                                 <TextBlock x:Name="ModeEditLabel" Text="Edit" VerticalAlignment="Center" />
                             </StackPanel>
                         </RadioButton>
@@ -244,8 +243,8 @@
                             Checked="OnModeChecked"
                             Unchecked="OnSegmentCheckChanged"
                             Style="{StaticResource SegmentedToggleStyle}">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <FontIcon FontSize="16" Glyph="&#xE895;" />
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon FontSize="14" Glyph="&#xE895;" />
                                 <TextBlock x:Name="ModeSyncLabel" Text="Sync" VerticalAlignment="Center" />
                             </StackPanel>
                         </RadioButton>
@@ -257,7 +256,7 @@
                             Unchecked="OnSegmentCheckChanged"
                             Style="{StaticResource SegmentedToggleStyle}">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon FontSize="16" Glyph="&#xE8FF;" />
+                                    <FontIcon FontSize="14" Glyph="&#xE8FF;" />
                                     <TextBlock x:Name="ModePreviewLabel" Text="Preview" VerticalAlignment="Center" />
                                 </StackPanel>
                             </RadioButton>
@@ -273,8 +272,7 @@
                     </Grid>
                 </Border>
             </StackPanel>
-            <Border Grid.Column="3" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-            <Grid Grid.Column="4" MinWidth="0">
+            <Grid Grid.Column="2" MinWidth="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="0" />
                     <ColumnDefinition Width="Auto" />
@@ -290,40 +288,24 @@
                     <FontIcon FontSize="14" Glyph="&#xE81C;" />
                 </Button>
                 <Border Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                <Border Style="{StaticResource PillContainerStyle}">
-                    <StackPanel Orientation="Horizontal" Spacing="0">
-                        <Button x:Uid="ShellPage_SaveNow" Click="OnSaveClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Save (Ctrl+S)">
-                            <FontIcon FontSize="14" Glyph="&#xE74E;" />
-                        </Button>
-                        <Border Width="1" Margin="2,8" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                        <Button ToolTipService.ToolTip="Save format">
-                            <FontIcon FontSize="12" Glyph="&#xE70D;" />
-                            <Button.Flyout>
-                                <MenuFlyout x:Name="SaveMenu" Opening="OnSaveMenuOpening">
-                                    <RadioMenuFlyoutItem x:Name="SaveTtmlItem" Click="OnSaveFormatPicked" Text="TTML" Tag="ttml" />
-                                    <RadioMenuFlyoutItem x:Name="SaveAppleItem" Click="OnSaveFormatPicked" Text="Apple TTML" Tag="apple" />
-                                </MenuFlyout>
-                            </Button.Flyout>
-                        </Button>
-                    </StackPanel>
-                </Border>
-                <Border Style="{StaticResource PillContainerStyle}">
-                    <StackPanel Orientation="Horizontal" Spacing="0">
-                        <Button x:Uid="ShellPage_CopyNow" Click="OnCopyClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Copy">
-                            <FontIcon FontSize="14" Glyph="&#xE8C8;" />
-                        </Button>
-                        <Border Width="1" Margin="2,8" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                        <Button ToolTipService.ToolTip="Copy format">
-                            <FontIcon FontSize="12" Glyph="&#xE70D;" />
-                            <Button.Flyout>
-                                <MenuFlyout x:Name="CopyMenu" Opening="OnCopyMenuOpening">
-                                    <RadioMenuFlyoutItem x:Name="CopyTtmlItem" Click="OnCopyFormatPicked" Text="TTML" Tag="ttml" />
-                                    <RadioMenuFlyoutItem x:Name="CopyAppleItem" Click="OnCopyFormatPicked" Text="Apple TTML" Tag="apple" />
-                                </MenuFlyout>
-                            </Button.Flyout>
-                        </Button>
-                    </StackPanel>
-                </Border>
+                <SplitButton x:Uid="ShellPage_SaveSplit" Click="OnSaveSplitClick" Style="{StaticResource SubtleSplitButtonStyle}" ToolTipService.ToolTip="Save (Ctrl+S)">
+                    <FontIcon FontSize="14" Glyph="&#xE74E;" />
+                    <SplitButton.Flyout>
+                        <MenuFlyout x:Name="SaveMenu" Opening="OnSaveMenuOpening">
+                            <RadioMenuFlyoutItem x:Name="SaveTtmlItem" Click="OnSaveFormatPicked" Text="TTML" Tag="ttml" />
+                            <RadioMenuFlyoutItem x:Name="SaveAppleItem" Click="OnSaveFormatPicked" Text="Apple TTML" Tag="apple" />
+                        </MenuFlyout>
+                    </SplitButton.Flyout>
+                </SplitButton>
+                <SplitButton x:Uid="ShellPage_CopySplit" Click="OnCopySplitClick" Style="{StaticResource SubtleSplitButtonStyle}" ToolTipService.ToolTip="Copy">
+                    <FontIcon FontSize="14" Glyph="&#xE8C8;" />
+                    <SplitButton.Flyout>
+                        <MenuFlyout x:Name="CopyMenu" Opening="OnCopyMenuOpening">
+                            <RadioMenuFlyoutItem x:Name="CopyTtmlItem" Click="OnCopyFormatPicked" Text="TTML" Tag="ttml" />
+                            <RadioMenuFlyoutItem x:Name="CopyAppleItem" Click="OnCopyFormatPicked" Text="Apple TTML" Tag="apple" />
+                        </MenuFlyout>
+                    </SplitButton.Flyout>
+                </SplitButton>
                 <Border Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <Button x:Uid="ShellPage_Export" Click="OnExportClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Export…">
                     <FontIcon FontSize="14" Glyph="&#xE7C3;" />

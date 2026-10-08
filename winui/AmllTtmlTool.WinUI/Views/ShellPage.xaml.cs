@@ -179,6 +179,9 @@ namespace AmllTtmlTool.WinUI.Views
 
         private async void OnSaveClick(object sender, RoutedEventArgs e) =>
             await SaveWithFormatAsync(AppSettings.LastSaveFormat);
+
+        private void OnSaveSplitClick(SplitButton sender, SplitButtonClickEventArgs e) =>
+            _ = SaveWithFormatAsync(AppSettings.LastSaveFormat);
         private void OnSaveAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args) =>
             _ = SaveWithFormatAsync(AppSettings.LastSaveFormat);
 
@@ -189,6 +192,9 @@ namespace AmllTtmlTool.WinUI.Views
 
         private async void OnCopyClick(object sender, RoutedEventArgs e) =>
             await CopyWithFormatAsync(AppSettings.LastCopyFormat);
+
+        private void OnCopySplitClick(SplitButton sender, SplitButtonClickEventArgs e) =>
+            _ = CopyWithFormatAsync(AppSettings.LastCopyFormat);
 
         private async void OnCopyAppleClick(object sender, RoutedEventArgs e) =>
             await CopyWithFormatAsync("apple");
