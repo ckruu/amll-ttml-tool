@@ -26,7 +26,7 @@ import {
 	TextArea,
 	TextField,
 } from "@radix-ui/themes";
-import classNames from "classnames";
+import { cx } from "$/utils/cx";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -211,7 +211,6 @@ export const ImportFromLRCLIB = () => {
 						<Flex direction="column" gap="2" className={styles.resultList}>
 							{loading
 								? Array.from({ length: 5 }).map((_, i) => (
-										// biome-ignore lint/suspicious/noArrayIndexKey: 不会变
 										<Card key={i}>
 											<Flex justify="between" align="center" gap="4">
 												<Flex direction="column" gap="1" style={{ flex: 1 }}>
@@ -256,7 +255,7 @@ export const ImportFromLRCLIB = () => {
 								: results.map((track) => (
 										<Card
 											key={track.id}
-											className={classNames(styles.resultCard)}
+											className={cx(styles.resultCard)}
 											onClick={() => setPreviewTrack(track)}
 										>
 											<Flex justify="between" align="center" gap="4">

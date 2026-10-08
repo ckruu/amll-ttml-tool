@@ -1,6 +1,3 @@
-/**
- * @description 管理分词设置的持久化状态
- */
 
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";

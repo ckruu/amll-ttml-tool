@@ -1,13 +1,3 @@
-/*
- * Copyright 2023-2025 Steve Xiao (stevexmh@qq.com) and contributors.
- *
- * 本源代码文件是属于 AMLL TTML Tool 项目的一部分。
- * This source code file is a part of AMLL TTML Tool project.
- * 本项目的源代码的使用受到 GNU GENERAL PUBLIC LICENSE version 3 许可证的约束，具体可以参阅以下链接。
- * Use of this source code is governed by the GNU GPLv3 license that can be found through the following link.
- *
- * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
- */
 
 import {
 	Box,
@@ -33,7 +23,6 @@ import { ErrorBoundary } from "react-error-boundary";
 import { useTranslation } from "react-i18next";
 import { ToastContainer } from "react-toastify";
 import saveFile from "save-file";
-import semverGt from "semver/functions/gt";
 import styles from "./App.module.css";
 import DarkThemeDetector from "./components/DarkThemeDetector";
 import RibbonBar from "./components/RibbonBar";
@@ -226,7 +215,18 @@ function App() {
 		(async () => {
 			const win = getCurrentWindow();
 			if (platform() === "windows") {
-				if (semverGt("10.0.22000", version())) {
+				const parts = version().split(".").map(Number);
+				const target = [10, 0, 22000];
+				let older = false;
+				for (let i = 0; i < target.length; i++) {
+					const v = Number.isFinite(parts[i]) ? parts[i] : 0;
+					if (v < target[i]) {
+						older = true;
+						break;
+					}
+					if (v > target[i]) break;
+				}
+				if (older) {
 					setHasBackground(true);
 					await win.clearEffects();
 				}
@@ -326,7 +326,6 @@ function App() {
 			<ErrorBoundary
 				FallbackComponent={AppErrorPage}
 				onReset={(_details) => {
-					// TODO
 				}}
 			>
 				{customBackgroundImage && (

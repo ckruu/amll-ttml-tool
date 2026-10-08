@@ -51,7 +51,6 @@ interface SelectOption {
 	validation?: {
 		verifier: (value: string) => boolean;
 		message: string;
-		/** red for true, orange for false */
 		severe?: boolean;
 	};
 }

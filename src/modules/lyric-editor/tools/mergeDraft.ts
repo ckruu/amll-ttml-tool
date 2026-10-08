@@ -7,19 +7,11 @@ import {
 } from "$/modules/segmentation/utils/syllable-smoothing.ts";
 import type { LyricLine, LyricWord } from "$/types/ttml";
 
-/**
- * Merge editing draft shared between the smooth-timeline dialog and the
- * nested merge editor modal.
- */
 export interface MergeEditorDraft {
 	threshold: number;
-	/** `${lineIndex}:${gap}` gaps the user forced to join */
 	userJoins: Set<string>;
-	/** `${lineIndex}:${gap}` gaps the user forced to cut */
 	userCuts: Set<string>;
-	/** line indices with merging disabled entirely */
 	lineMergeOff: Set<number>;
-	/** `${lineIndex}:${clusterIndex}` clusters excluded from smoothing */
 	smoothOffKeys: Set<string>;
 }
 
@@ -42,9 +34,7 @@ export interface LineMergeModel {
 	contentIndices: number[];
 	joined: boolean[];
 	manual: boolean[];
-	/** effective merge groups as content positions */
 	groups: number[][];
-	/** group index per content position */
 	groupOfPos: number[];
 	clusters: LyricWord[][];
 	smoothed: LyricLine;
@@ -120,10 +110,6 @@ export function buildLineMergeModel(
 	};
 }
 
-/**
- * Two-phase apply for one line: timestamp smoothing first (honoring
- * per-cluster smooth exclusions), then user-defined merge groups.
- */
 export function applyDraftToLine(
 	line: LyricLine,
 	lineIndex: number,

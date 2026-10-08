@@ -1,8 +1,5 @@
-/**
- * Reference from: https://aka.ms/WinUI/3.0-figma-toolkit
- */
 
-import classNames from "classnames";
+import { cx } from "$/utils/cx";
 import { useRef } from "react";
 import type { SystemControlProps } from "./index.tsx";
 import styles from "./windows.module.css";
@@ -75,7 +72,7 @@ export function WindowsSystemsControls(props: SystemControlProps) {
 			<button
 				type="button"
 				id="decorum-tb-close"
-				className={classNames(styles.close, "decorum-tb-btn")}
+				className={cx(styles.close, "decorum-tb-btn")}
 				aria-label="close window button"
 				onClick={props.onClosed}
 			>

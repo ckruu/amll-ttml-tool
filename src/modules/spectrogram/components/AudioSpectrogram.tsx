@@ -65,7 +65,18 @@ import {
 } from "./TimelineRuler.tsx";
 
 const TILE_DURATION_S = 5;
-const LOD_WIDTHS = [512, 1024, 2048, 4096, 8192];
+const getLodWidths = () => {
+	try {
+		const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+		if (typeof mem === "number" && mem <= 4) return [512, 1024, 2048, 4096];
+		const cores = typeof navigator.hardwareConcurrency === "number" ? navigator.hardwareConcurrency : 8;
+		if (cores < 4) return [512, 1024, 2048, 4096];
+	} catch {
+		return [512, 1024, 2048, 4096];
+	}
+	return [512, 1024, 2048, 4096, 8192];
+};
+const LOD_WIDTHS = getLodWidths();
 
 export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
 	visible = true,
@@ -81,6 +92,8 @@ export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
 	const auditionCursorRef = useRef<HTMLDivElement>(null);
 
 	const [gain, setGain] = useAtom(spectrogramGainAtom);
+	const [gainDraft, setGainDraft] = useState<number | null>(null);
+	const displayGain = gainDraft ?? gain;
 	const [dataHeight, setDataHeight] = useAtom(spectrogramHeightAtom);
 	const [showUnselectedLines, setShowUnselectedLines] = useAtom(
 		showUnselectedLinesAtom,
@@ -155,9 +168,11 @@ export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
 		return () => audioEngine.offTimeUpdate(syncCursorsToDOM);
 	}, [syncCursorsToDOM, visible]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: 因为暂停时不发射进度，依赖视口状态作为 Trigger 强制同步游标
 	useEffect(() => {
 		if (!visible) return;
+		void zoom;
+		void scrollLeft;
+		void containerWidth;
 		syncCursorsToDOM(audioEngine.musicCurrentTime);
 	}, [zoom, scrollLeft, containerWidth, syncCursorsToDOM, visible]);
 
@@ -214,12 +229,6 @@ export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
 		}),
 		[zoom, scrollLeft],
 	);
-
-	// useEffect(() => {
-	// 	if (!pcmDataReady) {
-	// 		setVisibleTiles([]);
-	// 	}
-	// }, [pcmDataReady]);
 
 	const updateVisibleTiles = useCallback(() => {
 		if (!pcmDataReady || currentDurationMs <= 0 || !scrollContainerRef.current)
@@ -288,9 +297,9 @@ export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
 		updateVisibleTilesRef.current = updateVisibleTiles;
 	}, [updateVisibleTiles]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: lastTileTimestamp 用来重运行这个 effect
 	useEffect(() => {
 		if (!visible) return;
+		void lastTileTimestamp;
 		updateVisibleTiles();
 	}, [updateVisibleTiles, lastTileTimestamp, visible]);
 
@@ -375,7 +384,7 @@ export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
 
 	const minGain = 0.5;
 	const maxGain = 8;
-	const gainPercent = ((gain - minGain) / (maxGain - minGain)) * 100;
+	const gainPercent = ((displayGain - minGain) / (maxGain - minGain)) * 100;
 	const THUMB_HEIGHT_PX = 13;
 	const thumbOffsetPx = (0.5 - gainPercent / 100) * THUMB_HEIGHT_PX;
 
@@ -426,8 +435,12 @@ export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
 									min={minGain}
 									max={maxGain}
 									step={0.5}
-									value={[gain]}
-									onValueChange={(v) => setGain(v[0])}
+									value={[displayGain]}
+									onValueChange={(v) => setGainDraft(v[0])}
+									onValueCommit={(v) => {
+										setGain(v[0]);
+										setGainDraft(null);
+									}}
 									style={{ flex: 1, width: "18px", zIndex: 10 }}
 								/>
 								<div
@@ -436,7 +449,7 @@ export const AudioSpectrogram: FC<{ visible?: boolean }> = ({
 										bottom: `calc(${gainPercent}% + ${thumbOffsetPx}px)`,
 									}}
 								>
-									{gain}x
+									{displayGain}x
 								</div>
 							</div>
 						</Flex>

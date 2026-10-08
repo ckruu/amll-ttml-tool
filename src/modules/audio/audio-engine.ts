@@ -37,7 +37,6 @@ class AudioEngineWrapper extends EventTarget {
 		fileName: "",
 	};
 
-	//#region Audio context basics
 	private _ctx: AudioContext | null = null;
 	get ctx() {
 		if (this._ctx) return this._ctx;
@@ -55,14 +54,8 @@ class AudioEngineWrapper extends EventTarget {
 		this.gainNode.connect(this.ctx.destination);
 		return this.gainNode;
 	}
-	//#endregion
 
-	//#region Beat analysis for visuals
 	private beatAnalyser: AnalyserNode | null = null;
-	/**
-	 * Lazily-created analyser tapped at the master gain. Pass-through only:
-	 * analysis reads the signal without touching the sound.
-	 */
 	getBeatAnalyser(): AnalyserNode | null {
 		try {
 			if (!this.beatAnalyser) {
@@ -76,9 +69,7 @@ class AudioEngineWrapper extends EventTarget {
 			return null;
 		}
 	}
-	//#endregion
 
-	//#region Progress Emitter
 	private timeUpdateListeners = new Set<(time: number) => void>();
 	private tickRafId: number | null = null;
 
@@ -124,7 +115,6 @@ class AudioEngineWrapper extends EventTarget {
 			globalStore.set(isAuditioningAtom, false);
 		}
 	}
-	//#endregion
 
 	constructor() {
 		super();
@@ -188,7 +178,6 @@ class AudioEngineWrapper extends EventTarget {
 		});
 	}
 
-	//#region Playback APIs
 	get musicLoaded() {
 		return (
 			this.engine.state === "ready" ||
@@ -283,13 +272,6 @@ class AudioEngineWrapper extends EventTarget {
 		this.engine.pause();
 	}
 
-	/**
-	 * 试听一个音频片段
-	 *
-	 * @param startTimeInSeconds 音频片段的开始时间
-	 * @param endTimeInSeconds 音频片段的结束时间
-	 * @returns
-	 */
 	auditionRange(startTimeInSeconds: number, endTimeInSeconds: number) {
 		if (!this.musicLoaded) {
 			audioEngineLogger.warn("音频未加载, 无法预览音频");
@@ -305,9 +287,7 @@ class AudioEngineWrapper extends EventTarget {
 		this.engine.currentTime = startTimeInSeconds;
 		this.engine.play();
 	}
-	//#endregion
 
-	//#region Load
 	async loadMusic(src: File): Promise<TTMLMetadata[]> {
 		if (this.musicLoaded) {
 			this.pauseMusic();
@@ -318,7 +298,6 @@ class AudioEngineWrapper extends EventTarget {
 		globalStore.set(loadedAudioAtom, src);
 		await this.engine.loadFile(src);
 		this.updateAudioTrackMetadata(src);
-		// Decode finished: cover art (if any) is now final.
 		globalStore.set(coverNonceAtom, globalStore.get(coverNonceAtom) + 1);
 
 		return this.mapAudioMetadataToTTML();
@@ -345,7 +324,6 @@ class AudioEngineWrapper extends EventTarget {
 		}
 		return result;
 	}
-	//#endregion
 
 	private updateAudioTrackMetadata(file?: File) {
 		this._audioTrackMetadata = parseAudioTrackMetadata(

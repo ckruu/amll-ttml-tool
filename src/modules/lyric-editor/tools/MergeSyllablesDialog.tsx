@@ -53,11 +53,8 @@ const MergeGapEditor = memo(
 		onToggleGap,
 		onJoinRange,
 	}: {
-		/** non-space word texts in order */
 		words: string[];
-		/** per-gap join state */
 		joined: boolean[];
-		/** per-gap manual-override flag */
 		manual: boolean[];
 		onToggleGap: (gap: number) => void;
 		onJoinRange: (fromWord: number, toWord: number) => void;
@@ -77,9 +74,6 @@ const MergeGapEditor = memo(
 			[],
 		);
 
-		// Live drag range (word positions, inclusive). Pills stay computed
-		// from committed `joined` so the DOM never restructures mid-drag
-		// (which would kill the pointer sequence); the range only tints chips.
 		const dragRange = useMemo(() => {
 			if (!drag || drag.anchor === drag.extent) return null;
 			return {
@@ -88,8 +82,6 @@ const MergeGapEditor = memo(
 			};
 		}, [drag]);
 
-		// Group consecutive joined words into pills; pills split at cut gaps.
-		// NOTE: computed from committed joins only — never from drag state.
 		const pills = useMemo(() => {
 			const list: number[][] = [];
 			let run: number[] = [];
@@ -114,7 +106,6 @@ const MergeGapEditor = memo(
 						Math.min(d.anchor, d.extent),
 						Math.max(d.anchor, d.extent),
 					);
-					// A drag-end pointerup is followed by a click; swallow it.
 					suppressClick.current = true;
 					setTimeout(() => {
 						suppressClick.current = false;
@@ -294,7 +285,6 @@ export const MergeSyllablesDialog = ({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	initial: MergeEditorDraft;
-	/** sorted target line indices (excluding skipped lines) */
 	lineIndices: number[];
 	onApply: (draft: MergeEditorDraft) => void;
 }) => {
@@ -318,8 +308,6 @@ export const MergeSyllablesDialog = ({
 	const bodyRef = useRef<HTMLDivElement>(null);
 	const setSuspendBackground = useSetAtom(suspendBackgroundPreviewsAtom);
 
-	// While the merge editor is open it holds the only live player;
-	// background preview instances unmount to save resources.
 	useEffect(() => {
 		if (!open) return;
 		setSuspendBackground(true);
@@ -335,7 +323,6 @@ export const MergeSyllablesDialog = ({
 	const threshold =
 		thresholdPreset === "custom" ? parsedCustom : Number(thresholdPreset);
 
-	// Initialize working state whenever the modal opens.
 	useEffect(() => {
 		if (!open) return;
 		const t0 = initial.threshold;
@@ -354,8 +341,6 @@ export const MergeSyllablesDialog = ({
 		setFontDraft(null);
 	}, [open, initial]);
 
-	// Auto-cluster layout shifts with the threshold: user gap overrides
-	// persist, but stale per-cluster smooth flags are dropped.
 	const handleThresholdPreset = (v: ThresholdPreset) => {
 		setThresholdPreset(v);
 		setSmoothOffKeys(new Set());
@@ -469,7 +454,6 @@ export const MergeSyllablesDialog = ({
 		onOpenChange(false);
 	};
 
-	// Full-song merged draft for the preview player.
 	const draftLines = useMemo(() => {
 		const mergedByIndex = new Map(models.map((m) => [m.lineIndex, m.merged]));
 		return lyricLines.lyricLines.map(

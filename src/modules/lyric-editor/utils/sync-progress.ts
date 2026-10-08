@@ -19,17 +19,6 @@ export interface SyncProgress {
 export const isUnitSynced = (startTime: number, endTime: number): boolean =>
 	startTime > 0 && endTime > 0 && endTime > startTime;
 
-/**
- * Overall synced-status percentage of the current track.
- *
- * - A unit counts as synced when its (ruby or word) start/end are both > 0.
- * - Lines with `ignoreSync` are excluded.
- * - Lines in "split state" (single-word / line-timing lyrics, e.g. freshly
- *   imported standard LRC before or right after auto-segmentation/split-word
- *   produces only one word) are excluded from the denominator so they neither
- *   inflate nor deflate the percentage. Only word-by-word synced units move
- *   the bar.
- */
 export function getSyncProgress(lines: LyricLine[]): SyncProgress {
 	let total = 0;
 	let synced = 0;

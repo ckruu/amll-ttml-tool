@@ -222,7 +222,6 @@ export const useTopMenuActions = () => {
 			}
 			throw new Error("clipboard not available");
 		} catch {
-			// Tauri / insecure context fallback
 			const textarea = document.createElement("textarea");
 			textarea.value = text;
 			textarea.style.position = "fixed";

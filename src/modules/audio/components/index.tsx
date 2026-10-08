@@ -1,13 +1,3 @@
-/*
- * Copyright 2023-2025 Steve Xiao (stevexmh@qq.com) and contributors.
- *
- * 本源代码文件是属于 AMLL TTML Tool 项目的一部分。
- * This source code file is a part of AMLL TTML Tool project.
- * 本项目的源代码的使用受到 GNU GENERAL PUBLIC LICENSE version 3 许可证的约束，具体可以参阅以下链接。
- * Use of this source code is governed by the GNU GPLv3 license that can be found through the following link.
- *
- * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
- */
 
 import {
 	ChevronDownFilled,
@@ -31,6 +21,7 @@ import {
 	Tooltip,
 } from "@radix-ui/themes";
 import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
+import { selectAtom } from "jotai/utils";
 import { type FC, memo, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFileOpener } from "$/hooks/useFileOpener";
@@ -138,6 +129,7 @@ const CurrentTimeDisplay = memo(() => {
 	);
 });
 
+const lyricLinesCountAtom = selectAtom(lyricLinesAtom, (s) => s.lyricLines.length);
 export const AudioControls: FC = memo(() => {
 	const [spectrogramVisible, setSpectrogramVisible] = useState(false);
 	const currentDuration = useAtomValue(currentDurationAtom);
@@ -147,7 +139,7 @@ export const AudioControls: FC = memo(() => {
 	const [volume, setVolume] = useAtom(volumeAtom);
 	const [playbackRate, setPlaybackRate] = useAtom(playbackRateAtom);
 	const stretchAlgorithm = useAtomValue(stretchAlgorithmAtom);
-	const { lyricLines } = useAtomValue(lyricLinesAtom);
+	const lyricLinesCount = useAtomValue(lyricLinesCountAtom);
 	const { openFile } = useFileOpener();
 	const { t } = useTranslation();
 	const openTab = useSetAtom(openTabAtom);
@@ -343,7 +335,7 @@ export const AudioControls: FC = memo(() => {
 								ml="0"
 								variant="soft"
 								onClick={handleLocate}
-								disabled={lyricLines.length === 0}
+								disabled={lyricLinesCount === 0}
 							>
 								<MyLocationRegular fontSize={18} />
 							</IconButton>

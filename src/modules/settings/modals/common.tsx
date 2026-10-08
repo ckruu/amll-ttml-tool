@@ -122,7 +122,6 @@ export const SettingsCommonTab = () => {
 				return nativeName;
 			}
 		} catch {
-			// ignore errors and fallback
 		}
 		return code;
 	};

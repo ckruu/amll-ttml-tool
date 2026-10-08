@@ -1,6 +1,3 @@
-/**
- * @description 手动分词组件
- */
 
 import { Flex } from "@radix-ui/themes";
 import { Fragment, memo, useMemo } from "react";
@@ -33,7 +30,6 @@ export const ManualWordSplitter = memo(
 				{manualGraphemes.map((grapheme, index) => (
 					<Fragment
 						key={`${grapheme}-${
-							// biome-ignore lint/suspicious/noArrayIndexKey: 这个列表顺序不会在交互时发生变化
 							index
 						}`}
 					>

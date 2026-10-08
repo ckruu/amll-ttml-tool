@@ -1,5 +1,3 @@
-/* tslint:disable */
-/* eslint-disable */
 export const __wbg_bpmanalyzer_free: (a: number, b: number) => void;
 export const bpmanalyzer_analyze: (a: number) => [number, number, number];
 export const bpmanalyzer_byte_capacity: (a: number) => number;

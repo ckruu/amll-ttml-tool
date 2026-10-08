@@ -1,13 +1,4 @@
-/**
- * @description 频谱图调色板的生成器
- */
 
-/**
- * @description 渐变色标
- *
- * @param pos - 位置，从 0.0 到 1.0
- * @param color - HEX 颜色字符串
- */
 export type ColorStop = {
 	id: string;
 	pos: number;
@@ -86,9 +77,6 @@ export function generatePalette(
 	return lut;
 }
 
-/**
- * @description 解析 HEX 颜色字符串为 RGB
- */
 function parseHexColor(hex: string): [number, number, number] {
 	const r = parseInt(hex.slice(1, 3), 16);
 	const g = parseInt(hex.slice(3, 5), 16);
@@ -96,19 +84,10 @@ function parseHexColor(hex: string): [number, number, number] {
 	return [r, g, b];
 }
 
-/**
- * @description 线性插值
- */
 function lerp(a: number, b: number, t: number): number {
 	return a * (1 - t) + b * t;
 }
 
-/**
- * @description 从色标生成一个 256 色的 LUT
- *
- * @param stops 渐变色标
- * @returns 一个 1024 字节的 Uint8Array (256 * RGBA)
- */
 export function generateLutFromStops(stops: ColorStop[]): Uint8Array {
 	const lut = new Uint8Array(256 * 4);
 

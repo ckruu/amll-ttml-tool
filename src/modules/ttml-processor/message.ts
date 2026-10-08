@@ -86,9 +86,6 @@ function appendRawTextSnippet(
 	let lineText = UTF8_DECODER.decode(lineBytes);
 	let caretLength = Math.max(1, error.offendingString?.length ?? 1);
 
-	// 一般情况下的 byteOffset 和真实引发错误的位置都相差甚远，
-	// 例如标签内引发错误，但 byteOffset 可能指向标签末尾
-	// 不过针对这两个错误类别，我们有精确的引发错误的文本可以匹配
 	const EXACT_MATCH_ERRORS = ["InvalidTimestamp", "EntityError"];
 	if (EXACT_MATCH_ERRORS.includes(error.kind) && error.offendingString) {
 		const textBeforeOffset = lineText.substring(0, caretIndex);

@@ -20,14 +20,10 @@ import {
 import { isDirtyAtom, lyricLinesAtom } from "$/states/main.ts";
 import { type LyricLine, newLyricLine, newLyricWord } from "$/types/ttml";
 
-// import styles from "./ImportFromText.module.css";
 import error = toast.error;
 
 import { useTranslation } from "react-i18next";
 import { projectLogger } from "../logger";
-
-// type IModelDeltaDecoration = monaco.editor.IModelDeltaDecoration;
-// type IEditorDecorationsCollection = monaco.editor.IEditorDecorationsCollection;
 
 const PrefText = memo((props: PropsWithChildren) => (
 	<Text color="gray" size="2">
@@ -145,7 +141,6 @@ export const ImportFromText = () => {
 				let isDuet = false;
 
 				if (enableSpecialPrefix) {
-					// 循环遍历是否存在前缀，有则与之分离
 					while (true) {
 						if (finalOrig.startsWith(bgLyricPrefix)) {
 							isBG = true;
@@ -329,19 +324,6 @@ export const ImportFromText = () => {
 							sm: "row",
 						}}
 					>
-						{/* <Card style={{ flex: "1 1 auto" }}>
-							<Inset>
-								<TextArea
-									style={{
-										height: "calc(80vh - 5em)",
-										flex: "1 1 auto"
-									}}
-									value={value}
-									onChange={(evt) => setValue(evt.currentTarget.value)}
-								/>
-							</Inset>
-						</Card> */}
-
 						<ImportFromTextEditor />
 						<Grid
 							columns="2"

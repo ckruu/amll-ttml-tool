@@ -15,12 +15,6 @@ import styles from "./PreviewFullscreenHost.module.css";
 
 const AMLLWrapper = lazy(() => import("$/components/AMLLWrapper"));
 
-/**
- * True-fullscreen lyrics preview: only the player, no app chrome.
- * Mounted by App in place of the whole chrome column while
- * {@link previewFullscreenAtom} is true. Exits via overlay button, Esc
- * (native fullscreenchange), or the ribbon toggle.
- */
 export const PreviewFullscreenHost = () => {
 	const { t } = useTranslation();
 	const setFullscreen = useSetAtom(previewFullscreenAtom);
@@ -29,8 +23,6 @@ export const PreviewFullscreenHost = () => {
 	const audioPlaying = useAtomValue(audioPlayingAtom);
 	const containerRef = useRef<HTMLDivElement>(null);
 
-	// Request OS-level fullscreen. Must run in (transient) user-activation
-	// context; if the browser rejects, the chromeless view still applies.
 	useEffect(() => {
 		const el = containerRef.current;
 		if (!el) return;
@@ -41,11 +33,9 @@ export const PreviewFullscreenHost = () => {
 				| undefined;
 			result?.catch?.(() => {});
 		} catch {
-			// stay chromeless without OS fullscreen
 		}
 	}, []);
 
-	// Native exit (Esc etc.) syncs the atom back.
 	useEffect(() => {
 		const onChange = () => {
 			if (!document.fullscreenElement) setFullscreen(false);

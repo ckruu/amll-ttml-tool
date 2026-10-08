@@ -21,5 +21,10 @@
 	background-size: cover;
 	background-position: center;
 	background-repeat: no-repeat;
-	transform: scale(1.02);
+	transform: scale(1.02) translateZ(0);
+}
+@media (prefers-reduced-motion: reduce) {
+	.customBackgroundImage {
+		filter: none;
+	}
 }

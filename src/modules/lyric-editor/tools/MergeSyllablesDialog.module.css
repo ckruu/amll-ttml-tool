@@ -85,12 +85,10 @@
 	background-color: var(--accent-10);
 }
 
-/* user-created split */
 .gapButton[data-joined="false"][data-manual="true"]::before {
 	background-color: var(--blue-9);
 }
 
-/* inside a merged group: faint cue, revealed on hover */
 .gapButton[data-joined="true"]::before {
 	width: 2px;
 	background-color: var(--gray-7);

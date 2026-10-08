@@ -10,9 +10,6 @@ import { useCommand } from "$/modules/keyboard/hooks";
 import { processedLyricLinesAtom } from "$/modules/segmentation/utils/segment-processing";
 import { selectedWordIdAtom } from "$/modules/spectrogram/states/dnd";
 
-/**
- * 试听片段前后的时长 (毫秒)
- */
 const AUDITION_PADDING_MS = 500;
 
 export const AuditionKeyBinding = () => {
@@ -31,7 +28,6 @@ export const AuditionKeyBinding = () => {
 		return null;
 	}, [selectedWordId, processedLines]);
 
-	// 播放选中片段前 500ms
 	useCommand(cmdAuditionSelectionBefore, () => {
 		if (!selectedSegment?.startTime) return;
 		audioEngine.auditionRange(
@@ -40,7 +36,6 @@ export const AuditionKeyBinding = () => {
 		);
 	}, [selectedSegment]);
 
-	// 播放选中的片段
 	useCommand(cmdAuditionSelection, () => {
 		if (!selectedSegment?.startTime || !selectedSegment?.endTime) return;
 		audioEngine.auditionRange(
@@ -49,7 +44,6 @@ export const AuditionKeyBinding = () => {
 		);
 	}, [selectedSegment]);
 
-	// 播放选中片段后 500ms
 	useCommand(cmdAuditionSelectionAfter, () => {
 		if (!selectedSegment?.endTime) return;
 		audioEngine.auditionRange(

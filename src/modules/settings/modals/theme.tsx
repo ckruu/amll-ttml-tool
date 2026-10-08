@@ -31,7 +31,6 @@ import { SettingsRow } from "./SettingsGroup";
 import styles from "./SettingsDialog.module.css";
 
 const swatchStyle = (color: string): React.CSSProperties => {
-	// Approximate Radix step-9 for each accent so swatches look right.
 	const approx: Record<string, string> = {
 		gray: "#8b8d98",
 		gold: "#978365",
@@ -107,10 +106,6 @@ const THEME_COLOR_PRESETS = [
 	"#8b8d98",
 ] as const;
 
-/**
- * Shared preset-swatches + custom-hex field for theme colors stored as hex
- * (active-word highlight, timing chips). Applied with translucency in CSS.
- */
 function ThemeColorField({
 	value,
 	onChange,

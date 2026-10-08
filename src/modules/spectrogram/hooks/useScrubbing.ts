@@ -78,7 +78,6 @@ export function useScrubbing(
 		[handleScrubMove, handleScrubEnd, zoom, scrollContainerRef],
 	);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: 用 scrollLeft 作为 Trigger 以避免将 scrollLeft 加入 useCallback 导致频繁解绑事件
 	useEffect(() => {
 		if (isScrubbingRef.current) {
 			updateScrubPosition(lastClientXRef.current);

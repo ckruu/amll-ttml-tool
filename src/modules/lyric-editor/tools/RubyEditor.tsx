@@ -11,7 +11,7 @@ import {
 	Text,
 	TextField,
 } from "@radix-ui/themes";
-import classNames from "classnames";
+import { cx } from "$/utils/cx";
 import { type Atom, useAtomValue, useStore } from "jotai";
 import { useSetImmerAtom } from "jotai-immer";
 import {
@@ -49,7 +49,7 @@ const AutoSizeTextField = ({
 				? placeholder
 				: "    ";
 	return (
-		<span className={classNames(styles.autoSizeInput, className)} style={style}>
+		<span className={cx(styles.autoSizeInput, className)} style={style}>
 			<span className={styles.autoSizeInputText}>{mirrorText}</span>
 			<TextField.Root
 				className={styles.autoSizeInputField}
@@ -278,7 +278,7 @@ export const RubyEditor = ({
 					</Flex>
 				</Dialog.Content>
 			</Dialog.Root>
-			<span className={classNames(styles.rubyEditor, className)}>
+			<span className={cx(styles.rubyEditor, className)}>
 				{showIcon && (
 					<IconButton size="1" variant="soft" onClick={applyRubyToAllSameWords}>
 						<TranslateRegular />

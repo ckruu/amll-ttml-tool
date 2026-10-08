@@ -34,7 +34,6 @@ export interface SidebarTab {
 	id: Exclude<SidebarPanelType, "none">;
 	getTitle: (t: TFunction) => string;
 	component: FC;
-	/** Optional controls rendered in the sidebar top row when active */
 	headerControls?: FC;
 }
 
@@ -64,9 +63,6 @@ export const Sidebar = () => {
 	const [activePanel, setActivePanel] = useAtom(activeSidebarTabAtom);
 	const closeTab = useSetAtom(closeTabAtom);
 	const toolMode = useAtomValue(toolModeAtom);
-	// The sidebar Preview tab is redundant in Preview tool mode (which already
-	// shows the full preview). Hide it there without touching persisted atoms,
-	// so everything restores when leaving Preview mode.
 	const previewHidden = toolMode === ToolMode.Preview;
 	const effectiveActivePanel: SidebarPanelType =
 		previewHidden && activePanel === "preview" ? "none" : activePanel;

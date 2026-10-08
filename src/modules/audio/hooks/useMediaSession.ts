@@ -23,7 +23,6 @@ export function useMediaSession() {
 	const prevObjectUrlRef = useRef<string | null>(null);
 	const silentAudioRef = useRef<HTMLAudioElement | null>(null);
 
-	// 用静音 Audio 占位节点以便在暂停时显示系统媒体控件
 	useEffect(() => {
 		const silentBlob = createSilentWavBlob(10);
 		const objectUrl = URL.createObjectURL(silentBlob);
@@ -139,7 +138,6 @@ export function useMediaSession() {
 			try {
 				navigator.mediaSession.setActionHandler(action, handler);
 			} catch {
-				// 部分浏览器或平台可能不支持某些特定动作
 			}
 		}
 
@@ -152,10 +150,10 @@ export function useMediaSession() {
 		};
 	}, [setPositionStateOptimistically]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: Update metadata when loaded audio or engine state changes
 	useEffect(() => {
 		if (!("mediaSession" in navigator)) return;
-
+		void loadedAudio;
+		void engineState;
 		const { titles, artists, albums, fileName } =
 			audioEngine.audioTrackMetadata;
 

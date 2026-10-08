@@ -16,17 +16,11 @@ const MIN_SIZE = 1;
 
 const clampSize = (n: number) => Math.max(MIN_SIZE, n);
 
-/**
- * Preview tab header controls (rendered in the sidebar top row):
- * Auto-follow toggle + manual font-size field.
- */
 export const PreviewHeaderControls: FC = () => {
 	const { t } = useTranslation();
 	const [panelSize, setPanelSize] = useAtom(sidebarPreviewPanelFontSizeAtom);
 	const effectiveSize = useAtomValue(effectiveSidebarPreviewFontSizeAtom);
 
-	// Draft text while typing, tagged with the effective size it started
-	// from so external changes automatically fall back to showing it.
 	const [draft, setDraft] = useState<{ text: string; base: number } | null>(
 		null,
 	);
@@ -79,16 +73,6 @@ export const PreviewHeaderControls: FC = () => {
 	);
 };
 
-/**
- * Sidebar-hosted live preview.
- *
- * Reuses the AMLLWrapper core (reads lyricLinesAtom directly, so it stays
- * in sync while editing / syncing). Lazy-loaded so the player bundle is
- * only fetched when the tab is first opened.
- *
- * Font size is controlled from the header ({@link PreviewHeaderControls});
- * the override persists, and clearing it follows the ribbon View-section size.
- */
 export const PreviewPanel: FC = () => {
 	const effectiveSize = useAtomValue(effectiveSidebarPreviewFontSizeAtom);
 	const fpsCap = usePreviewFpsCap();

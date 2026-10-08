@@ -11,9 +11,6 @@ export type DialogScopeType =
 	| "selected-following"
 	| "custom";
 
-/**
- * 根据应用范围配置解析出目标行下标集合
- */
 export function resolveTargetLineIndices(
 	scope: DialogScopeType,
 	lines: LyricLine[],
@@ -61,10 +58,6 @@ export function resolveTargetLineIndices(
 	return targetLineIndices;
 }
 
-/**
- * 统一管理模态框中的“应用范围”状态与计算逻辑
- * @param open 模态框是否处于打开状态
- */
 export function useDialogScope(open: boolean) {
 	const lyricLines = useAtomValue(lyricLinesAtom);
 	const selectedLines = useAtomValue(selectedLinesAtom);
@@ -113,9 +106,6 @@ export function useDialogScope(open: boolean) {
 
 export type UseDialogScopeResult = ReturnType<typeof useDialogScope>;
 
-/**
- * 统一的“应用于”范围选择器 UI 组件
- */
 export const DialogScopeSelector = ({
 	scope,
 	setScope,

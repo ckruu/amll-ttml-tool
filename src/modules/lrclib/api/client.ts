@@ -4,12 +4,6 @@ import type { LrcLibTrack } from "../types";
 const BASE_URL = "https://lrclib.net/api";
 
 export const LrcLibApi = {
-	/**
-	 * 搜索歌曲
-	 * @param query 搜索关键词 (如 "歌名 歌手")
-	 * @returns @see {@link LrcLibTrack}
-	 * @throws 在 API 请求失败时抛出错误
-	 */
 	async search(query: string): Promise<LrcLibTrack[]> {
 		if (!query.trim()) return [];
 
@@ -28,12 +22,6 @@ export const LrcLibApi = {
 		}
 	},
 
-	/**
-	 * 根据 ID 获取歌曲详情
-	 * @param id 歌曲 ID
-	 * @returns @see {@link LrcLibTrack}
-	 * @throws 在 API 请求失败时抛出错误
-	 */
 	async getById(id: number): Promise<LrcLibTrack> {
 		try {
 			const response = await fetch(`${BASE_URL}/get/${id}`);

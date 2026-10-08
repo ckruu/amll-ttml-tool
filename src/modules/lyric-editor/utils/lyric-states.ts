@@ -108,7 +108,7 @@ export function getCurrentLineLocation(
 	store: ReturnType<typeof createStore>,
 ): LineLocationResult | undefined {
 	const lyricLines = store.get(lyricLinesAtom).lyricLines;
-	const selectedLineId = [...store.get(selectedLinesAtom)][0]; // 进入打轴模式下一般不会出现多选的情况
+	const selectedLineId = [...store.get(selectedLinesAtom)][0];
 	if (!selectedLineId) return;
 	const lyricLine = lyricLines.findIndex((line) => line.id === selectedLineId);
 	if (lyricLine === -1) return;
@@ -123,7 +123,7 @@ export function getCurrentLocation(
 	store: ReturnType<typeof createStore>,
 ): LineAndWordLocationResult | undefined {
 	const lyricLines = store.get(lyricLinesAtom).lyricLines;
-	const selectedLineId = [...store.get(selectedLinesAtom)][0]; // 进入打轴模式下一般不会出现多选的情况
+	const selectedLineId = [...store.get(selectedLinesAtom)][0];
 	if (!selectedLineId) return;
 	const lyricLine = lyricLines.findIndex((line) => line.id === selectedLineId);
 	if (lyricLine === -1) return;

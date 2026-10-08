@@ -38,9 +38,6 @@ export class Logger {
 		return [pillCss, resetCss];
 	}
 
-	/**
-	 * 根据字符串计算固定的 HSL 颜色以便同一个模块的颜色是相同的
-	 */
 	private generateColorFromString(str: string): string {
 		let hash = 0;
 		for (let i = 0; i < str.length; i++) {

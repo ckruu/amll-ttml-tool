@@ -1,6 +1,3 @@
-/**
- * @fileoverview 只用于兼容旧代码
- */
 
 import type { WritableAtom } from "jotai";
 import {

@@ -105,7 +105,6 @@ const plugins: PluginOption = [
 	}),
 ];
 
-// https://vitejs.dev/config/
 export default defineConfig({
 	plugins,
 	base: process.env.TAURI_ENV_PLATFORM ? "/" : "./",
@@ -117,13 +116,11 @@ export default defineConfig({
 		},
 		strictPort: true,
 	},
-	envPrefix: ["VITE_", "TAURI_", "AMLL_", "SENTRY_"],
+	envPrefix: ["VITE_", "TAURI_", "AMLL_"],
 	build: {
-		// produce sourcemaps
-		sourcemap: true,
+		sourcemap: false,
 
 		rolldownOptions: {
-			// Suppress `Module "node:module" has been externalized for browser compatibility`
 			onLog(level, log, defaultHandler) {
 				if (log.message?.includes("node:module")) return;
 				defaultHandler(level, log);
@@ -150,7 +147,6 @@ export default defineConfig({
 						{
 							name: "vendor",
 							test(id) {
-								// 排除掉 hyphen 以便动态导入能够工作
 								return id.includes("node_modules") && !id.includes("hyphen");
 							},
 							priority: 10,

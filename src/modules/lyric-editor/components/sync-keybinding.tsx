@@ -201,8 +201,6 @@ export const SyncKeyBinding: FC = () => {
 		[moveToPrevWordBase],
 	);
 
-	// 移动打轴光标
-
 	useKeyBindingAtom(keyMoveNextLineAtom, () => {
 		const location = getCurrentLineLocation(store);
 		if (!location) return;
@@ -261,8 +259,6 @@ export const SyncKeyBinding: FC = () => {
 		audioEngine.seekMusic(getUnitStartTime(firstUnit) / 1000);
 	}, [store]);
 
-	// 记录时间戳（主要打轴按键）
-
 	useKeyBindingAtom(
 		keySyncStartAtom,
 		(evt) => {
@@ -299,7 +295,6 @@ export const SyncKeyBinding: FC = () => {
 			if (!location) return;
 			const currentTime = calcJudgeTime(evt);
 
-			// 智能首字
 			const smartFirstWord = store.get(smartFirstWordAtom);
 			if (smartFirstWord && location.isFirstWord) {
 				const activeId = store.get(smartFirstWordActiveIdAtom);
@@ -331,7 +326,6 @@ export const SyncKeyBinding: FC = () => {
 				}
 			}
 
-			// 智能尾字
 			const smartLastWord = store.get(smartLastWordAtom);
 			if (smartLastWord && location.isLastWord) {
 				store.set(lyricLinesAtom, (state) =>
@@ -380,7 +374,6 @@ export const SyncKeyBinding: FC = () => {
 			);
 			moveToNextWord();
 
-			// 开了智能首字后，连轴打到下一行时跳过智能首字
 			if (smartFirstWord) {
 				const newLocation = getCurrentLocation(store);
 				if (newLocation?.isFirstWord) {

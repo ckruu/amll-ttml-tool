@@ -13,14 +13,6 @@ const cloneLyricLine = (line: LyricLine): LyricLine => {
 	};
 };
 
-/**
- * 重新排序拖拽的歌词行或复制拖拽的歌词行
- * @param originalLines 原始歌词列表
- * @param draggedIds 被拖拽的行的 ID 集合
- * @param dropIndex 目标插入位置（相对于剔除拖拽行后的 remaining 数组）
- * @param isCopy 是否为拖拽模式
- * @returns 返回一个全新的、重排后的歌词列表数组
- */
 export const reorderOrCopyLyricLines = (
 	originalLines: LyricLine[],
 	draggedIds: Set<string>,

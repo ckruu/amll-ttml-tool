@@ -1,13 +1,10 @@
 import "@applemusic-like-lyrics/core/style.css";
-// import { MaskObsceneWordsMode } from "@applemusic-like-lyrics/core";
 import { LayoutReason, setVisualTuning } from "@applemusic-like-lyrics/core";
 import {
 	LyricPlayer,
 	type LyricPlayerRef,
 } from "@applemusic-like-lyrics/react";
 import { Card, Flex, Text } from "@radix-ui/themes";
-import structuredClone from "@ungap/structured-clone";
-import classNames from "classnames";
 import { useAtomValue, useSetAtom } from "jotai";
 import { memo, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,7 +12,6 @@ import { audioEngine } from "$/modules/audio/audio-engine";
 import { audioPlayingAtom } from "$/modules/audio/states";
 import { usePageVisible } from "$/hooks/usePageVisible";
 import {
-	// hideObsceneWordsAtom,
 	lyricWordFadeWidthAtom,
 	showRomanLinesAtom,
 	showTranslationLinesAtom,
@@ -46,19 +42,8 @@ import { isEmptyInterludeLine } from "./interlude";
 import { TrackBackground, useTrackArt } from "./TrackBackground";
 
 export interface AMLLPreviewOptions {
-	/** Lyric font size in px. Null/undefined keeps inherited size. */
 	fontSizePx?: number | null;
-	/**
-	 * Vsync FPS cap. Null/undefined keeps the player's stock uncapped
-	 * requestAnimationFrame loop; a number takes over the frame loop and
-	 * throttles player.update() to that rate.
-	 */
 	fpsCap?: number | null;
-	/**
-	 * Whether this instance may be suspended by
-	 * {@link suspendBackgroundPreviewsAtom} (e.g. while the merge editor
-	 * modal holds the only live player). Defaults to true.
-	 */
 	suspendable?: boolean;
 }
 
@@ -67,7 +52,6 @@ interface ResizablePlayer {
 }
 
 export interface AMLLPlayerViewProps extends AMLLPreviewOptions {
-	/** Lyric lines to render (already in editor shape; filtered+mapped inside) */
 	lines: LyricLine[];
 }
 
@@ -85,14 +69,12 @@ export const AMLLPlayerView = memo(
 		const darkMode = useAtomValue(isDarkThemeAtom);
 		const showTranslationLines = useAtomValue(showTranslationLinesAtom);
 		const showRomanLines = useAtomValue(showRomanLinesAtom);
-		// const hideObsceneWords = useAtomValue(hideObsceneWordsAtom);
 		const wordFadeWidth = useAtomValue(lyricWordFadeWidthAtom);
 		const fontStacks = useAtomValue(fontStacksAtom);
 		const setDetectedHz = useSetAtom(detectedRefreshHzAtom);
 		const playerRef = useRef<LyricPlayerRef>(null);
 		const pageVisible = usePageVisible();
 
-		// Lyric visual style (preview only; defaults reproduce stock look).
 		const emphasis = useAtomValue(previewEmphasisAtom);
 		const glow = useAtomValue(previewGlowAtom);
 		const wordLift = useAtomValue(previewWordLiftAtom);
@@ -103,7 +85,6 @@ export const AMLLPlayerView = memo(
 		const blurStrength = useAtomValue(previewBlurStrengthAtom);
 		const plusLighter = useAtomValue(previewPlusLighterAtom);
 
-		// Beat background + contrast.
 		const bgEnabled = useAtomValue(previewBgEnabledAtom);
 		const bgStatic = useAtomValue(previewBgStaticAtom);
 		const bgBrightness = useAtomValue(previewBgBrightnessAtom);
@@ -126,7 +107,6 @@ export const AMLLPlayerView = memo(
 			);
 		}, [lines, showTranslationLines, showRomanLines]);
 
-		// Push preview style into core's visual tuning (global, idempotent).
 		useEffect(() => {
 			try {
 				setVisualTuning({
@@ -139,7 +119,6 @@ export const AMLLPlayerView = memo(
 					animSpeed,
 				});
 			} catch {
-				// patched API missing (e.g. unpatched core): stock look remains
 			}
 		}, [
 			emphasis,
@@ -151,8 +130,6 @@ export const AMLLPlayerView = memo(
 			animSpeed,
 		]);
 
-		// Scale-spring speed follows the animation-speed slider (posY policy
-		// is handled by the patched core via animSpeed above).
 		const scaleSpringParams = useMemo(
 			() => ({
 				stiffness: 100 * Math.max(0.2, animSpeed),
@@ -161,7 +138,6 @@ export const AMLLPlayerView = memo(
 			[animSpeed],
 		);
 
-		// Contrast-safe lyric color from the track palette.
 		const contrastLyricColor =
 			autoContrast && trackArt?.paletteIsDark != null
 				? trackArt.paletteIsDark
@@ -181,7 +157,6 @@ export const AMLLPlayerView = memo(
 			return () => audioEngine.offTimeUpdate(updateAMLLTime);
 		}, []);
 
-		// Sample the display refresh rate once per mount for the vsync cap.
 		useEffect(() => {
 			let raf = 0;
 			let last = -1;
@@ -206,8 +181,6 @@ export const AMLLPlayerView = memo(
 			};
 		}, [setDetectedHz]);
 
-		// Vsync: take over the frame loop and throttle update() to fpsCap.
-		// Parked while the page is hidden; time is re-pushed by engine ticks.
 		useEffect(() => {
 			if (!capped || fpsCap == null || !pageVisible) return;
 			const interval = 1000 / fpsCap;
@@ -241,7 +214,6 @@ export const AMLLPlayerView = memo(
 			};
 		}, [capped, fpsCap, pageVisible]);
 
-		// Font size is read by core from computed style; refresh its cache.
 		useEffect(() => {
 			if (fontSizePx == null) return;
 			let raf = 0;
@@ -264,7 +236,7 @@ export const AMLLPlayerView = memo(
 		if (suspended) {
 			return (
 				<Card
-					className={classNames(styles.amllWrapper, darkMode && styles.isDark)}
+					className={`${styles.amllWrapper} ${darkMode ? styles.isDark : ""}`}
 				>
 					<Flex align="center" justify="center" height="100%" p="4">
 						<Text size="1" color="gray" align="center">
@@ -280,14 +252,10 @@ export const AMLLPlayerView = memo(
 
 		return (
 			<Card
-			className={classNames(styles.amllWrapper, darkMode && styles.isDark)}
+			className={`${styles.amllWrapper} ${darkMode ? styles.isDark : ""}`}
 			style={
 				{
 					"--default-font-family": fontStacks.preview,
-					// Core sizes the player root itself via
-					// `font-size: var(--amll-lp-font-size, <viewport fallback>)`,
-					// so a plain inherited font-size never reaches it. Setting
-					// the variable flows into the player's own declaration.
 					...(fontSizePx != null
 						? { "--amll-lp-font-size": `${fontSizePx}px` }
 						: {}),
@@ -308,10 +276,7 @@ export const AMLLPlayerView = memo(
 					/>
 				)}
 				<div
-					className={classNames(
-						styles.playerLayer,
-						plusLighter && styles.plusLighter,
-					)}
+					className={`${styles.playerLayer} ${plusLighter ? styles.plusLighter : ""}`}
 				>
 					<LyricPlayer
 						style={{
@@ -325,11 +290,6 @@ export const AMLLPlayerView = memo(
 					lyricLines={lyricLines}
 					playing={isPlaying}
 					disabled={capped || !pageVisible}
-						// maskObsceneWordsMode={
-						// 	hideObsceneWords
-						// 		? MaskObsceneWordsMode.FullMask
-						// 		: MaskObsceneWordsMode.Disabled
-						// }
 						wordFadeWidth={wordFadeWidth}
 						enableBlur={inactiveBlur}
 						lineScaleSpringParams={scaleSpringParams}

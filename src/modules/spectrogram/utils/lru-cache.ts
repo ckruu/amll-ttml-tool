@@ -1,6 +1,3 @@
-/**
- * @description LRU 缓存
- */
 
 export class LRUCache<K, V> {
 	private maxSize: number;
@@ -16,9 +13,6 @@ export class LRUCache<K, V> {
 		this.onEvict = onEvict;
 	}
 
-	/**
-	 * @description 获取一个条目
-	 */
 	get(key: K): V | undefined {
 		const entry = this.map.get(key);
 		if (entry) {
@@ -28,9 +22,6 @@ export class LRUCache<K, V> {
 		return entry;
 	}
 
-	/**
-	 * @description 设置一个条目，如果已存在则替换，并尝试驱逐最久未使用的条目
-	 */
 	set(key: K, value: V) {
 		if (this.map.has(key)) {
 			const existingEntry = this.map.get(key);
@@ -47,9 +38,6 @@ export class LRUCache<K, V> {
 		}
 	}
 
-	/**
-	 * @description 驱逐最久未使用的条目
-	 */
 	private evict() {
 		const lruKey = this.map.keys().next().value;
 		if (lruKey) {
@@ -61,9 +49,6 @@ export class LRUCache<K, V> {
 		}
 	}
 
-	/**
-	 * @description 清空缓存
-	 */
 	clear() {
 		if (this.onEvict) {
 			for (const [key, entry] of this.map.entries()) {

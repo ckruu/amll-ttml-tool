@@ -1,6 +1,3 @@
-/**
- * @description “平移时间” 模态框
- */
 import { ArrowLeftRegular, ArrowRightRegular } from "@fluentui/react-icons";
 import {
 	Button,

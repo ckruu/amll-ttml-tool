@@ -64,10 +64,6 @@ export const AudioSlider = () => {
 		return () => observer.disconnect();
 	}, []);
 
-	// Event-driven cursor: the engine emits ticks only while playing (plus
-	// one-shot updates on seek/pause), so no always-on rAF loop is needed.
-	// Scrub gestures paint directly; hidden pages skip paints and repaint
-	// once on return.
 	const paintCursorAt = useCallback((timeSeconds: number) => {
 		if (currentDuration <= 0 || sliderWidthPx <= 0) return;
 		const progress = isScrubbingRef.current

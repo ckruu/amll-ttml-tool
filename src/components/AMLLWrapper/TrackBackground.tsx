@@ -39,19 +39,12 @@ function releaseArt(blob: Blob) {
 	}
 }
 
-/**
- * Track cover art + palette, shared across preview instances via a
- * blob-keyed cache (object URL + palette computed once per track).
- */
 export function useTrackArt(): TrackArt | null {
 	const loadedAudio = useAtomValue(loadedAudioAtom);
-	// Bumped after each decode completes, when cover bytes are final.
-	// (loadedAudio alone fires before decode, when cover is still stale.)
 	const coverNonce = useAtomValue(coverNonceAtom);
 	const [art, setArt] = useState<TrackArt | null>(null);
 
 	useEffect(() => {
-		// No decode has completed yet (or state reset): nothing to read.
 		if (coverNonce <= 0) {
 			setArt(null);
 			return;
@@ -113,11 +106,6 @@ export function useTrackArt(): TrackArt | null {
 	return art;
 }
 
-/**
- * Beat-reactive shader background behind the lyrics. Cover art (when the
- * loaded track embeds any) drives the mesh gradient; low-frequency energy
- * from the master gain drives the pulse. No audio file → default gradient.
- */
 export const TrackBackground = memo(
 	({
 		art,
@@ -166,7 +154,6 @@ export const TrackBackground = memo(
 				try {
 					sampleRate = audioEngine.ctx.sampleRate;
 				} catch {
-					// keep fallback
 				}
 				const binHz = sampleRate / analyser.fftSize;
 				const lo = Math.max(0, Math.floor(80 / binHz));

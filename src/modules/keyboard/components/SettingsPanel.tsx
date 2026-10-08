@@ -26,7 +26,6 @@ const KeyBindingsEdit = ({ command }: { command: KeyBindingCommand }) => {
 							const newKeys = await recordShortcut();
 							setKeys(newKeys);
 						} catch {
-							// 用户取消
 						} finally {
 							setListening(false);
 						}

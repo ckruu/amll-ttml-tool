@@ -1,13 +1,3 @@
-/*
- * Copyright 2023-2025 Steve Xiao (stevexmh@qq.com) and contributors.
- *
- * 本源代码文件是属于 AMLL TTML Tool 项目的一部分。
- * This source code file is a part of AMLL TTML Tool project.
- * 本项目的源代码的使用受到 GNU GENERAL PUBLIC LICENSE version 3 许可证的约束，具体可以参阅以下链接。
- * Use of this source code is governed by the GNU GPLv3 license that can be found through the following link.
- *
- * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
- */
 
 import type { TTMLLyric, LyricLine, LyricWord } from "$/types/ttml";
 
@@ -15,9 +5,6 @@ export interface AppleTtmlOptions {
 	lang?: string;
 }
 
-/**
- * Format milliseconds to HH:MM:SS.mmm, zero-padded, always 3 ms digits.
- */
 export function formatTime(ms: number): string {
 	const totalMs = Math.round(ms);
 	const mmm = ((totalMs % 1000) + 1000) % 1000;
@@ -41,7 +28,6 @@ function resolveLang(lyric: TTMLLyric, opts?: AppleTtmlOptions): string {
 	if (opts?.lang && opts.lang.trim()) return opts.lang.trim();
 	const langMeta = lyric.metadata.find((m) => m.key.toLowerCase() === "language");
 	if (langMeta?.value[0]?.trim()) return langMeta.value[0].trim();
-	// also check "lang" custom key
 	const lang2 = lyric.metadata.find((m) => m.key.toLowerCase() === "lang");
 	if (lang2?.value[0]?.trim()) return lang2.value[0].trim();
 	return "en";
@@ -55,7 +41,6 @@ type Group = {
 
 function isEmptyLine(line: LyricLine): boolean {
 	if (line.words.length === 0) return true;
-	// Legacy import represents <p></p> as words:[{word:""}]
 	return line.words.every((w) => w.word === "");
 }
 
@@ -73,7 +58,6 @@ function groupLines(lines: LyricLine[]): Group[] {
 			groups.push({ main: null, bgLines: batch, isEmpty: false });
 			continue;
 		}
-		// non-BG
 		if (isEmptyLine(line)) {
 			groups.push({ main: line, bgLines: [], isEmpty: true });
 			i++;
@@ -99,13 +83,9 @@ function buildSpansContent(words: LyricWord[]): string {
 	let out = "";
 	for (const w of words) {
 		if (isWhitespaceWord(w)) {
-			// preserve exactly as plain text (usually single space, but keep as-is)
 			out += w.word;
 		} else {
 			out += `<span begin="${formatTime(w.startTime)}" end="${formatTime(w.endTime)}">${escapeXml(w.word)}</span>`;
-			// note: spaces between words are represented as separate whitespace-word entries,
-			// so we don't inject extra spaces here. The inter-word space will be the next
-			// whitespace word's plain text node, yielding </span> <span ...>
 		}
 	}
 	return out;
@@ -116,10 +96,6 @@ function buildMainContent(words: LyricWord[]): string {
 }
 
 function buildBgInnerContent(bgWords: LyricWord[]): string {
-	// Safety net: the WASM importer strips outer BG parentheses ("(x)" -> "x").
-	// Repair-on-import normally restores them, but ensure here too so a legacy
-	// file re-exports with "(...)" even if it bypassed the repair path.
-	// Idempotent: never double-add.
 	const timingIdx: number[] = [];
 	for (let i = 0; i < bgWords.length; i++) {
 		if (!isWhitespaceWord(bgWords[i])) timingIdx.push(i);
@@ -144,10 +120,6 @@ function buildBgInnerContent(bgWords: LyricWord[]): string {
 	return buildSpansContent(bgWords);
 }
 
-/**
- * Warn when a line is one single span covering the whole line (no word-level timing),
- * because Cider cannot animate it per syllable.
- */
 export function getAppleTTMLWarnings(lyric: TTMLLyric): string[] {
 	const warnings: string[] = [];
 	for (let idx = 0; idx < lyric.lyricLines.length; idx++) {
@@ -156,13 +128,9 @@ export function getAppleTTMLWarnings(lyric: TTMLLyric): string[] {
 		const nonWs = getTimingWords(line.words);
 		if (nonWs.length === 1 && line.words.length === 1) {
 			const w = nonWs[0];
-			// if word timing equals line timing (or line start/end are 0 and word covers)
-			// treat as single-span line
 			if (w.startTime === line.startTime && w.endTime === line.endTime) {
 				warnings.push(`Line ${idx + 1} is a single span covering the whole line — Cider cannot animate per syllable`);
 			} else if (line.startTime === 0 && line.endTime === 0) {
-				// still line timing not set but single word — often indicates lack of word timing
-				// we check if there's effectively no segmentation
 				warnings.push(`Line ${idx + 1} has only one word — consider splitting for per-syllable animation`);
 			}
 		}
@@ -170,22 +138,16 @@ export function getAppleTTMLWarnings(lyric: TTMLLyric): string[] {
 	return warnings;
 }
 
-/**
- * Pure Apple Music-style TTML serializer.
- * Rules 1-9 from spec.
- */
 export function toAppleTTML(lyric: TTMLLyric, opts?: AppleTtmlOptions): string {
 	const lang = resolveLang(lyric, opts);
 	const groups = groupLines(lyric.lyricLines);
 
-	// Agent detection for duet head
 	const agentOf = (g: Group): string => {
 		if (g.main) return g.main.isDuet ? "v2" : "v1";
 		if (g.bgLines.length > 0) return g.bgLines[0].isDuet ? "v2" : "v1";
 		return "v1";
 	};
 	const usedAgents = new Set<string>(groups.map(agentOf));
-	// Filter to only agents that actually appear when groups not empty; if lyric has no lines, single
 	const hasV1 = usedAgents.has("v1");
 	const hasV2 = usedAgents.has("v2");
 	const distinctAgents: string[] = [];
@@ -212,11 +174,9 @@ export function toAppleTTML(lyric: TTMLLyric, opts?: AppleTtmlOptions): string {
 			pEnd = formatTime(g.main.endTime);
 			inner = "";
 		} else if (g.main === null) {
-			// standalone BG batch
 			const flatBg = g.bgLines.flatMap((l) => l.words);
 			const timingWords = getTimingWords(flatBg);
 			if (timingWords.length === 0) {
-				// fallback to first bg line times
 				const first = g.bgLines[0];
 				pBegin = formatTime(first.startTime);
 				pEnd = formatTime(first.endTime);
@@ -227,7 +187,6 @@ export function toAppleTTML(lyric: TTMLLyric, opts?: AppleTtmlOptions): string {
 				pEnd = formatTime(maxEnd);
 			}
 			const innerBg = buildBgInnerContent(flatBg);
-			// standalone BG still needs wrapper timed to p
 			inner = `<span ttm:role="x-bg" begin="${pBegin}" end="${pEnd}">${innerBg}</span>`;
 		} else {
 			const mainWords = g.main.words;
@@ -244,9 +203,7 @@ export function toAppleTTML(lyric: TTMLLyric, opts?: AppleTtmlOptions): string {
 			}
 			let mainContent = buildMainContent(mainWords);
 			if (flatBg.length > 0) {
-				// ensure exactly one space before BG wrapper
 				if (mainContent === "") {
-					// no main content, no leading space needed, but still need wrapper alone
 				} else {
 					const trailing = mainContent.match(/ +$/);
 					if (!trailing) {
@@ -263,7 +220,6 @@ export function toAppleTTML(lyric: TTMLLyric, opts?: AppleTtmlOptions): string {
 			}
 		}
 
-		// Empty interlude <p></p> carries no agent in Apple reference files
 		const agentAttr = isDuet && !g.isEmpty ? ` ttm:agent="${agentOf(g)}"` : "";
 		divContentParts.push(`<p begin="${pBegin}" end="${pEnd}"${agentAttr}>${inner}</p>`);
 	}

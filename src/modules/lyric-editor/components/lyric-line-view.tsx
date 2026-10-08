@@ -1,13 +1,3 @@
-/*
- * Copyright 2023-2025 Steve Xiao (stevexmh@qq.com) and contributors.
- *
- * 本源代码文件是属于 AMLL TTML Tool 项目的一部分。
- * This source code file is a part of AMLL TTML Tool project.
- * 本项目的源代码的使用受到 GNU GENERAL PUBLIC LICENSE version 3 许可证的约束，具体可以参阅以下链接。
- * Use of this source code is governed by the GNU GPLv3 license that can be found through the following link.
- *
- * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
- */
 
 import {
 	AddFilled,
@@ -23,7 +13,7 @@ import {
 	Text,
 	TextField,
 } from "@radix-ui/themes";
-import classNames from "classnames";
+import { cx } from "$/utils/cx";
 import { type Atom, atom, useAtomValue, useStore } from "jotai";
 import { splitAtom } from "jotai/utils";
 import { useSetImmerAtom } from "jotai-immer";
@@ -82,16 +72,12 @@ const parseRubyShortcut = (value: string) => {
 	};
 };
 
-// 定义一个派生 Atom，用于计算每一行的显示行号
 const lineDisplayNumbersAtom = atom((get) => {
 	const { lyricLines } = get(lyricLinesAtom);
 	const displayNumbers: number[] = [];
 	let currentNumber = 0;
 
 	for (const [index, line] of lyricLines.entries()) {
-		// 核心逻辑：只有当不是背景行时，计数器才+1
-		// 这样背景行就会自动继承上一行的行号
-		// 特例：首行从 1 开始
 		if (!index || !line.isBG) {
 			currentNumber++;
 		}
@@ -309,7 +295,6 @@ export const LyricLineView: FC<{
 	const isDragged = isDragging && dragSource === "main" && lineSelected;
 	const wordsContainerRef = useRef<HTMLDivElement>(null);
 
-	// 创建一个仅订阅当前行显示行号的 atom，优化性能
 	const displayNumberAtom = useMemo(
 		() => atom((get) => get(lineDisplayNumbersAtom)[lineIndex]),
 		[lineIndex],
@@ -347,7 +332,6 @@ export const LyricLineView: FC<{
 	const originalEndTimeRef = useRef<number | null>(null);
 	const originalNextStartTimeRef = useRef<number | null>(null);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: 用于呈现时间戳更新效果
 	useEffect(() => {
 		if (!visualizeTimestampUpdate) return;
 		const animation = startTimeRef.current?.animate(
@@ -377,7 +361,6 @@ export const LyricLineView: FC<{
 		}
 	}, [toolMode]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: 用于呈现时间戳更新效果
 	useEffect(() => {
 		if (!visualizeTimestampUpdate) return;
 		const animation = endTimeRef.current?.animate(
@@ -514,7 +497,6 @@ export const LyricLineView: FC<{
 						editLyricLines((state) => {
 							state.lyricLines.splice(lineIndex, 0, newLyricLine());
 						});
-						// setInsertMode(InsertMode.None);
 						setEnableInsert(false);
 					}}
 				>
@@ -535,7 +517,7 @@ export const LyricLineView: FC<{
 						mx="2"
 						my="1"
 						direction="row"
-						className={classNames(
+						className={cx(
 							styles.lyricLine,
 							lineSelected && styles.selected,
 							followActive && styles.followActive,
@@ -557,7 +539,7 @@ export const LyricLineView: FC<{
 						<div>
 							<Flex direction="column" align="center" justify="center" ml="3">
 								<Text
-									className={classNames(
+									className={cx(
 										styles.lineNumber,
 										line.ignoreSync && styles.ignored,
 									)}
@@ -570,14 +552,14 @@ export const LyricLineView: FC<{
 								{line.isDuet && <TextAlignRightFilled color="#44AA33" />}
 							</Flex>
 							<div
-								className={classNames(
+								className={cx(
 									styles.lyricLineContainer,
 									toolMode === ToolMode.Edit && styles.edit,
 									toolMode === ToolMode.Sync && styles.sync,
 								)}
 							>
 								<div
-									className={classNames(
+									className={cx(
 										styles.lyricWordsContainer,
 										toolMode === ToolMode.Edit && styles.edit,
 										toolMode === ToolMode.Sync && styles.sync,
@@ -656,7 +638,7 @@ export const LyricLineView: FC<{
 									{toolMode === ToolMode.Edit && (
 										<TextField.Root
 											placeholder={t("lyricLineView.insertWord", "插入单词…")}
-											className={classNames(
+											className={cx(
 												styles.insertWordField,
 												words.length === 0 && styles.empty,
 											)}
@@ -734,7 +716,7 @@ export const LyricLineView: FC<{
 									</div>
 									<button
 										type="button"
-										className={classNames(styles.endTime, styles.endTimeButton)}
+										className={cx(styles.endTime, styles.endTimeButton)}
 										ref={endTimeRef}
 										onClick={onToggleEndTimeLink}
 									>
@@ -775,7 +757,6 @@ export const LyricLineView: FC<{
 						editLyricLines((state) => {
 							state.lyricLines.splice(lineIndex + 1, 0, newLyricLine());
 						});
-						// setInsertMode(InsertMode.None);
 						setEnableInsert(false);
 					}}
 				>

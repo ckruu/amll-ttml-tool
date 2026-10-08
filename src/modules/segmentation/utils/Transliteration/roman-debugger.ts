@@ -8,7 +8,6 @@ export const useRomanDebugger = () => {
 	const store = useStore();
 
 	useEffect(() => {
-		// biome-ignore lint/suspicious/noExplicitAny: 调试用
 		(window as any).debugRoman = (startLine = 0, endLine = 100) => {
 			const { lyricLines } = store.get(lyricLinesAtom);
 			const targetLines = lyricLines.slice(startLine, endLine + 1);

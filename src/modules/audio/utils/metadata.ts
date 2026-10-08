@@ -7,9 +7,6 @@ export interface AudioTrackMetadata {
 	fileName: string;
 }
 
-/**
- * 将单个元数据值按照常见的标点分隔符拆分并去重
- */
 export function splitMetadataValue(rawValue?: string): string[] {
 	if (!rawValue || rawValue.trim() === "") return [];
 	const values = rawValue
@@ -19,9 +16,6 @@ export function splitMetadataValue(rawValue?: string): string[] {
 	return Array.from(new Set(values));
 }
 
-/**
- * 从原始 Tag 字典中收集所有匹配目标键名（不区分大小写）的值，并进行拆分与去重
- */
 export function collectAndSplitMetadataValues(
 	raw: Record<string, string>,
 	targetKeys: string[],
@@ -43,9 +37,6 @@ export function collectAndSplitMetadataValues(
 	return collectedValues;
 }
 
-/**
- * 从原始媒体 Tag 与可选的音频 File 对象中解析出标准的 AudioTrackMetadata 结构
- */
 export function parseAudioTrackMetadata(
 	raw: Record<string, string>,
 	file?: File,

@@ -1,13 +1,3 @@
-/*
- * Copyright 2023-2025 Steve Xiao (stevexmh@qq.com) and contributors.
- *
- * 本源代码文件是属于 AMLL TTML Tool 项目的一部分。
- * This source code file is a part of AMLL TTML Tool project.
- * 本项目的源代码的使用受到 GNU GENERAL PUBLIC LICENSE version 3 许可证的约束，具体可以参阅以下链接。
- * Use of this source code is governed by the GNU GPLv3 license that can be found through the following link.
- *
- * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
- */
 
 import { Box, ContextMenu, Flex, Text } from "@radix-ui/themes";
 import { atom, useAtomValue, useSetAtom, useStore } from "jotai";
@@ -136,19 +126,9 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 		});
 	}, []);
 
-	/**
-	 * Scroll the follow-active line to the exact vertical center of the
-	 * viewport, measured from the rendered row so lines of any height land
-	 * dead-center. Falls back to the list jump (then re-measures, bounded)
-	 * when the row isn't rendered yet, e.g. after a far seek.
-	 */
 	const scrollActiveLineToCenter = useCallback(
 		(index: number, smooth: boolean, retries = 2) => {
 			const viewEl = viewElRef.current;
-			// NOTE: viewEl itself is the scroll container (overflowY: auto);
-			// its parent does not scroll. Rows are positioned relative to
-			// viewEl (position: relative), so offsetTop is already in the
-			// scroller's coordinate space.
 			if (!viewEl) return;
 			const row = viewEl.querySelector(
 				`[data-absolute-index="${index}"]`,
@@ -210,10 +190,6 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 		}
 	}, [jumpAction, store, scrollToLineIndex]);
 
-	// Shared follow-playback: keep the currently playing line centered in
-	// Edit and Sync tabs. The highlight strictly follows the line's own
-	// [startTime, endTime] window: it clears in gaps (holding scroll
-	// position) and reappears when the next line starts.
 	useEffect(() => {
 		lastFollowedIndexRef.current = -1;
 		setFollowActiveLineIndex(null);

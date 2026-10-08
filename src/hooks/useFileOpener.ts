@@ -1,6 +1,3 @@
-/**
- * @description 处理打开文件的逻辑
- */
 
 import {
 	type LyricLine,
@@ -223,12 +220,8 @@ export const useFileOpener = () => {
 					const result = ttmlToAmll(text);
 
 					if (result.success) {
-						// Repair legacy import so Apple re-export is fixed automatically:
-						// agentId->isDuet, BG parens, empty interludes. Never changes shape.
 						const repaired = repairLegacyImport(result.data, text);
 						lyricData = normalizeAmllLyricResult(repaired.result);
-						// Preserve xml:lang (ttmlToAmll drops "language" metadata).
-						// Old files carry none -> stays absent; user can add it manually.
 						if (
 							!lyricData.metadata.some(
 								(m) => m.key.toLowerCase() === "language",
@@ -323,11 +316,6 @@ export const useFileOpener = () => {
 	);
 
 	const openFile = useCallback(
-		/**
-		 * 打开文件
-		 * @param file
-		 * @param forceExt 可选参数，用于强制指定解析方式，不传入则从文件后缀名推断
-		 */
 		(file: File, forceExt?: string) => {
 			const run = () => performOpenFile(file, forceExt);
 

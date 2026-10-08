@@ -7,7 +7,16 @@ import type {
 } from "$/modules/spectrogram/workers/types";
 import { spectrogramLogger } from "../logger";
 
-const MAX_CACHED_TILES = 70;
+const getMaxCachedTiles = () => {
+	try {
+		const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+		if (typeof mem === "number" && mem <= 4) return 40;
+	} catch {
+		return 70;
+	}
+	return 70;
+};
+const MAX_CACHED_TILES = getMaxCachedTiles();
 
 export type TileEntry = {
 	bitmap: ImageBitmap;

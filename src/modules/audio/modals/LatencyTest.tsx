@@ -180,7 +180,6 @@ export const LatencyTestDialog = memo(() => {
 			if (hitOffsetsRef.current.length > 100) {
 				hitOffsetsRef.current.shift();
 			}
-			// 正值为快，负值为慢
 			setHitOffset((old) => {
 				const v = (diff * 1000) | 0;
 				if (old === null)

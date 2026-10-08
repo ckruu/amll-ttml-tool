@@ -1,6 +1,3 @@
-/**
- * @description 高级分词组件
- */
 
 import {
 	DeleteRegular,
@@ -473,7 +470,6 @@ export const AdvancedSegmentationDialog = memo(() => {
 													<span
 														className={styles.previewWord}
 														key={`${word}-${part}-${
-															// biome-ignore lint/suspicious/noArrayIndexKey: 这个列表顺序完全不会发生变化
 															i
 														}`}
 													>

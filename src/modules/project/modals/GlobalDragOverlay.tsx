@@ -1,6 +1,3 @@
-/**
- * @description 拖拽文件到应用上方时显示的遮罩层
- */
 
 import { ArrowUploadRegular } from "@fluentui/react-icons";
 import { Flex, Text } from "@radix-ui/themes";

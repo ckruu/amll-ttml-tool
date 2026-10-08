@@ -6,23 +6,6 @@ const capitalizeFirstLetter = (str: string) => {
 	return str.charAt(0).toUpperCase() + str.slice(1);
 };
 
-/**
- * 将一行歌词中的括号内容提取到新的背景人声行中
- *
- * 例如，输入 123 (abc) 456 将会输出
- * - 123 456
- * - abc (背景人声)
- *
- * 多个括号中的内容会原样拼接到新的行中，例如 123 (abc) 789 (def) 将会输出
- * - 123 789
- * - abc def (背景人声)
- *
- * 如果传入的歌词行全部被括号包裹，会直接变成背景人声
- *
- * 注意目前只适用于逐行歌词，不要传逐字歌词
- * @param line 原始的歌词行
- * @returns 提取背景人声后的歌词行数组，第二行应为背景人声
- */
 export function extractParenthesesToBg(line: LyricLine): LyricLine[] {
 	const fullText = line.words.map((w) => w.word).join("");
 	const regex = /([(（])(.*?)([)）])/g;

@@ -37,25 +37,18 @@ export type RadixAccentColor = (typeof RADIX_ACCENT_COLORS)[number];
 export interface ThemeScheme {
 	id: string;
 	name: string;
-	/** Radix preset for light appearance */
 	light: RadixAccentColor;
-	/** Radix preset for dark appearance */
 	dark: RadixAccentColor;
-	/** Optional exact hex override for light appearance (e.g. "#22c55e") */
 	customLight?: string;
-	/** Optional exact hex override for dark appearance */
 	customDark?: string;
 	useCustomLight: boolean;
 	useCustomDark: boolean;
-	/** Active-word highlight color (solid hex; translucency applied in CSS) */
 	highlightLight: string;
 	highlightDark: string;
-	/** Timing chip colors, shared across appearances (start vs end stay distinct) */
 	timingStart: string;
 	timingEnd: string;
 }
 
-/** Legacy fallbacks for schemes stored before these fields existed */
 export const LEGACY_HIGHLIGHT_HEX = "#2f6fde";
 export const LEGACY_TIMING_START_HEX = "#46a758";
 export const LEGACY_TIMING_END_HEX = "#e5484d";
@@ -142,9 +135,7 @@ export const activeThemeSchemeAtom = atom((get): ThemeScheme => {
 });
 
 export interface ResolvedThemeAccent {
-	/** Radix preset to pass to <Theme accentColor> (always valid) */
 	accent: RadixAccentColor;
-	/** Exact hex to overlay via CSS vars, if the scheme uses custom color */
 	customHex?: string;
 }
 
@@ -164,7 +155,7 @@ function hexToHue(hex: string): number {
 	const b = Number.parseInt(h.slice(4, 6), 16) / 255;
 	const max = Math.max(r, g, b);
 	const min = Math.min(r, g, b);
-	if (max === min) return -1; // achromatic
+	if (max === min) return -1;
 	const d = max - min;
 	let hue = 0;
 	if (max === r) hue = ((g - b) / d) % 6;
@@ -175,11 +166,9 @@ function hexToHue(hex: string): number {
 	return hue;
 }
 
-/** Map an arbitrary hex to the closest Radix accent so <Theme> stays valid. */
 export function closestAccentForHex(hex: string): RadixAccentColor {
 	const hue = hexToHue(hex);
 	if (hue < 0) return "gray";
-	// Rough hue wheel mapping onto Radix accents
 	if (hue < 15 || hue >= 345) return "red";
 	if (hue < 30) return "tomato";
 	if (hue < 45) return "orange";
@@ -234,7 +223,6 @@ export const normalizeHex = (v: unknown, fallback: string): string =>
 		? (v as string).trim()
 		: fallback;
 
-/** Active-word highlight hex for the current appearance */
 export const resolvedHighlightAtom = atom((get): string => {
 	const scheme = get(activeThemeSchemeAtom);
 	const isDark = get(isDarkThemeAtom);
@@ -249,7 +237,6 @@ export interface ResolvedTimingColors {
 	end: string;
 }
 
-/** Start/end timing chip hexes (shared across appearances) */
 export const resolvedTimingAtom = atom((get): ResolvedTimingColors => ({
 	start: normalizeHex(get(activeThemeSchemeAtom).timingStart, LEGACY_TIMING_START_HEX),
 	end: normalizeHex(get(activeThemeSchemeAtom).timingEnd, LEGACY_TIMING_END_HEX),

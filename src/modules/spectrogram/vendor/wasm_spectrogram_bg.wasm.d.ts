@@ -1,5 +1,3 @@
-/* tslint:disable */
-/* eslint-disable */
 export const __wbg_get_spectrogramconfig_fft_size: (a: number) => number;
 export const __wbg_get_spectrogramconfig_gain: (a: number) => number;
 export const __wbg_get_spectrogramconfig_hop_length: (a: number) => number;

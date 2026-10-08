@@ -17,10 +17,6 @@ import {
 import { outlineJumpActionAtom, outlineScrollToCurrentAtom } from "$/states/sidebar.ts";
 import styles from "./OutlinePanel.module.css";
 
-/**
- * Outline tab header controls (rendered in the sidebar top row):
- * line count + jump-to-current button.
- */
 export const OutlineHeaderControls: FC = () => {
 	const { t } = useTranslation();
 	const { lyricLines } = useAtomValue(lyricLinesAtom);

@@ -89,9 +89,6 @@ export class DecoderWorkerClient {
 		}
 	}
 
-	/**
-	 * Private helper to enforce typing on outgoing messages to the Decoder Worker
-	 */
 	private postCommand(cmd: WorkerCommand): void {
 		this.worker?.postMessage(cmd);
 	}

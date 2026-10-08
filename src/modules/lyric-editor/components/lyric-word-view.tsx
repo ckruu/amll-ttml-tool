@@ -1,13 +1,3 @@
-/*
- * Copyright 2023-2026 Steve Xiao (stevexmh@qq.com) and contributors.
- *
- * 本源代码文件是属于 AMLL TTML Tool 项目的一部分。
- * This source code file is a part of AMLL TTML Tool project.
- * 本项目的源代码的使用受到 GNU GENERAL PUBLIC LICENSE version 3 许可证的约束，具体可以参阅以下链接。
- * Use of this source code is governed by the GNU GPLv3 license that can be found through the following link.
- *
- * https://github.com/amll-dev/amll-ttml-tool/blob/main/LICENSE
- */
 
 import {
 	CutRegular,
@@ -18,7 +8,7 @@ import {
 	TaskListLtrRegular,
 } from "@fluentui/react-icons";
 import { ContextMenu, IconButton, TextField } from "@radix-ui/themes";
-import classNames from "classnames";
+import { cx } from "$/utils/cx";
 import { type Atom, atom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { useSetImmerAtom } from "jotai-immer";
 import {
@@ -334,7 +324,6 @@ function WordEditField<F extends keyof LyricWord, V extends LyricWord[F]>({
 	fieldName,
 	formatter,
 	parser,
-	// textFieldStyle,
 	children,
 	...other
 }: PropsWithChildren<
@@ -458,7 +447,7 @@ const LyricWordViewEditAdvance = ({
 
 	const className = useMemo(
 		() =>
-			classNames(
+			cx(
 				styles.lyricWord,
 				styles.edit,
 				styles.advance,
@@ -645,7 +634,7 @@ const LyricWorldViewEdit = ({
 
 	const className = useMemo(
 		() =>
-			classNames(
+			cx(
 				styles.lyricWord,
 				styles.edit,
 				isWordSelected && styles.selected,
@@ -798,7 +787,6 @@ const LyricSyncWordView: FC<{
 		return () => audioEngine.offTimeUpdate(updateActiveState);
 	}, [startTime, endTime, highlightActiveWord]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: 用于呈现时间戳更新效果
 	useEffect(() => {
 		if (!visualizeTimestampUpdate) return;
 		const animation = startTimeRef.current?.animate(
@@ -822,7 +810,6 @@ const LyricSyncWordView: FC<{
 		};
 	}, [startTime, visualizeTimestampUpdate]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: 用于呈现时间戳更新效果
 	useEffect(() => {
 		if (!visualizeTimestampUpdate) return;
 		const animation = endTimeRef.current?.animate(
@@ -855,7 +842,7 @@ const LyricSyncWordView: FC<{
 
 	const className = useMemo(
 		() =>
-			classNames(
+			cx(
 				styles.lyricWord,
 				styles.sync,
 				isWordSelected && styles.selected,
@@ -897,13 +884,13 @@ const LyricSyncWordView: FC<{
 			}}
 		>
 			{showTimestamps && (
-				<div className={classNames(styles.startTime)} ref={startTimeRef}>
+				<div className={cx(styles.startTime)} ref={startTimeRef}>
 					{msToTimestamp(startTime)}
 				</div>
 			)}
 			<div className={styles.displayWord}>{displayWord}</div>
 			{showTimestamps && (
-				<div className={classNames(styles.endTime)} ref={endTimeRef}>
+				<div className={cx(styles.endTime)} ref={endTimeRef}>
 					{showEndTimeAsDuration
 						? `+${endTime - startTime}ms`
 						: msToTimestamp(endTime)}

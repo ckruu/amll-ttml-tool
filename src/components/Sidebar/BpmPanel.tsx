@@ -363,7 +363,6 @@ export const BpmPanel: FC = () => {
 							<Flex gap="1" style={{ width: "100%" }} justify="center">
 								{Array.from({ length: 10 }).map((_, index) => (
 									<Box
-										// biome-ignore lint/suspicious/noArrayIndexKey: fixed 10 indicator bars
 										key={index}
 										style={{
 											flex: 1,
@@ -432,7 +431,6 @@ export const BpmPanel: FC = () => {
 							<Flex gap="1" style={{ width: "100%" }} justify="center">
 								{Array.from({ length: 10 }).map((_, index) => (
 									<Box
-										// biome-ignore lint/suspicious/noArrayIndexKey: fixed 10 indicator bars
 										key={index}
 										style={{
 											flex: 1,

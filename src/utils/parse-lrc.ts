@@ -3,15 +3,9 @@ import { type LyricLine, newLyricLine, newLyricWord } from "$/types/ttml";
 interface ParsedEvent {
 	time: number;
 	text: string;
-	index: number; // 用于保持同时间戳下的原始顺序
+	index: number;
 }
 
-/**
- * 一个更好的 LRC 解析器，相比于上游的 LRC 解析器，支持丢弃空行、trim 歌词和自动检测翻译与音译行
- * @note 如果遇到相同时间戳的歌词行，第一行会作为主歌词行，第二行会作为翻译歌词，第三行会作为音译歌词
- * @param lrcContent LRC 字符串
- * @returns LyricLine 数组
- */
 export function parseLrc(lrcContent: string): LyricLine[] {
 	const lines = lrcContent.split(/\r?\n/);
 	const parsedEvents: ParsedEvent[] = [];
@@ -56,7 +50,7 @@ export function parseLrc(lrcContent: string): LyricLine[] {
 		}
 
 		const nextEvent = i < parsedEvents.length ? parsedEvents[i] : null;
-		const endTime = nextEvent ? nextEvent.time : currentTime + 10000; // 最后一行只加10秒，以便可以在频谱图上调整而不会要拉到后面很远
+		const endTime = nextEvent ? nextEvent.time : currentTime + 10000;
 
 		const textEvents = group.filter((e) => e.text.length > 0);
 
@@ -76,12 +70,10 @@ export function parseLrc(lrcContent: string): LyricLine[] {
 		mainLine.startTime = currentTime;
 		mainLine.endTime = endTime;
 
-		// 第二行作为翻译
 		if (textEvents.length > 1) {
 			mainLine.translatedLyric = textEvents[1].text;
 		}
 
-		// 第三行作为音译
 		if (textEvents.length > 2) {
 			mainLine.romanLyric = textEvents[2].text;
 		}

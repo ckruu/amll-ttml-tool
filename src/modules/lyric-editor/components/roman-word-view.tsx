@@ -1,5 +1,5 @@
 import { Button, TextField } from "@radix-ui/themes";
-import classNames from "classnames";
+import { cx } from "$/utils/cx";
 import { type Atom, useAtom, useAtomValue, type WritableAtom } from "jotai";
 import { useSetImmerAtom } from "jotai-immer";
 import {
@@ -95,7 +95,7 @@ export const RomanWordView = ({
 			<TextField.Root
 				ref={inputRef}
 				size="1"
-				className={classNames(
+				className={cx(
 					styles.romanWordView,
 					word.romanWarning && styles.warning,
 				)}
@@ -112,7 +112,7 @@ export const RomanWordView = ({
 			size="1"
 			variant="soft"
 			color="gray"
-			className={classNames(
+			className={cx(
 				styles.romanWordView,
 				!word.romanWord && styles.placeholder,
 				word.romanWarning && styles.warning,

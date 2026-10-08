@@ -10,7 +10,6 @@ export const fontModeAtom = atomWithStorage<FontMode>(
 	"simple",
 );
 
-// Simple mode: one Latin + one CJK family applied across all views.
 export const fontSimpleLatinAtom = atomWithStorage(
 	"settings_fontLatin",
 	"Inter",
@@ -20,7 +19,6 @@ export const fontSimpleCjkAtom = atomWithStorage(
 	"MiSans",
 );
 
-// Advanced mode: per-view (edit / sync / preview) Latin + CJK families.
 export const fontEditLatinAtom = atomWithStorage(
 	"settings_fontEditLatin",
 	"Inter",
@@ -63,7 +61,6 @@ export const CJK_FONT_PRESETS = [
 
 export interface CustomFontEntry {
 	id: string;
-	/** Sanitized family name used in font-family stacks */
 	family: string;
 	fileName: string;
 	updatedAt: number;
@@ -135,7 +132,6 @@ export const sanitizeFontFamily = (raw: string): string =>
 export const familyToCss = (family: string): string => {
 	const clean = sanitizeFontFamily(family);
 	if (!clean) return "sans-serif";
-	// Generic families and system-ui must stay unquoted.
 	if (
 		/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-sans-serif|ui-serif|ui-monospace|ui-rounded)$/i.test(
 			clean,
@@ -146,14 +142,9 @@ export const familyToCss = (family: string): string => {
 	return `"${clean}"`;
 };
 
-/**
- * Build a per-glyph resolving stack: Latin glyphs use the Latin font,
- * CJK glyphs fall through to the CJK font.
- */
 export const buildFontStack = (latin: string, cjk: string): string =>
 	`${familyToCss(latin)}, ${familyToCss(cjk)}, system-ui, sans-serif`;
 
-// Loaded FontFace handles so entries can be removed from document.fonts.
 const loadedFaces = new Map<string, { face: FontFace; url: string }>();
 
 async function loadFontFace(
@@ -171,7 +162,6 @@ async function loadFontFace(
 	}
 }
 
-/** Registered custom families, for datalist options in the UI. */
 export const loadedCustomFamiliesAtom = atom<string[]>([]);
 
 export const registerCustomFontAtom = atom(
@@ -248,7 +238,6 @@ export const initCustomFontsAtom = atom(null, async (get, set) => {
 	set(loadedCustomFamiliesAtom, families);
 });
 
-// Interface (whole-app chrome) font: titlebar, ribbon, sidebar, dialogs.
 export const fontUiLatinAtom = atomWithStorage(
 	"settings_fontUiLatin",
 	"Inter",
@@ -279,7 +268,6 @@ export const fontStacksAtom = atom((get): FontStacks => {
 	return { edit: stack, sync: stack, preview: stack };
 });
 
-/** Whole-app interface font stack (themed chrome outside lyric views) */
 export const fontUiStackAtom = atom((get): string =>
 	buildFontStack(get(fontUiLatinAtom), get(fontUiCjkAtom)),
 );

@@ -13,9 +13,7 @@ export enum LayoutMode {
 }
 
 export enum TranslationOutputMode {
-	/** Apple Music 样式：逐行翻译/音译写入 `<head>` 的 `<iTunesMetadata>` 中 */
 	AppleMusic = "apple-music",
-	/** AMLL 样式：逐行翻译/音译写入为内嵌的 `x-translation` / `x-roman` */
 	Amll = "amll",
 }
 

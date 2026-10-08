@@ -51,7 +51,6 @@ export const SyllableSmoothingDialog = () => {
 	const [mergeSyllables, setMergeSyllables] = useState(false);
 	const [mergeOpen, setMergeOpen] = useState(false);
 
-	// Per-line smoothing inclusion + merge editor draft.
 	const [excludedLines, setExcludedLines] = useState<Set<number>>(new Set());
 	const [userJoins, setUserJoins] = useState<Set<string>>(new Set());
 	const [userCuts, setUserCuts] = useState<Set<string>>(new Set());
@@ -66,8 +65,6 @@ export const SyllableSmoothingDialog = () => {
 	const finalThreshold =
 		thresholdPreset === "custom" ? parsedCustom : Number(thresholdPreset);
 
-	// Auto-cluster layout shifts with the threshold: user gap overrides are
-	// threshold-robust and persist, but stale per-cluster smooth flags reset.
 	const resetStaleSmoothFlags = () => {
 		setSmoothOffKeys(new Set());
 	};

@@ -30,15 +30,7 @@ function fillRubyTimingFromWord(word: Draft<LyricWord>) {
 
 export function getUpdatedLineForDivider(
 	originalLine: ProcessedLyricLine,
-	/**
-	 * 分割线左侧 segment 的索引
-	 *
-	 * -1 表示行首
-	 */
 	segmentIndex: number,
-	/**
-	 * 拖拽后计算出的新时间戳
-	 */
 	newTime: number,
 	isGapCreation: boolean,
 	zoom: number,

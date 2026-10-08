@@ -100,7 +100,6 @@ export const useWaveformAnalyzer = ({
 					setBpmState({ status: "error", error: e.data.payload.error });
 				}
 
-				// 分析完销毁以便腾出内存
 				analyzerWorkerRef.current?.terminate();
 				analyzerWorkerRef.current = null;
 			} else if (e.data.type === "ANALYZE_ERROR") {
@@ -126,7 +125,6 @@ export const useWaveformAnalyzer = ({
 		);
 	}, [audioFile, setPcmDataReady, setBpmState, canvasRef, wsContainerRef]);
 
-	// 处理窗口大小变化并触发防抖重绘
 	useEffect(() => {
 		if (
 			sliderWidthPx > 0 &&
@@ -153,7 +151,6 @@ export const useWaveformAnalyzer = ({
 		}
 	}, [sliderWidthPx, wsContainerRef]);
 
-	// 如果音频引擎销毁了，或者音频引擎出错了，清空掉波形图
 	useEffect(() => {
 		if (engineState === "idle" && rendererWorkerRef.current) {
 			rendererWorkerRef.current.postMessage({ type: "CLEAR" });

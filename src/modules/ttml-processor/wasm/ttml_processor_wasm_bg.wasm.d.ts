@@ -1,5 +1,3 @@
-/* tslint:disable */
-/* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const amllToTtml: (a: number, b: number, c: number) => number;
 export const amllToTtmlResult: (a: number, b: number) => number;

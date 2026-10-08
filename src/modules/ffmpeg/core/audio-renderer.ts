@@ -19,16 +19,10 @@ export class AudioRenderer {
 
 	public onMessage?: (event: WorkletEvent) => void;
 
-	/**
-	 * Returns true if the AudioWorklet has been completely loaded.
-	 */
 	public get isWorkletLoaded(): boolean {
 		return this._isWorkletLoaded;
 	}
 
-	/**
-	 * Ensures the AudioWorklet module is added and the node is connected.
-	 */
 	public async initialize(channels: number): Promise<void> {
 		if (this._isWorkletLoaded && this.workletNode) {
 			return;
@@ -53,9 +47,6 @@ export class AudioRenderer {
 		}
 	}
 
-	/**
-	 * Sends the SharedArrayBuffer and Wasm binary to the Worklet.
-	 */
 	public bindQueue(
 		sharedBuffer: SharedArrayBuffer,
 		channels: number,
@@ -130,9 +121,6 @@ export class AudioRenderer {
 		});
 	}
 
-	/**
-	 * Resumes the AudioContext (Required by browser autoplay policies).
-	 */
 	public async resumeContext(): Promise<void> {
 		if (!this._isWorkletLoaded) {
 			console.warn(
@@ -144,9 +132,6 @@ export class AudioRenderer {
 		}
 	}
 
-	/**
-	 * Gets properties from the AudioContext.
-	 */
 	public get sampleRate(): number {
 		return this.audioCtx.sampleRate;
 	}
@@ -155,9 +140,6 @@ export class AudioRenderer {
 		return this.audioCtx.destination.maxChannelCount;
 	}
 
-	/**
-	 * Cleans up the audio node graph.
-	 */
 	public destroyNode(): void {
 		if (this.workletNode) {
 			this.postCommand({ type: "DESTROY" });
@@ -166,9 +148,6 @@ export class AudioRenderer {
 		}
 	}
 
-	/**
-	 * Private helper to enforce typing on outgoing messages to the Worklet
-	 */
 	private postCommand(cmd: WorkletCommand): void {
 		this.workletNode?.port.postMessage(cmd);
 	}

@@ -1,21 +1,10 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 
-/**
- * 侧边栏可显示的标签页 ID
- */
 export type SidebarTabId = "outline" | "bpm" | "preview";
 
-/**
- * 侧边栏可能显示的面板类型
- *
- * "none" 表示侧边栏关闭
- */
 export type SidebarPanelType = "none" | SidebarTabId;
 
-/**
- * 当前打开的侧边栏标签页列表
- */
 export const openSidebarTabsAtom = atomWithStorage<SidebarTabId[]>(
 	"openSidebarTabs",
 	["outline"],
@@ -26,11 +15,6 @@ const baseActiveSidebarTabAtom = atomWithStorage<SidebarPanelType>(
 	"outline",
 );
 
-/**
- * 当前激活和选中的面板
- *
- * 设为 "none" 关闭侧边栏并清空 openSidebarTabsAtom
- */
 export const activeSidebarTabAtom = atom(
 	(get) => {
 		const active = get(baseActiveSidebarTabAtom);
@@ -56,9 +40,6 @@ export const activeSidebarTabAtom = atom(
 	},
 );
 
-/**
- * 打开并激活指定标签页
- */
 export const openTabAtom = atom(null, (get, set, tabId: SidebarTabId) => {
 	const currentOpen = get(openSidebarTabsAtom);
 	if (!currentOpen.includes(tabId)) {
@@ -67,9 +48,6 @@ export const openTabAtom = atom(null, (get, set, tabId: SidebarTabId) => {
 	set(activeSidebarTabAtom, tabId);
 });
 
-/**
- * 关闭指定标签页
- */
 export const closeTabAtom = atom(null, (get, set, tabId: SidebarTabId) => {
 	const currentOpen = get(openSidebarTabsAtom);
 	const newOpen = currentOpen.filter((id) => id !== tabId);
@@ -85,9 +63,6 @@ export const closeTabAtom = atom(null, (get, set, tabId: SidebarTabId) => {
 	}
 });
 
-/**
- * 切换指定标签页的打开/关闭状态
- */
 export const toggleTabAtom = atom(
 	null,
 	(get, set, { tabId, open }: { tabId: SidebarTabId; open: boolean }) => {
@@ -114,19 +89,10 @@ export const toggleTabAtom = atom(
 	},
 );
 
-/**
- * 侧边栏的宽度
- */
 export const sidebarWidthAtom = atomWithStorage("sidebarWidth", 300);
 
-/**
- * 用于触发编辑器跳转的事件 Atom
- */
 export const outlineJumpActionAtom = atom<{ id: string; ts: number } | null>(
 	null,
 );
 
-/**
- * 用于触发大纲列表跳转到当前播放行的事件 Atom（由表头按钮触发）
- */
 export const outlineScrollToCurrentAtom = atom(0);

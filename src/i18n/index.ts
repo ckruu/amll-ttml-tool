@@ -6,30 +6,25 @@ import { initReactI18next } from "react-i18next";
 type TranslationResource = typeof resources;
 
 declare module "i18next" {
-	// Extend CustomTypeOptions
 	interface CustomTypeOptions {
-		// Extend the resources type to include all our translation keys
 		resources: {
 			translation: TranslationResource;
 		};
-		// Add defaultNS type
 		defaultNS: "translation";
-		// Add returnNull type
 		returnNull: false;
-		// Define allowed keys for translations
 		allowedKeys: keyof TranslationResource;
 	}
 }
 
 i18n
-	.use(initReactI18next) // passes i18n down to react-i18next
+	.use(initReactI18next)
 	.use(ICU)
 	.init({
 		resources,
 		debug: import.meta.env.DEV,
-		fallbackLng: "zh-CN",
+		fallbackLng: "en-US",
 		interpolation: {
-			escapeValue: false, // react already safes from xss
+			escapeValue: false,
 		},
 		returnNull: false,
 	})

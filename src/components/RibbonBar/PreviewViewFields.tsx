@@ -10,11 +10,6 @@ import {
 	sidebarPreviewFontSizeAtom,
 } from "$/modules/settings/states/preview";
 
-/**
- * Shared preview-view rows, embedded directly in each ribbon's Views
- * section (or Preview mode's View section) so there is only one place
- * for panel visibility toggles and preview appearance controls.
- */
 export const PreviewFontSizeField: FC<{ target: "sidebar" | "main" }> = ({
 	target,
 }) => {
@@ -26,8 +21,6 @@ export const PreviewFontSizeField: FC<{ target: "sidebar" | "main" }> = ({
 	const size = target === "sidebar" ? sidebarSize : mainSize;
 	const setSize = target === "sidebar" ? setSidebarSize : setMainSize;
 
-	// Draft text while typing, tagged with the atom value it started from so
-	// external changes automatically fall back to showing the atom value.
 	const [draft, setDraft] = useState<{ text: string; base: number } | null>(
 		null,
 	);
@@ -98,10 +91,6 @@ export const PreviewVsyncField: FC = () => {
 	);
 };
 
-/**
- * Compact label + slider + value row for preview style/background settings.
- * Works in raw atom units; callers convert to display units.
- */
 export const PreviewSliderRow: FC<{
 	label: string;
 	value: number;
@@ -140,7 +129,6 @@ export const PreviewSliderRow: FC<{
 	);
 };
 
-/** Label + checkbox row matching ribbon density. */
 export const PreviewCheckRow: FC<{
 	label: string;
 	checked: boolean;

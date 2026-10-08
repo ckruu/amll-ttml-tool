@@ -89,7 +89,6 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 		});
 	}
 
-	//#region Public API
 	public get state(): EngineState {
 		return this._state;
 	}
@@ -157,13 +156,6 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 		this.workerClient.seek(seconds);
 	}
 
-	/**
-	 * Sets the target time for auto-pause.
-	 *
-	 * The engine will automatically pause upon reaching this time. If a seek
-	 * operation occurs before this time is reached, the target remains set.
-	 * @param targetSeconds The target absolute timestamp (in seconds).
-	 */
 	public set pauseAt(second: number | null) {
 		if (second !== null && (!Number.isFinite(second) || second < 0)) {
 			console.warn("Invalid pauseAt value ignored", second);
@@ -173,9 +165,6 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 		this._pauseAt = second;
 		this.syncPauseAtToAudioController();
 	}
-	/**
-	 * Gets the target time for auto-pause.
-	 */
 	public get pauseAt(): number | null {
 		return this._pauseAt;
 	}
@@ -231,9 +220,6 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 		this.renderer.setAlgorithm(this._algorithm);
 	}
 
-	/**
-	 * Sets the formant multiplier factor and pitch compensation for spectral stretching.
-	 */
 	public setFormant(factor: number, compensatePitch: boolean = false): void {
 		this.renderer.setFormant(factor, compensatePitch);
 	}
@@ -285,9 +271,6 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 		return this.preloadPromise;
 	}
 
-	/**
-	 * Loads a file, prepares the multithreading environment, and extracts metadata.
-	 */
 	public async loadFile(file: File): Promise<void> {
 		if (!this._assetsPreloaded) {
 			await this.preloadAssets();
@@ -378,9 +361,6 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 		this.dispatch("play");
 	}
 
-	/**
-	 * Pauses the playback.
-	 */
 	public pause(): void {
 		if (this._state !== "playing") {
 			return;
@@ -425,9 +405,7 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 		this.resetState();
 		this._state = "idle";
 	}
-	//#endregion
 
-	//#region Internal Callbacks & Utils
 	private async fetchAndValidateWasm(
 		url: string,
 		signal: AbortSignal,
@@ -444,7 +422,7 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 		}
 		const view = new DataView(buffer);
 		const magic = view.getUint32(0, false);
-		if (magic !== 0x0061736d /* \0asm */) {
+		if (magic !== 0x0061736d ) {
 			throw new Error(
 				`Invalid WASM magic number detected. Server might have returned a 404 HTML page for: ${url}`,
 			);
@@ -565,5 +543,4 @@ export class FFmpegAudioEngine extends TypedEventTarget<EngineEventMap> {
 			this.loadReject = null;
 		}
 	}
-	//#endregion
 }

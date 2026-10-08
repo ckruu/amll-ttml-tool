@@ -5,10 +5,6 @@ const IS_MAC = navigator.userAgent.includes("Mac");
 const CONTROL_KEY = IS_MAC ? "Meta" : "Control";
 const DELETE_KEY = IS_MAC ? "Backspace" : "Delete";
 
-// =========================================================================================
-//  文件操作
-// =========================================================================================
-
 export const cmdNewFile = registerCommand(
 	"newFile",
 	[CONTROL_KEY, "KeyN"],
@@ -36,10 +32,6 @@ export const cmdOpenAudio = registerCommand(
 	t("settingsDialog.keybindings.openAudio"),
 	"File",
 );
-
-// =========================================================================================
-//  编辑与选择
-// =========================================================================================
 
 export const cmdUndo = registerCommand(
 	"undo",
@@ -90,10 +82,6 @@ export const cmdDeleteSelection = registerCommand(
 	"Edit",
 );
 
-// =========================================================================================
-//  视图模式
-// =========================================================================================
-
 export const cmdSwitchEditMode = registerCommand(
 	"switchEditMode",
 	["Shift", "Digit1"],
@@ -114,10 +102,6 @@ export const cmdSwitchPreviewMode = registerCommand(
 	t("settingsDialog.keybindings.switchPreviewMode"),
 	"View",
 );
-
-// =========================================================================================
-//  打轴操作
-// =========================================================================================
 
 export const cmdMoveNextWord = registerCommand(
 	"moveNextWord",
@@ -196,10 +180,6 @@ export const cmdMoveLastWordAndPlay = registerCommand(
 	"Sync",
 );
 
-// =========================================================================================
-//  音频控制
-// =========================================================================================
-
 export const cmdPlayPause = registerCommand(
 	"playPause",
 	["Space"],
@@ -255,10 +235,6 @@ export const cmdPlaybackRateReset = registerCommand(
 	t("settingsDialog.keybindings.playbackRateReset"),
 	"Audio",
 );
-
-// =========================================================================================
-//  频谱图/试听
-// =========================================================================================
 
 export const cmdAuditionSelectionBefore = registerCommand(
 	"auditionSelectionBefore",

@@ -130,7 +130,6 @@ export const BeatLinesOverlay: FC<BeatLinesOverlayProps> = ({
 				const x = beatTime * zoom;
 				return (
 					<div
-						// biome-ignore lint/suspicious/noArrayIndexKey: beat time and index key
 						key={`${beatTime.toFixed(3)}-${idx}`}
 						style={{
 							position: "absolute",

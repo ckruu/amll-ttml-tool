@@ -1,6 +1,3 @@
-/**
- * @description 分词引擎
- */
 
 import { type LyricLine, type LyricWord, newLyricWord } from "$/types/ttml";
 import { CharType, type SegmentationConfig } from "../types";
@@ -13,15 +10,9 @@ import {
 } from "./charUtils";
 
 export interface SegmentationContext {
-	/**
-	 * true 表示当前处于引号内部（下一个引号是闭引号）
-	 */
 	isQuoteOpen: boolean;
 }
 
-/**
- * @description 判断两个相邻字符是否应该合并
- */
 function isMergeablePair(
 	prev: CharType,
 	curr: CharType,
@@ -43,9 +34,6 @@ function isMergeablePair(
 	}
 }
 
-/**
- * @description 自动将一个字符串拆分为 token
- */
 function autoTokenize(text: string, config: SegmentationConfig): string[] {
 	if (!text) {
 		return [];
@@ -132,12 +120,6 @@ function calculateWeight(token: string, config: SegmentationConfig): number {
 	}
 }
 
-/**
- * @description 后处理
- *
- * 处理标点粘连，过滤空字符，计算总权重
- * @returns 处理完的 Token 列表、对应的权重列表、总权重
- */
 function postProcess(
 	tokens: string[],
 	config: SegmentationConfig,
@@ -146,9 +128,6 @@ function postProcess(
 	const processedTokens: string[] = [];
 	const tokenWeights: number[] = [];
 
-	/**
-	 * @description 用于存储等待向右合并的标点。例如 `(`
-	 */
 	let pendingPrefix = "";
 	let pendingPrefixWeight = 0;
 
@@ -171,22 +150,18 @@ function postProcess(
 			}
 
 			if (direction === MergeDirection.Right) {
-				// 向右合并
 				pendingPrefix += token;
 				pendingPrefixWeight += tokenWeight;
 			} else {
-				// 向左合并
 				if (processedTokens.length > 0) {
 					processedTokens[processedTokens.length - 1] += token;
 					tokenWeights[tokenWeights.length - 1] += tokenWeight;
 				} else {
-					// 行首就是应该向左合并的标点符号，存起来然后合并到第一个音节中
 					pendingPrefix += token;
 					pendingPrefixWeight += tokenWeight;
 				}
 			}
 		} else {
-			// 实词，将缓冲区的标点拼接在词前
 			const combinedToken = pendingPrefix + token;
 			const combinedWeight = pendingPrefixWeight + tokenWeight;
 
@@ -198,19 +173,16 @@ function postProcess(
 		}
 	}
 
-	// 行尾缓冲区里还有应该向右合并的标点，拼接到上一个词中
 	if (pendingPrefix) {
 		if (processedTokens.length > 0) {
 			processedTokens[processedTokens.length - 1] += pendingPrefix;
 			tokenWeights[tokenWeights.length - 1] += pendingPrefixWeight;
 		} else {
-			// 整行都只有标点了
 			processedTokens.push(pendingPrefix);
 			tokenWeights.push(pendingPrefixWeight);
 		}
 	}
 
-	// 权重计算
 	const finalTokens: string[] = [];
 	const finalWeights: number[] = [];
 	let totalWeight = 0;
@@ -231,13 +203,6 @@ function postProcess(
 	return { finalTokens, finalWeights, totalWeight };
 }
 
-/**
- * @description 把原 `LyricWord` 的总时长按权重分给切分后的 `tokens`
- * @param originalWord 原始的大词对象
- * @param tokens 切分后的文本数组
- * @param weights 对应的权重数组
- * @param totalWeight 总权重
- */
 function distributeTime(
 	originalWord: LyricWord,
 	tokens: string[],
@@ -295,9 +260,6 @@ function distributeTime(
 	return newWords;
 }
 
-/**
- * @description 将单个 LyricWord 拆分为多个
- */
 export function segmentWord(
 	word: LyricWord,
 	config: SegmentationConfig,
@@ -377,14 +339,6 @@ export function segmentWord(
 	return distributeTime(word, allTokens, allWeights, grandTotalWeight);
 }
 
-/**
- * 批量处理歌词行，支持跨词的上下文状态（如引号合并方向）
- *
- * 一般推荐优先使用这个函数而不是 segmentWord，因为这个函数可以处理英文双引号的方向
- * @param lines 歌词行数组
- * @param config 分词配置
- * @param resetStatePerLine 是否每行重置上下文状态。默认 false 以支持跨行引号，设为 true 可以防止上一行未闭合的引号影响下一行
- */
 export function segmentLyricLines(
 	lines: LyricLine[],
 	config: SegmentationConfig,
@@ -410,13 +364,6 @@ export function segmentLyricLines(
 	});
 }
 
-/**
- * 手动分词的时间重计算
- *
- * 用于当已经有了手动指定的分词结果，需要重新计算时间戳时
- *
- * 一个典型应用是拆分单词对话框里的手动分词
- */
 export function recalculateWordTime(
 	originalWord: LyricWord,
 	segments: string[],
