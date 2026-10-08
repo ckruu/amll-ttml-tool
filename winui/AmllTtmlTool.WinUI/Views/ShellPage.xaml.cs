@@ -455,7 +455,7 @@ namespace AmllTtmlTool.WinUI.Views
             var transform = button.TransformToVisual(ModeIndicatorCanvas);
             var bounds = transform.TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
             var targetX = bounds.X + (bounds.Width - ModeSlidePill.Width) / 2;
-            var targetY = Math.Max(0, ModeIndicatorCanvas.ActualHeight - ModeSlidePill.Height - 4);
+            var targetY = Math.Max(0, ModeIndicatorCanvas.ActualHeight - ModeSlidePill.Height - 5);
             var first = double.IsNaN(_pillX);
             var delta = first ? 0 : _pillX - targetX;
             _pillX = targetX;
@@ -464,13 +464,9 @@ namespace AmllTtmlTool.WinUI.Views
             ModeSlidePill.Visibility = Visibility.Visible;
             if (!animate || first || delta == 0 || !_motionEnabled || _compositor is null) return;
             var visual = ElementCompositionPreview.GetElementVisual(ModeSlidePill);
-            visual.StopAnimation("Offset.X");
+            visual.StopAnimation("Offset");
             visual.Offset = new Vector3((float)delta, 0, 0);
-            var slide = _compositor.CreateScalarKeyFrameAnimation();
-            slide.Duration = TimeSpan.FromMilliseconds(250);
-            slide.StopBehavior = AnimationStopBehavior.SetToFinalValue;
-            slide.InsertKeyFrame(1f, 0f, _decelerate);
-            visual.StartAnimation("Offset.X", slide);
+            visual.StartAnimation("Offset", SpringTo(Vector3.Zero, new Vector3((float)delta, 0, 0), 0.75f, TimeSpan.FromMilliseconds(180)));
         }
 
         private Visual? FindPill(ToggleButton button)
@@ -497,6 +493,18 @@ namespace AmllTtmlTool.WinUI.Views
             return null;
         }
 
+        private SpringVector3NaturalMotionAnimation SpringTo(Vector3 finalValue, Vector3 initialValue, float dampingRatio, TimeSpan period)
+        {
+            var spring = _compositor!.CreateSpringVector3Animation();
+            spring.FinalValue = finalValue;
+            spring.InitialValue = initialValue;
+            spring.InitialVelocity = Vector3.Zero;
+            spring.DampingRatio = dampingRatio;
+            spring.Period = period;
+            spring.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+            return spring;
+        }
+
         private void PopPill(ToggleButton button)
         {
             if (!_motionEnabled || _compositor is null) return;
@@ -507,13 +515,9 @@ namespace AmllTtmlTool.WinUI.Views
             visual.StopAnimation("Opacity");
             visual.Scale = new Vector3(0.4f, 1, 1);
             visual.Opacity = 0;
-            var scale = _compositor.CreateVector3KeyFrameAnimation();
-            scale.Duration = TimeSpan.FromMilliseconds(170);
-            scale.StopBehavior = AnimationStopBehavior.SetToFinalValue;
-            scale.InsertKeyFrame(1f, new Vector3(1, 1, 1), _decelerate);
-            visual.StartAnimation("Scale", scale);
+            visual.StartAnimation("Scale", SpringTo(new Vector3(1, 1, 1), new Vector3(0.4f, 1, 1), 0.55f, TimeSpan.FromMilliseconds(220)));
             var fade = _compositor.CreateScalarKeyFrameAnimation();
-            fade.Duration = TimeSpan.FromMilliseconds(170);
+            fade.Duration = TimeSpan.FromMilliseconds(150);
             fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
             fade.InsertKeyFrame(1f, 1f, _decelerate);
             visual.StartAnimation("Opacity", fade);
@@ -539,11 +543,8 @@ namespace AmllTtmlTool.WinUI.Views
             if (sender is not FrameworkElement fe) return;
             var visual = ElementCompositionPreview.GetElementVisual(fe);
             visual.StopAnimation("Scale");
-            var release = _compositor.CreateVector3KeyFrameAnimation();
-            release.Duration = TimeSpan.FromMilliseconds(100);
-            release.StopBehavior = AnimationStopBehavior.SetToFinalValue;
-            release.InsertKeyFrame(1f, new Vector3(1, 1, 1), _decelerate);
-            visual.StartAnimation("Scale", release);
+            visual.Scale = new Vector3(0.96f, 0.96f, 1);
+            visual.StartAnimation("Scale", SpringTo(new Vector3(1, 1, 1), new Vector3(0.96f, 0.96f, 1), 0.5f, TimeSpan.FromMilliseconds(180)));
         }
 
         private void OnSideTabChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)

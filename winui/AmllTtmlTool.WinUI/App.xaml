@@ -131,7 +131,7 @@
                                         VerticalAlignment="Bottom"
                                         Width="16"
                                         Height="3"
-                                        Margin="0,0,0,3"
+                                        Margin="0,0,0,2"
                                         Background="{ThemeResource AccentFillColorDefaultBrush}"
                                         CornerRadius="1.5"
                                         Visibility="Collapsed" />
