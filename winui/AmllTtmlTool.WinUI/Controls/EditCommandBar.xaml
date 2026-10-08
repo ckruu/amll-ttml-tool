@@ -9,86 +9,113 @@
     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
         <StackPanel Orientation="Horizontal" Spacing="4">
             <StackPanel Style="{StaticResource RibbonGroup}">
-                <AppBarButton x:Name="NewLineButton" x:Uid="Ribbon_NewLine" Click="OnNewLineClick" Icon="Add" Label="Lyric line" />
-                <TextBlock x:Uid="Ribbon_New" Style="{StaticResource RibbonCaption}" Text="New" />
+                <Grid MinHeight="76" RowSpacing="6" VerticalAlignment="Top">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Button x:Uid="Ribbon_Import" Click="OnStubClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE8B7;" />
+                            <TextBlock x:Uid="Ribbon_ImportLabel" Text="Import" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Uid="Ribbon_AddLine" Grid.Row="1" Click="OnNewLineClick">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon FontSize="14" Glyph="&#xE710;" />
+                            <TextBlock x:Uid="Ribbon_AddLineLabel" Text="Line" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+                <TextBlock x:Uid="Ribbon_Manage" Style="{StaticResource RibbonCaption}" Text="Manage" />
             </StackPanel>
             <Border Style="{StaticResource RibbonSeparator}" />
             <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <NumberBox x:Uid="Ribbon_LineStart" Header="Start" Minimum="0" Value="0" Width="110" />
-                    <NumberBox x:Uid="Ribbon_LineEnd" Header="End" Minimum="0" Value="0" Width="110" />
-                    <CheckBox x:Uid="Ribbon_Duration" Content="Duration" VerticalAlignment="Bottom" />
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_LineTiming" Style="{StaticResource RibbonCaption}" Text="Line timing" />
+                <Grid MinHeight="76" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Uid="Ribbon_LineStartLabel" VerticalAlignment="Center" Text="Start" />
+                    <NumberBox x:Name="LineStartBox" Grid.Column="1" Minimum="0" Value="0" Width="110" />
+                    <ToggleButton x:Name="BgToggle" Grid.Column="2" MinWidth="64" Content="BG" />
+                    <TextBlock x:Uid="Ribbon_LineEndLabel" Grid.Row="1" VerticalAlignment="Center" Text="End" />
+                    <NumberBox x:Name="LineEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="110" />
+                    <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                        <CheckBox x:Name="DurationCheck" x:Uid="Ribbon_Duration" Content="Duration" VerticalAlignment="Center" />
+                        <ToggleButton x:Name="DuetToggle" Content="V2" MinWidth="64" />
+                        <ToggleButton x:Name="IgnoreSyncToggle" Content="Ignore Sync" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock x:Uid="Ribbon_Line" Style="{StaticResource RibbonCaption}" Text="Line" />
             </StackPanel>
             <Border Style="{StaticResource RibbonSeparator}" />
             <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <CheckBox x:Uid="Ribbon_IsBg" Content="BG" />
-                    <CheckBox x:Uid="Ribbon_IsDuet" Content="Duet" />
-                    <CheckBox x:Uid="Ribbon_IgnoreSync" Content="Ignore sync" />
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_LineProps" Style="{StaticResource RibbonCaption}" Text="Line properties" />
+                <Grid MinHeight="76" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Uid="Ribbon_WordStartLabel" VerticalAlignment="Center" Text="Start" />
+                    <NumberBox x:Name="WordStartBox" Grid.Column="1" Minimum="0" Value="0" Width="110" />
+                    <TextBlock x:Uid="Ribbon_WordEndLabel" Grid.Row="1" VerticalAlignment="Center" Text="End" />
+                    <NumberBox x:Name="WordEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="110" />
+                </Grid>
+                <Grid MinHeight="0" ColumnSpacing="8" VerticalAlignment="Top" Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="WordContentBox" x:Uid="Ribbon_WordContent" Header="Content" Width="180" />
+                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Bottom">
+                        <TextBlock x:Uid="Ribbon_ObsceneLabel" Text="Obscene" />
+                        <ToggleButton x:Name="ObsceneToggle" Click="OnObsceneClick" Content="No" MinWidth="110" />
+                    </StackPanel>
+                </Grid>
+                <TextBlock x:Uid="Ribbon_Word" Style="{StaticResource RibbonCaption}" Text="Word" />
             </StackPanel>
             <Border Style="{StaticResource RibbonSeparator}" />
             <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <NumberBox x:Uid="Ribbon_WordStart" Header="Start" Minimum="0" Value="0" Width="110" />
-                    <NumberBox x:Uid="Ribbon_WordEnd" Header="End" Minimum="0" Value="0" Width="110" />
-                    <NumberBox x:Uid="Ribbon_EmptyBeat" Header="Beats" Minimum="0" Value="0" Width="80" />
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_WordTiming" Style="{StaticResource RibbonCaption}" Text="Word timing" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBox x:Uid="Ribbon_WordText" Header="Word" Width="140" />
-                    <TextBox x:Uid="Ribbon_RomanWord" Header="Roman" Width="120" />
-                    <CheckBox x:Uid="Ribbon_Obscene" Content="Explicit" VerticalAlignment="Bottom" />
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_WordProps" Style="{StaticResource RibbonCaption}" Text="Word" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBox x:Uid="Ribbon_Translation" Header="Translation" Width="180" />
-                    <TextBox x:Uid="Ribbon_RomanLyric" Header="Romanization" Width="180" />
-                </StackPanel>
+                <Grid MinHeight="76" ColumnSpacing="8" VerticalAlignment="Top">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel x:Name="TransSection" Spacing="2">
+                        <TextBlock x:Uid="Ribbon_TransLabel" Text="Translation" />
+                        <TextBox x:Name="TransBox" Width="180" />
+                    </StackPanel>
+                    <StackPanel x:Name="RomanSection" Grid.Column="1" Spacing="2">
+                        <TextBlock x:Uid="Ribbon_RomanLabel" Text="Romanization" />
+                        <TextBox x:Name="RomanBox" Width="180" />
+                    </StackPanel>
+                </Grid>
                 <TextBlock x:Uid="Ribbon_Secondary" Style="{StaticResource RibbonCaption}" Text="Secondary content" />
             </StackPanel>
             <Border Style="{StaticResource RibbonSeparator}" />
             <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <RadioButtons x:Uid="Ribbon_Layout" Header="Layout" SelectedIndex="0">
-                        <x:String>Simple</x:String>
-                        <x:String>Advanced</x:String>
-                    </RadioButtons>
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_LayoutCap" Style="{StaticResource RibbonCaption}" Text="Layout mode" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Spacing="2" VerticalAlignment="Center">
-                    <CheckBox x:Uid="Ribbon_ShowTrans" Content="Translation lines" />
-                    <CheckBox x:Uid="Ribbon_ShowRoman" Content="Roman lines" />
-                    <CheckBox x:Uid="Ribbon_ShowWordRoman" Content="Per-word roman" />
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_AuxDisplay" Style="{StaticResource RibbonCaption}" Text="Auxiliary display" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <StackPanel Spacing="2" VerticalAlignment="Center">
-                        <CheckBox x:Uid="Ribbon_ShowOutline" Content="Outline" />
-                        <CheckBox x:Uid="Ribbon_ShowBpm" Content="BPM" />
-                        <CheckBox x:Uid="Ribbon_ShowPreview" Content="Preview" />
+                <Grid MinHeight="76" RowSpacing="6" VerticalAlignment="Top">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ToggleButton x:Name="OutlineToggle" Click="OnViewToggleClick" Content="Outline" MinWidth="80" />
+                        <ToggleButton x:Name="BpmToggle" Click="OnViewToggleClick" Content="BPM" MinWidth="80" />
+                        <ToggleButton x:Name="PreviewToggle" Click="OnViewToggleClick" Content="Preview" MinWidth="80" />
                     </StackPanel>
-                    <StackPanel Spacing="2" VerticalAlignment="Center">
-                        <CheckBox x:Uid="Ribbon_Follow" Content="Follow playback" />
-                        <CheckBox x:Uid="Ribbon_Smooth" Content="Smooth scroll" />
-                    </StackPanel>
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_Views" Style="{StaticResource RibbonCaption}" Text="Views" />
+                    <ToggleButton x:Name="FollowToggle" Grid.Row="1" Click="OnViewToggleClick" Content="Follow Playback" HorizontalAlignment="Stretch" />
+                </Grid>
+                <TextBlock x:Uid="Ribbon_View" Style="{StaticResource RibbonCaption}" Text="View" />
             </StackPanel>
         </StackPanel>
     </ScrollViewer>
