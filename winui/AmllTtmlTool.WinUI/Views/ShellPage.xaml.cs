@@ -40,7 +40,19 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 appWindow.Title = "AMLL TTML Tool";
                 appWindow.Closing += OnWindowClosing;
+                appWindow.Changed += (_, _) => UpdateCaptionInsets();
             }
+            this.Loaded += (_, _) => UpdateCaptionInsets();
+        }
+
+        private void UpdateCaptionInsets()
+        {
+            if (XamlRoot is null) return;
+            var window = ((App)Application.Current).MainWindow;
+            if (window.AppWindow is not AppWindow appWindow) return;
+            var scale = XamlRoot.RasterizationScale;
+            if (scale <= 0) return;
+            CaptionSpacer.Width = appWindow.TitleBar.RightInset / scale;
         }
 
         private void WireStores()
@@ -72,6 +84,9 @@ namespace AmllTtmlTool.WinUI.Views
         private void RefreshChrome()
         {
             FileNameText.Text = _store.FileName + (_store.IsDirty ? " ●" : string.Empty);
+            ToolTipService.SetToolTip(FileNameText, _store.FileName);
+            UndoButton.IsEnabled = _store.CanUndo;
+            RedoButton.IsEnabled = _store.CanRedo;
         }
 
         private static string Stamp(TimeSpan t) =>

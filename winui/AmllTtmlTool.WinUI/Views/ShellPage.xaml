@@ -19,17 +19,28 @@
     <Grid x:Name="RootGrid" AllowDrop="True" DragLeave="OnDragLeave" DragOver="OnDragOver" Drop="OnDrop">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup>
-                <VisualState x:Name="WideTitle">
+                <VisualState x:Name="FullTitle">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="720" />
+                        <AdaptiveTrigger MinWindowWidth="1100" />
                     </VisualState.StateTriggers>
                 </VisualState>
-                <VisualState x:Name="NarrowTitle">
+                <VisualState x:Name="CompactFile">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="900" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="FileNameText.Visibility" Value="Collapsed" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="CompactLabels">
                     <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="FileNameText.Visibility" Value="Collapsed" />
+                        <Setter Target="ModeEditLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="ModeSyncLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="ModePreviewLabel.Visibility" Value="Collapsed" />
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
@@ -42,14 +53,18 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid x:Name="TitleBarArea" Padding="8,0,8,0" ColumnSpacing="4">
+        <Grid x:Name="TitleBarArea" Padding="8,0,0,0" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="0" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" MinWidth="48" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" MinWidth="0" />
             </Grid.ColumnDefinitions>
+            <Grid Grid.Column="0" ColumnSpacing="4" MinWidth="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" MinWidth="0" />
+                </Grid.ColumnDefinitions>
             <MenuBar VerticalAlignment="Center">
                 <MenuBarItem x:Uid="Menu_File" Title="File">
                     <MenuFlyoutItem x:Uid="Menu_NewFile" Click="OnNewClick" Text="New file">
@@ -80,7 +95,7 @@
                     </MenuFlyoutItem>
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem x:Uid="Menu_Upload" Click="OnStubClick" Text="Upload to AMLL database">
-                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE774;" /></MenuFlyoutItem.Icon>
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE898;" /></MenuFlyoutItem.Icon>
                     </MenuFlyoutItem>
                 </MenuBarItem>
                 <MenuBarItem x:Uid="Menu_Edit" Title="Edit">
@@ -121,7 +136,7 @@
                     <MenuFlyoutItem x:Uid="Menu_AutoRuby" Click="OnStubClick" Text="Auto ruby" />
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem x:Uid="Menu_LatencyTest" Click="OnStubClick" Text="Audio latency test">
-                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE121;" /></MenuFlyoutItem.Icon>
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE917;" /></MenuFlyoutItem.Icon>
                     </MenuFlyoutItem>
                 </MenuBarItem>
                 <MenuBarItem x:Uid="Menu_Help" Title="Help">
@@ -134,126 +149,161 @@
                 Orientation="Horizontal"
                 Spacing="2"
                 VerticalAlignment="Center">
-                <Button x:Uid="ShellPage_Undo" Click="OnUndoClick" ToolTipService.ToolTip="Undo (Ctrl+Z)">
+                <Button x:Name="UndoButton" x:Uid="ShellPage_Undo" Click="OnUndoClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Undo (Ctrl+Z)">
                     <FontIcon FontSize="14" Glyph="&#xE7A7;" />
                 </Button>
-                <Button x:Uid="ShellPage_Redo" Click="OnRedoClick" ToolTipService.ToolTip="Redo (Ctrl+Y)">
+                <Button x:Name="RedoButton" x:Uid="ShellPage_Redo" Click="OnRedoClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Redo (Ctrl+Y)">
                     <FontIcon FontSize="14" Glyph="&#xE7A6;" />
                 </Button>
             </StackPanel>
-            <Grid Grid.Column="2" ColumnSpacing="6" Margin="8,0">
+            <Grid Grid.Column="2" ColumnSpacing="6" Margin="8,0" MinWidth="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" MinWidth="0" />
                 </Grid.ColumnDefinitions>
                 <FontIcon VerticalAlignment="Center" Glyph="&#xE8B7;" FontSize="14" />
                 <TextBlock
                     x:Name="FileNameText"
                     Grid.Column="1"
                     VerticalAlignment="Center"
+                    MaxLines="1"
                     Style="{StaticResource BodyTextBlockStyle}"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     Text="lyric.ttml"
-                    TextTrimming="CharacterEllipsis" />
+                    TextTrimming="CharacterEllipsis"
+                    TextWrapping="NoWrap" />
+            </Grid>
             </Grid>
             <StackPanel
-                Grid.Column="3"
+                Grid.Column="1"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
                 Spacing="8">
-                <Border
-                    Padding="2"
-                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="6">
+                <Border Style="{StaticResource PillContainerStyle}">
                     <StackPanel Orientation="Horizontal" Spacing="2">
-                        <AppBarToggleButton
+                        <ToggleButton
                             x:Name="RomanToggle"
                             x:Uid="ShellPage_RomanToggle"
                             Click="OnMasterToggleClick"
-                            Content="あ"
-                            IsCompact="True"
-                            ToolTipService.ToolTip="Romanization lines" />
-                        <AppBarToggleButton
+                            Style="{StaticResource PillToggleStyle}"
+                            ToolTipService.ToolTip="Romanization lines"
+                            Width="40">
+                            <FontIcon FontSize="16" Glyph="&#xE7DE;" />
+                        </ToggleButton>
+                        <ToggleButton
                             x:Name="TransToggle"
                             x:Uid="ShellPage_TransToggle"
                             Click="OnMasterToggleClick"
-                            Content="訳"
-                            IsCompact="True"
-                            ToolTipService.ToolTip="Translation lines" />
-                        <AppBarToggleButton
+                            Style="{StaticResource PillToggleStyle}"
+                            ToolTipService.ToolTip="Translation lines"
+                            Width="40">
+                            <FontIcon FontSize="16" Glyph="&#xE775;" />
+                        </ToggleButton>
+                        <ToggleButton
                             x:Name="WordRomanToggle"
                             x:Uid="ShellPage_WordRomanToggle"
                             Click="OnMasterToggleClick"
-                            Content="ｱ"
-                            IsCompact="True"
-                            ToolTipService.ToolTip="Per-word romanization" />
+                            Style="{StaticResource PillToggleStyle}"
+                            ToolTipService.ToolTip="Per-word romanization"
+                            Width="40">
+                            <FontIcon FontSize="16" Glyph="&#xE8E9;" />
+                        </ToggleButton>
                     </StackPanel>
                 </Border>
-                <Border
-                    Padding="2"
-                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="6">
+                <Border Style="{StaticResource PillContainerStyle}">
                     <StackPanel Orientation="Horizontal" Spacing="2">
                         <RadioButton
                             x:Name="EditModeButton"
                             x:Uid="ShellPage_EditMode"
-                            Content="Edit"
                             GroupName="Mode"
-                            Checked="OnModeChecked" />
+                            Checked="OnModeChecked"
+                            Style="{StaticResource PillToggleStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon FontSize="16" Glyph="&#xE70F;" />
+                                <TextBlock x:Name="ModeEditLabel" Text="Edit" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </RadioButton>
                         <RadioButton
                             x:Name="SyncModeButton"
                             x:Uid="ShellPage_SyncMode"
-                            Content="Sync"
                             GroupName="Mode"
-                            Checked="OnModeChecked" />
+                            Checked="OnModeChecked"
+                            Style="{StaticResource PillToggleStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon FontSize="16" Glyph="&#xE895;" />
+                                <TextBlock x:Name="ModeSyncLabel" Text="Sync" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </RadioButton>
                         <RadioButton
                             x:Name="PreviewModeButton"
                             x:Uid="ShellPage_PreviewMode"
-                            Content="Preview"
                             GroupName="Mode"
-                            Checked="OnModeChecked" />
+                            Checked="OnModeChecked"
+                            Style="{StaticResource PillToggleStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon FontSize="16" Glyph="&#xE8FF;" />
+                                <TextBlock x:Name="ModePreviewLabel" Text="Preview" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </RadioButton>
                     </StackPanel>
                 </Border>
             </StackPanel>
+            <Grid Grid.Column="2" MinWidth="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="0" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
             <StackPanel
-                Grid.Column="4"
+                Grid.Column="1"
+                HorizontalAlignment="Right"
                 Orientation="Horizontal"
                 Spacing="4"
                 VerticalAlignment="Center">
-                <Button x:Uid="ShellPage_History" Click="OnStubClick" ToolTipService.ToolTip="History">
+                <Button x:Uid="ShellPage_History" Click="OnStubClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="History">
                     <FontIcon FontSize="14" Glyph="&#xE81C;" />
                 </Button>
-                <DropDownButton x:Uid="ShellPage_Save" ToolTipService.ToolTip="Save (Ctrl+S)">
-                    <FontIcon FontSize="14" Glyph="&#xE74E;" />
-                    <DropDownButton.Flyout>
-                        <MenuFlyout x:Name="SaveMenu" Opening="OnSaveMenuOpening">
-                            <RadioMenuFlyoutItem x:Name="SaveTtmlItem" Click="OnSaveFormatPicked" Text="TTML" Tag="ttml" />
-                            <RadioMenuFlyoutItem x:Name="SaveAppleItem" Click="OnSaveFormatPicked" Text="Apple TTML" Tag="apple" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem x:Uid="ShellPage_SaveNow" Click="OnSaveClick" Text="Save now" />
-                        </MenuFlyout>
-                    </DropDownButton.Flyout>
-                </DropDownButton>
-                <DropDownButton x:Uid="ShellPage_Copy" ToolTipService.ToolTip="Copy">
-                    <FontIcon FontSize="14" Glyph="&#xE8C8;" />
-                    <DropDownButton.Flyout>
-                        <MenuFlyout x:Name="CopyMenu" Opening="OnCopyMenuOpening">
-                            <RadioMenuFlyoutItem x:Name="CopyTtmlItem" Click="OnCopyFormatPicked" Text="TTML" Tag="ttml" />
-                            <RadioMenuFlyoutItem x:Name="CopyAppleItem" Click="OnCopyFormatPicked" Text="Apple TTML" Tag="apple" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem x:Uid="ShellPage_CopyNow" Click="OnCopyClick" Text="Copy now" />
-                        </MenuFlyout>
-                    </DropDownButton.Flyout>
-                </DropDownButton>
-                <Button x:Uid="ShellPage_Export" Click="OnExportClick" ToolTipService.ToolTip="Export…">
+                <Border Style="{StaticResource PillContainerStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="0">
+                        <Button x:Uid="ShellPage_SaveNow" Click="OnSaveClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Save (Ctrl+S)">
+                            <FontIcon FontSize="14" Glyph="&#xE74E;" />
+                        </Button>
+                        <Border Width="1" Margin="2,8" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                        <Button ToolTipService.ToolTip="Save format">
+                            <FontIcon FontSize="12" Glyph="&#xE70D;" />
+                            <Button.Flyout>
+                                <MenuFlyout x:Name="SaveMenu" Opening="OnSaveMenuOpening">
+                                    <RadioMenuFlyoutItem x:Name="SaveTtmlItem" Click="OnSaveFormatPicked" Text="TTML" Tag="ttml" />
+                                    <RadioMenuFlyoutItem x:Name="SaveAppleItem" Click="OnSaveFormatPicked" Text="Apple TTML" Tag="apple" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource PillContainerStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="0">
+                        <Button x:Uid="ShellPage_CopyNow" Click="OnCopyClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Copy">
+                            <FontIcon FontSize="14" Glyph="&#xE8C8;" />
+                        </Button>
+                        <Border Width="1" Margin="2,8" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                        <Button ToolTipService.ToolTip="Copy format">
+                            <FontIcon FontSize="12" Glyph="&#xE70D;" />
+                            <Button.Flyout>
+                                <MenuFlyout x:Name="CopyMenu" Opening="OnCopyMenuOpening">
+                                    <RadioMenuFlyoutItem x:Name="CopyTtmlItem" Click="OnCopyFormatPicked" Text="TTML" Tag="ttml" />
+                                    <RadioMenuFlyoutItem x:Name="CopyAppleItem" Click="OnCopyFormatPicked" Text="Apple TTML" Tag="apple" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </StackPanel>
+                </Border>
+                <Button x:Uid="ShellPage_Export" Click="OnExportClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Export…">
                     <FontIcon FontSize="14" Glyph="&#xE7C3;" />
                 </Button>
             </StackPanel>
+            <Border x:Name="CaptionSpacer" Grid.Column="2" Width="0" />
+            </Grid>
         </Grid>
 
         <Border
@@ -286,7 +336,7 @@
                     </NavigationViewItem>
                     <NavigationViewItem x:Uid="ShellPage_BpmTab" Content="BPM" Tag="BPM">
                         <NavigationViewItem.Icon>
-                            <FontIcon Glyph="&#xE121;" />
+                            <FontIcon Glyph="&#xE917;" />
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
                     <NavigationViewItem x:Uid="ShellPage_SidePreviewTab" Content="Preview" Tag="SidePreview">
@@ -345,7 +395,7 @@
                     x:Uid="AudioBar_Volume"
                     Grid.Column="2"
                     ToolTipService.ToolTip="Volume">
-                    <FontIcon Glyph="&#xE992;" />
+                    <FontIcon Glyph="&#xE7F5;" />
                     <Button.Flyout>
                         <Flyout>
                             <Slider
@@ -408,7 +458,7 @@
                     IsCompact="True"
                     ToolTipService.ToolTip="Locate">
                     <AppBarButton.Icon>
-                        <FontIcon Glyph="&#xE138;" />
+                        <FontIcon Glyph="&#xE718;" />
                     </AppBarButton.Icon>
                 </AppBarButton>
                 <AppBarToggleButton
