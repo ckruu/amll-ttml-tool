@@ -34,3 +34,4 @@ TestResults/
 
 !winui/*.sln
 .vs/
+winui/libs/ffmpeg/dl/
