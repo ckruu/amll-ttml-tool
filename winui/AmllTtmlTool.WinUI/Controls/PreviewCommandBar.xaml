@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<UserControl
+    x:Class="AmllTtmlTool.WinUI.Controls.PreviewCommandBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+        <StackPanel Orientation="Horizontal" Spacing="4">
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <CheckBox x:Uid="Ribbon_PrevTrans" Content="Translation" />
+                    <CheckBox x:Uid="Ribbon_PrevRoman" Content="Romanization" />
+                    <CheckBox x:Uid="Ribbon_PrevMask" Content="Mask explicit" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_PrevLyrics" Style="{StaticResource RibbonCaption}" Text="Lyrics" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <NumberBox x:Uid="Ribbon_FadeWidth" Header="Fade width" Minimum="0" Value="0.5" Width="100" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_PrevWord" Style="{StaticResource RibbonCaption}" Text="Word" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <NumberBox x:Uid="Ribbon_PrevFont" Header="Font (px)" Minimum="1" Value="16" Width="90" />
+                    <CheckBox x:Uid="Ribbon_Vsync" Content="VSync" VerticalAlignment="Bottom" />
+                    <AppBarButton x:Uid="Ribbon_Fullscreen" Icon="FullScreen" Label="Fullscreen" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_PrevView" Style="{StaticResource RibbonCaption}" Text="View" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <Slider x:Uid="Ribbon_Emphasis" Header="Emphasis" Maximum="200" Minimum="0" Value="100" Width="110" />
+                        <Slider x:Uid="Ribbon_Glow" Header="Glow" Maximum="200" Minimum="0" Value="100" Width="110" />
+                        <Slider x:Uid="Ribbon_Lift" Header="Lift" Maximum="200" Minimum="0" Value="100" Width="110" />
+                    </StackPanel>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <Slider x:Uid="Ribbon_AnimSpeed" Header="Anim speed" Maximum="200" Minimum="20" Value="100" Width="110" />
+                        <Slider x:Uid="Ribbon_InactiveScale" Header="Inactive scale" Maximum="100" Minimum="50" Value="97" Width="110" />
+                        <Slider x:Uid="Ribbon_Cascade" Header="Cascade" Maximum="200" Minimum="0" Value="100" Width="110" />
+                    </StackPanel>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <CheckBox x:Uid="Ribbon_InactiveBlur" Content="Inactive blur" IsChecked="True" />
+                        <Slider x:Uid="Ribbon_BlurStrength" Header="Blur" Maximum="200" Minimum="0" Value="100" Width="110" />
+                        <CheckBox x:Uid="Ribbon_PlusLighter" Content="Plus lighter" IsChecked="True" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_PrevStyle" Style="{StaticResource RibbonCaption}" Text="Style" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <CheckBox x:Uid="Ribbon_BgEnabled" Content="Shader BG" IsChecked="True" />
+                        <CheckBox x:Uid="Ribbon_BgStatic" Content="Static" />
+                        <CheckBox x:Uid="Ribbon_AutoContrast" Content="Auto contrast" IsChecked="True" />
+                    </StackPanel>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <Slider x:Uid="Ribbon_Brightness" Header="Brightness" Maximum="150" Minimum="20" Value="100" Width="110" />
+                        <Slider x:Uid="Ribbon_Contrast" Header="Contrast" Maximum="150" Minimum="50" Value="100" Width="110" />
+                        <Slider x:Uid="Ribbon_Saturation" Header="Saturation" Maximum="200" Minimum="0" Value="100" Width="110" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_PrevBg" Style="{StaticResource RibbonCaption}" Text="Background" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

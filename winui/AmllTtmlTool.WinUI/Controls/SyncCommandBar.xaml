@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<UserControl
+    x:Class="AmllTtmlTool.WinUI.Controls.SyncCommandBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+        <StackPanel Orientation="Horizontal" Spacing="4">
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Slider x:Uid="Ribbon_EmptyBeatSlider" Header="Empty beats" Maximum="8" Minimum="0" StepFrequency="1" Width="120" />
+                    <TextBlock VerticalAlignment="Bottom" Text="0 / 0" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_CurrentBeat" Style="{StaticResource RibbonCaption}" Text="Current empty beat" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <NumberBox x:Uid="Ribbon_TimeOffset" Header="Offset (ms)" Value="0" Width="110" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_SyncAdjust" Style="{StaticResource RibbonCaption}" Text="Sync adjustment" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <CheckBox x:Uid="Ribbon_TimestampUpdate" Content="Timestamp preview" />
+                    <CheckBox x:Uid="Ribbon_TouchPanel" Content="Touch panel" />
+                    <CheckBox x:Uid="Ribbon_BgIgnore" Content="BG lines ignore sync" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_Assist" Style="{StaticResource RibbonCaption}" Text="Assist" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <CheckBox x:Uid="Ribbon_ShowStamps" Content="Timestamps" IsChecked="True" />
+                    <CheckBox x:Uid="Ribbon_HighlightWord" Content="Highlight syllable" IsChecked="True" />
+                    <CheckBox x:Uid="Ribbon_HighlightErr" Content="Highlight errors" IsChecked="True" />
+                    <CheckBox x:Uid="Ribbon_Wrap" Content="Wrap words" IsChecked="True" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_DisplayOpts" Style="{StaticResource RibbonCaption}" Text="Display" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <CheckBox x:Uid="Ribbon_SyncOutline" Content="Outline" />
+                    <CheckBox x:Uid="Ribbon_SyncBpm" Content="BPM" />
+                    <CheckBox x:Uid="Ribbon_SyncPreview" Content="Preview" />
+                    <CheckBox x:Uid="Ribbon_SyncFollow" Content="Follow playback" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_Views" Style="{StaticResource RibbonCaption}" Text="Views" />
+            </StackPanel>
+            <Border Style="{StaticResource RibbonSeparator}" />
+            <StackPanel Style="{StaticResource RibbonGroup}">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button x:Uid="Ribbon_StartSync" Content="Start: Space" />
+                    <Button x:Uid="Ribbon_NextSync" Content="Next: Tab" Style="{StaticResource AccentButtonStyle}" />
+                    <Button x:Uid="Ribbon_EndSync" Content="End: Enter" />
+                </StackPanel>
+                <TextBlock x:Uid="Ribbon_KeyRef" Style="{StaticResource RibbonCaption}" Text="Sync keys" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
