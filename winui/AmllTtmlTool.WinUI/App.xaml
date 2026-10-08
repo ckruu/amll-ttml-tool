@@ -105,9 +105,10 @@
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
             <Style x:Key="PillToggleStyle" TargetType="ToggleButton">
-                <Setter Property="MinWidth" Value="32" />
-                <Setter Property="MinHeight" Value="36" />
-                <Setter Property="Padding" Value="4" />
+                <Setter Property="MinWidth" Value="30" />
+                <Setter Property="MinHeight" Value="30" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Padding" Value="2" />
                 <Setter Property="CornerRadius" Value="6" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderBrush" Value="Transparent" />
@@ -193,8 +194,9 @@
                 </Setter>
             </Style>
             <Style x:Key="SegmentedToggleStyle" TargetType="ToggleButton">
-                <Setter Property="MinHeight" Value="36" />
-                <Setter Property="Padding" Value="10,4" />
+                <Setter Property="MinHeight" Value="30" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Padding" Value="8,2" />
                 <Setter Property="CornerRadius" Value="6" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderBrush" Value="Transparent" />
