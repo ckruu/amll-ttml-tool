@@ -184,8 +184,7 @@
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
                 Spacing="4">
-                <Border Style="{StaticResource PillContainerStyle}">
-                    <StackPanel Orientation="Horizontal" Spacing="2">
+                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                         <ToggleButton
                             x:Name="RomanToggle"
                             x:Uid="ShellPage_RomanToggle"
@@ -220,9 +219,7 @@
                             <FontIcon FontSize="14" Glyph="&#xE8E9;" />
                         </ToggleButton>
                     </StackPanel>
-                </Border>
-                <Border Style="{StaticResource PillContainerStyle}">
-                    <Grid>
+                <Grid VerticalAlignment="Center">
                         <StackPanel x:Name="ModeButtonRow" Orientation="Horizontal" Spacing="2">
                         <RadioButton
                             x:Name="EditModeButton"
@@ -270,7 +267,6 @@
                                     Visibility="Collapsed" />
                         </Canvas>
                     </Grid>
-                </Border>
             </StackPanel>
             <Grid Grid.Column="2" MinWidth="0">
                 <Grid.ColumnDefinitions>

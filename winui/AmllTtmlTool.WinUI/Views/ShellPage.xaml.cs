@@ -351,11 +351,6 @@ namespace AmllTtmlTool.WinUI.Views
             UpdateModeSlide(animate: true);
         }
 
-        private static readonly SolidColorBrush IdleBrush = new(Colors.Transparent);
-
-        private static Brush SubtleBrush() =>
-            (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
-
         private static Border? FindTogglePill(ToggleButton button)
         {
             var queue = new Queue<DependencyObject>();
@@ -376,14 +371,12 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void PaintPillToggle(ToggleButton button, bool on)
         {
-            button.Background = on ? SubtleBrush() : IdleBrush;
             var pill = FindTogglePill(button);
             if (pill is not null) pill.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void PaintSegment(RadioButton button, bool on)
         {
-            button.Background = on ? SubtleBrush() : IdleBrush;
         }
 
         private void PaintAllToggles(bool animate)
