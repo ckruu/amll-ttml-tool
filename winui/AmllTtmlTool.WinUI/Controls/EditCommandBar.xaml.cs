@@ -23,8 +23,13 @@ namespace AmllTtmlTool.WinUI.Controls
 
         private void ApplyMasterToggles()
         {
-            TransSection.Visibility = AppSettings.ShowTranslation ? Visibility.Visible : Visibility.Collapsed;
-            RomanSection.Visibility = AppSettings.ShowRomanization ? Visibility.Visible : Visibility.Collapsed;
+            var showTrans = AppSettings.ShowTranslation;
+            var showRoman = AppSettings.ShowRomanization;
+            TransRow.Visibility = showTrans ? Visibility.Visible : Visibility.Collapsed;
+            RomanRow.Visibility = showRoman ? Visibility.Visible : Visibility.Collapsed;
+            var showSection = showTrans || showRoman;
+            SecondaryGroup.Visibility = showSection ? Visibility.Visible : Visibility.Collapsed;
+            SecondaryCaption.Visibility = showSection ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void OnNewLineClick(object sender, RoutedEventArgs e) =>

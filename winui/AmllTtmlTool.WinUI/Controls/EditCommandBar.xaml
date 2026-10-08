@@ -7,116 +7,135 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-        <StackPanel Orientation="Horizontal" Spacing="4">
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <Grid MinHeight="76" RowSpacing="6" VerticalAlignment="Top">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Button x:Uid="Ribbon_Import" Click="OnStubClick">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon FontSize="14" Glyph="&#xE8B7;" />
-                            <TextBlock x:Uid="Ribbon_ImportLabel" Text="Import" />
-                        </StackPanel>
-                    </Button>
-                    <Button x:Uid="Ribbon_AddLine" Grid.Row="1" Click="OnNewLineClick">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon FontSize="14" Glyph="&#xE710;" />
-                            <TextBlock x:Uid="Ribbon_AddLineLabel" Text="Line" />
-                        </StackPanel>
-                    </Button>
-                </Grid>
-                <TextBlock x:Uid="Ribbon_Manage" Style="{StaticResource RibbonCaption}" Text="Manage" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <Grid MinHeight="76" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Uid="Ribbon_LineStartLabel" VerticalAlignment="Center" Text="Start" />
-                    <NumberBox x:Name="LineStartBox" Grid.Column="1" Minimum="0" Value="0" Width="110" />
-                    <ToggleButton x:Name="BgToggle" Grid.Column="2" MinWidth="64" Content="BG" />
-                    <TextBlock x:Uid="Ribbon_LineEndLabel" Grid.Row="1" VerticalAlignment="Center" Text="End" />
-                    <NumberBox x:Name="LineEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="110" />
-                    <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                        <CheckBox x:Name="DurationCheck" x:Uid="Ribbon_Duration" Content="Duration" VerticalAlignment="Center" />
-                        <ToggleButton x:Name="DuetToggle" Content="V2" MinWidth="64" />
-                        <ToggleButton x:Name="IgnoreSyncToggle" Content="Ignore Sync" />
-                    </StackPanel>
-                </Grid>
-                <TextBlock x:Uid="Ribbon_Line" Style="{StaticResource RibbonCaption}" Text="Line" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <Grid MinHeight="76" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Uid="Ribbon_WordStartLabel" VerticalAlignment="Center" Text="Start" />
-                    <NumberBox x:Name="WordStartBox" Grid.Column="1" Minimum="0" Value="0" Width="110" />
-                    <TextBlock x:Uid="Ribbon_WordEndLabel" Grid.Row="1" VerticalAlignment="Center" Text="End" />
-                    <NumberBox x:Name="WordEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="110" />
-                </Grid>
-                <Grid MinHeight="0" ColumnSpacing="8" VerticalAlignment="Top" Margin="0,6,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="WordContentBox" x:Uid="Ribbon_WordContent" Header="Content" Width="180" />
-                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Bottom">
-                        <TextBlock x:Uid="Ribbon_ObsceneLabel" Text="Obscene" />
-                        <ToggleButton x:Name="ObsceneToggle" Click="OnObsceneClick" Content="No" MinWidth="110" />
-                    </StackPanel>
-                </Grid>
-                <TextBlock x:Uid="Ribbon_Word" Style="{StaticResource RibbonCaption}" Text="Word" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <Grid MinHeight="76" ColumnSpacing="8" VerticalAlignment="Top">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel x:Name="TransSection" Spacing="2">
-                        <TextBlock x:Uid="Ribbon_TransLabel" Text="Translation" />
-                        <TextBox x:Name="TransBox" Width="180" />
-                    </StackPanel>
-                    <StackPanel x:Name="RomanSection" Grid.Column="1" Spacing="2">
-                        <TextBlock x:Uid="Ribbon_RomanLabel" Text="Romanization" />
-                        <TextBox x:Name="RomanBox" Width="180" />
-                    </StackPanel>
-                </Grid>
-                <TextBlock x:Uid="Ribbon_Secondary" Style="{StaticResource RibbonCaption}" Text="Secondary content" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <Grid MinHeight="76" RowSpacing="6" VerticalAlignment="Top">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
+        <Grid Height="124" ColumnSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Grid Grid.Row="0" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Button x:Uid="Ribbon_Import" Click="OnStubClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <ToggleButton x:Name="OutlineToggle" Click="OnViewToggleClick" Content="Outline" MinWidth="80" />
-                        <ToggleButton x:Name="BpmToggle" Click="OnViewToggleClick" Content="BPM" MinWidth="80" />
-                        <ToggleButton x:Name="PreviewToggle" Click="OnViewToggleClick" Content="Preview" MinWidth="80" />
+                        <FontIcon FontSize="14" Glyph="&#xE8B7;" />
+                        <TextBlock x:Uid="Ribbon_ImportLabel" Text="Import" />
                     </StackPanel>
-                    <ToggleButton x:Name="FollowToggle" Grid.Row="1" Click="OnViewToggleClick" Content="Follow Playback" HorizontalAlignment="Stretch" />
+                </Button>
+                <Button x:Uid="Ribbon_AddLine" Grid.Row="1" Click="OnNewLineClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontSize="14" Glyph="&#xE710;" />
+                        <TextBlock x:Uid="Ribbon_AddLineLabel" Text="Line" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+            <TextBlock x:Uid="Ribbon_Manage" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Manage" />
+
+            <Border Grid.Column="1" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid Grid.Column="2" Grid.Row="0" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="44" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Uid="Ribbon_LineStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" />
+                <NumberBox x:Name="LineStartBox" Grid.Column="1" Minimum="0" Value="0" Width="104" />
+                <ToggleButton x:Name="BgToggle" Grid.Column="2" Content="BG" MinHeight="32" MinWidth="56" Style="{StaticResource PillToggleStyle}" />
+                <ToggleButton x:Name="DuetToggle" Grid.Column="3" Content="V2" MinHeight="32" MinWidth="56" Style="{StaticResource PillToggleStyle}" />
+                <TextBlock x:Uid="Ribbon_LineEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" />
+                <NumberBox x:Name="LineEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="104" />
+                <ToggleButton x:Name="IgnoreSyncToggle" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Ignore Sync" HorizontalAlignment="Stretch" MinHeight="32" Style="{StaticResource PillToggleStyle}" />
+            </Grid>
+            <TextBlock x:Uid="Ribbon_Line" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonCaption}" Text="Line" />
+
+            <Border Grid.Column="3" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid Grid.Column="4" Grid.Row="0" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="64" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Uid="Ribbon_WordStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" />
+                <NumberBox x:Name="WordStartBox" Grid.Column="1" Minimum="0" Value="0" Width="104" />
+                <TextBlock x:Uid="Ribbon_WordContentLabel" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Content" />
+                <TextBox x:Name="WordContentBox" Grid.Column="3" Width="150" />
+                <TextBlock x:Uid="Ribbon_WordEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" />
+                <NumberBox x:Name="WordEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="104" />
+                <TextBlock x:Uid="Ribbon_ObsceneLabel" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" />
+                <ToggleButton x:Name="ObsceneToggle" Grid.Row="1" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="32" MinWidth="150" Style="{StaticResource PillToggleStyle}" />
+            </Grid>
+            <TextBlock x:Uid="Ribbon_Word" Grid.Row="1" Grid.Column="4" Style="{StaticResource RibbonCaption}" Text="Word" />
+
+            <Border Grid.Column="5" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid x:Name="SecondaryGroup" Grid.Column="6" Grid.Row="0" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="88" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid x:Name="TransRow" Grid.ColumnSpan="2" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="88" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Uid="Ribbon_TransLabel" Style="{StaticResource RibbonFieldLabel}" Text="Translation" />
+                    <TextBox x:Name="TransBox" Grid.Column="1" Width="150" />
                 </Grid>
-                <TextBlock x:Uid="Ribbon_View" Style="{StaticResource RibbonCaption}" Text="View" />
-            </StackPanel>
-        </StackPanel>
+                <Grid x:Name="RomanRow" Grid.Row="1" Grid.ColumnSpan="2" ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="88" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Uid="Ribbon_RomanLabel" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" />
+                    <TextBox x:Name="RomanBox" Grid.Column="1" Width="150" />
+                </Grid>
+            </Grid>
+            <TextBlock x:Name="SecondaryCaption" x:Uid="Ribbon_Secondary" Grid.Row="1" Grid.Column="6" Style="{StaticResource RibbonCaption}" Text="Secondary content" />
+
+            <Border Grid.Column="7" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid Grid.Column="8" Grid.Row="0" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ToggleButton x:Name="OutlineToggle" Click="OnViewToggleClick" Content="Outline" MinHeight="32" MinWidth="76" Style="{StaticResource PillToggleStyle}" />
+                    <ToggleButton x:Name="BpmToggle" Click="OnViewToggleClick" Content="BPM" MinHeight="32" MinWidth="76" Style="{StaticResource PillToggleStyle}" />
+                    <ToggleButton x:Name="PreviewToggle" Click="OnViewToggleClick" Content="Preview" MinHeight="32" MinWidth="76" Style="{StaticResource PillToggleStyle}" />
+                </StackPanel>
+                <ToggleButton x:Name="FollowToggle" Grid.Row="1" Click="OnViewToggleClick" Content="Follow Playback" HorizontalAlignment="Stretch" MinHeight="32" Style="{StaticResource PillToggleStyle}" />
+            </Grid>
+            <TextBlock x:Uid="Ribbon_View" Grid.Row="1" Grid.Column="8" Style="{StaticResource RibbonCaption}" Text="View" />
+        </Grid>
     </ScrollViewer>
 </UserControl>
