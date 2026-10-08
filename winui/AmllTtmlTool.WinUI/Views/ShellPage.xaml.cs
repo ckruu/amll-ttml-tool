@@ -1,5 +1,6 @@
 using AmllTtmlTool.Core.Models;
 using AmllTtmlTool.WinUI.Services;
+using Microsoft.UI;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -50,6 +51,7 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 UpdateCaptionInsets();
                 SetupMotion();
+                PaintAllToggles(animate: false);
             };
         }
 
@@ -341,6 +343,64 @@ namespace AmllTtmlTool.WinUI.Views
             PreviewBar.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
             _ = ContentFrame.Navigate(_pages[index]);
             UpdateModeSlide(animate: true);
+        }
+
+        private static readonly SolidColorBrush IdleBrush = new(Colors.Transparent);
+
+        private static Brush SubtleBrush() =>
+            (Brush)Application.Current.Resources["SubtleFillColorSecondaryBrush"];
+
+        private static Border? FindTogglePill(ToggleButton button)
+        {
+            var queue = new Queue<DependencyObject>();
+            queue.Enqueue(button);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                var count = VisualTreeHelper.GetChildrenCount(current);
+                for (var i = 0; i < count; i++)
+                {
+                    var child = VisualTreeHelper.GetChild(current, i);
+                    if (child is Border border && border.Name == "SelectionPill") return border;
+                    queue.Enqueue(child);
+                }
+            }
+            return null;
+        }
+
+        private void PaintPillToggle(ToggleButton button, bool on)
+        {
+            button.Background = on ? SubtleBrush() : IdleBrush;
+            var pill = FindTogglePill(button);
+            if (pill is not null) pill.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void PaintSegment(RadioButton button, bool on)
+        {
+            button.Background = on ? SubtleBrush() : IdleBrush;
+        }
+
+        private void PaintAllToggles(bool animate)
+        {
+            foreach (var tb in new ToggleButton[] { RomanToggle, TransToggle, WordRomanToggle })
+            {
+                PaintPillToggle(tb, tb.IsChecked == true);
+                if (animate && tb.IsChecked == true) PopPill(tb);
+            }
+            PaintSegment(EditModeButton, EditModeButton.IsChecked == true);
+            PaintSegment(SyncModeButton, SyncModeButton.IsChecked == true);
+            PaintSegment(PreviewModeButton, PreviewModeButton.IsChecked == true);
+            UpdateModeSlide(animate: animate);
+        }
+
+        private void OnPillCheckChanged(object sender, RoutedEventArgs e)
+        {
+            if (sender is ToggleButton tb) PaintPillToggle(tb, tb.IsChecked == true);
+        }
+
+        private void OnSegmentCheckChanged(object sender, RoutedEventArgs e)
+        {
+            if (sender is RadioButton rb) PaintSegment(rb, rb.IsChecked == true);
         }
 
         private Compositor? _compositor;

@@ -158,9 +158,6 @@
                 <Button x:Name="RedoButton" x:Uid="ShellPage_Redo" Click="OnRedoClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Redo (Ctrl+Y)">
                     <FontIcon FontSize="14" Glyph="&#xE7A6;" />
                 </Button>
-                <Button x:Uid="ShellPage_HistoryTop" Click="OnStubClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="History">
-                    <FontIcon FontSize="14" Glyph="&#xE81C;" />
-                </Button>
             </StackPanel>
             <Border Grid.Column="2" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
             <Grid Grid.Column="3" ColumnSpacing="6" Margin="8,0" MinWidth="0">
@@ -194,6 +191,8 @@
                             x:Name="RomanToggle"
                             x:Uid="ShellPage_RomanToggle"
                             Click="OnMasterToggleClick"
+                            Checked="OnPillCheckChanged"
+                            Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Romanization lines"
                             Width="40">
@@ -203,6 +202,8 @@
                             x:Name="TransToggle"
                             x:Uid="ShellPage_TransToggle"
                             Click="OnMasterToggleClick"
+                            Checked="OnPillCheckChanged"
+                            Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Translation lines"
                             Width="40">
@@ -212,6 +213,8 @@
                             x:Name="WordRomanToggle"
                             x:Uid="ShellPage_WordRomanToggle"
                             Click="OnMasterToggleClick"
+                            Checked="OnPillCheckChanged"
+                            Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Per-word romanization"
                             Width="40">
@@ -222,11 +225,12 @@
                 <Border Style="{StaticResource PillContainerStyle}">
                     <Grid>
                         <StackPanel x:Name="ModeButtonRow" Orientation="Horizontal" Spacing="2">
-                            <RadioButton
-                                x:Name="EditModeButton"
+                        <RadioButton
+                            x:Name="EditModeButton"
                             x:Uid="ShellPage_EditMode"
                             GroupName="Mode"
                             Checked="OnModeChecked"
+                            Unchecked="OnSegmentCheckChanged"
                             Style="{StaticResource SegmentedToggleStyle}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontSize="16" Glyph="&#xE70F;" />
@@ -238,6 +242,7 @@
                             x:Uid="ShellPage_SyncMode"
                             GroupName="Mode"
                             Checked="OnModeChecked"
+                            Unchecked="OnSegmentCheckChanged"
                             Style="{StaticResource SegmentedToggleStyle}">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontSize="16" Glyph="&#xE895;" />
@@ -249,6 +254,7 @@
                             x:Uid="ShellPage_PreviewMode"
                             GroupName="Mode"
                             Checked="OnModeChecked"
+                            Unchecked="OnSegmentCheckChanged"
                             Style="{StaticResource SegmentedToggleStyle}">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon FontSize="16" Glyph="&#xE8FF;" />
@@ -280,6 +286,10 @@
                 Orientation="Horizontal"
                 Spacing="4"
                 VerticalAlignment="Center">
+                <Button x:Uid="ShellPage_History" Click="OnStubClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="History">
+                    <FontIcon FontSize="14" Glyph="&#xE81C;" />
+                </Button>
+                <Border Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                 <Border Style="{StaticResource PillContainerStyle}">
                     <StackPanel Orientation="Horizontal" Spacing="0">
                         <Button x:Uid="ShellPage_SaveNow" Click="OnSaveClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Save (Ctrl+S)">

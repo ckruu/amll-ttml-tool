@@ -91,7 +91,7 @@
             </Grid>
             <TextBlock x:Uid="Ribbon_Word" Grid.Row="1" Grid.Column="4" Style="{StaticResource RibbonCaption}" Text="Word" />
 
-            <Border Grid.Column="5" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
+            <Border x:Name="SecondaryLeadSeparator" Grid.Column="5" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
 
             <Grid x:Name="SecondaryGroup" Grid.Column="6" Grid.Row="0" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
                 <Grid.RowDefinitions>

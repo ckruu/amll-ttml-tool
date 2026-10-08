@@ -21,6 +21,7 @@
             </Style>
             <Style x:Key="RibbonCaption" TargetType="TextBlock">
                 <Setter Property="HorizontalAlignment" Value="Center" />
+                <Setter Property="Margin" Value="0,4,0,8" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
                 <Setter Property="Style" Value="{StaticResource CaptionTextBlockStyle}" />
             </Style>
@@ -105,7 +106,7 @@
             </Style>
             <Style x:Key="PillToggleStyle" TargetType="ToggleButton">
                 <Setter Property="MinWidth" Value="40" />
-                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="MinHeight" Value="36" />
                 <Setter Property="Padding" Value="4" />
                 <Setter Property="CornerRadius" Value="6" />
                 <Setter Property="Background" Value="Transparent" />
@@ -169,31 +170,8 @@
                                         </VisualState>
                                     </VisualStateGroup>
                                     <VisualStateGroup x:Name="CheckStates">
-                                        <VisualState x:Name="Unchecked">
-                                            <Storyboard>
-                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid"
-                                                                               Storyboard.TargetProperty="Background">
-                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="Transparent" />
-                                                </ObjectAnimationUsingKeyFrames>
-                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionPill"
-                                                                               Storyboard.TargetProperty="Visibility">
-                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="Collapsed" />
-                                                </ObjectAnimationUsingKeyFrames>
-                                            </Storyboard>
-                                        </VisualState>
-                                        <VisualState x:Name="Checked">
-                                            <Storyboard>
-                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid"
-                                                                               Storyboard.TargetProperty="Background">
-                                                    <DiscreteObjectKeyFrame KeyTime="0"
-                                                                            Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-                                                </ObjectAnimationUsingKeyFrames>
-                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionPill"
-                                                                               Storyboard.TargetProperty="Visibility">
-                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
-                                                </ObjectAnimationUsingKeyFrames>
-                                            </Storyboard>
-                                        </VisualState>
+                                        <VisualState x:Name="Unchecked" />
+                                        <VisualState x:Name="Checked" />
                                         <VisualState x:Name="Indeterminate" />
                                     </VisualStateGroup>
                                     <VisualStateGroup x:Name="FocusStates">
@@ -215,7 +193,7 @@
                 </Setter>
             </Style>
             <Style x:Key="SegmentedToggleStyle" TargetType="ToggleButton">
-                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="MinHeight" Value="36" />
                 <Setter Property="Padding" Value="10,4" />
                 <Setter Property="CornerRadius" Value="6" />
                 <Setter Property="Background" Value="Transparent" />
@@ -270,23 +248,8 @@
                                         </VisualState>
                                     </VisualStateGroup>
                                     <VisualStateGroup x:Name="CheckStates">
-                                        <VisualState x:Name="Unchecked">
-                                            <Storyboard>
-                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid"
-                                                                               Storyboard.TargetProperty="Background">
-                                                    <DiscreteObjectKeyFrame KeyTime="0" Value="Transparent" />
-                                                </ObjectAnimationUsingKeyFrames>
-                                            </Storyboard>
-                                        </VisualState>
-                                        <VisualState x:Name="Checked">
-                                            <Storyboard>
-                                                <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid"
-                                                                               Storyboard.TargetProperty="Background">
-                                                    <DiscreteObjectKeyFrame KeyTime="0"
-                                                                            Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-                                                </ObjectAnimationUsingKeyFrames>
-                                            </Storyboard>
-                                        </VisualState>
+                                        <VisualState x:Name="Unchecked" />
+                                        <VisualState x:Name="Checked" />
                                         <VisualState x:Name="Indeterminate" />
                                     </VisualStateGroup>
                                     <VisualStateGroup x:Name="FocusStates">

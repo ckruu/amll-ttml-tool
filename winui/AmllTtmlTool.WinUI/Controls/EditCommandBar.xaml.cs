@@ -32,6 +32,7 @@ namespace AmllTtmlTool.WinUI.Controls
             var showSection = showTrans || showRoman;
             SecondaryGroup.Visibility = showSection ? Visibility.Visible : Visibility.Collapsed;
             SecondaryCaption.Visibility = showSection ? Visibility.Visible : Visibility.Collapsed;
+            SecondaryLeadSeparator.Visibility = showSection ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void OnNewLineClick(object sender, RoutedEventArgs e) =>
