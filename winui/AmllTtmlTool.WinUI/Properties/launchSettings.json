@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "AmllTtmlTool.WinUI (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "AmllTtmlTool.WinUI (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

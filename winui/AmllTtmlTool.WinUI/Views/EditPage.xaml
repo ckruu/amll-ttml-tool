@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Page
+    x:Class="AmllTtmlTool.WinUI.Views.EditPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <StackPanel
+        HorizontalAlignment="Center"
+        Spacing="8"
+        VerticalAlignment="Center">
+        <TextBlock
+            x:Uid="EditPage_Title"
+            FontSize="24"
+            HorizontalAlignment="Center"
+            Text="Lyric editor" />
+        <TextBlock
+            x:Uid="EditPage_Subtitle"
+            HorizontalAlignment="Center"
+            Style="{StaticResource BodyTextBlockStyle}"
+            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+            Text="Word-level editing lands here in Phase 1." />
+    </StackPanel>
+</Page>
