@@ -27,7 +27,8 @@
         <Content Include="Assets\Wide310x150Logo.scale-200.png" />
     </ItemGroup>
     <ItemGroup>
-        <None Remove="AmllTtmlTool.WinUI.slnx" />
+        <Content Include="..\libs\ffmpeg\x64\*.dll;..\libs\ffmpeg\x64\*.exe" Link="ffmpeg\x64\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="..\libs\ffmpeg\arm64\*.dll;..\libs\ffmpeg\arm64\*.exe" Link="ffmpeg\arm64\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />

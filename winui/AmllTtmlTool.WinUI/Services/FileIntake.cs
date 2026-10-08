@@ -40,8 +40,22 @@ public sealed class FileIntake(
         try
         {
             var meta = AudioMetadata.ParseAudioTrackMetadata(raw, file.Name);
-            var cover = await ReadCoverAsync(file);
-            if (cover is not null) audio.Cover = cover;
+            var bins = FfmpegBins.Locate();
+            if (bins is not null)
+            {
+                try
+                {
+                    var probe = await FfmpegDecoder.ProbeAsync(bins, file.Path);
+                    foreach (var (k, v) in probe.Tags)
+                    {
+                        if (!raw.ContainsKey(k) || string.IsNullOrWhiteSpace(raw[k])) raw[k] = v;
+                    }
+                    meta = AudioMetadata.ParseAudioTrackMetadata(raw, file.Name);
+                }
+                catch { }
+            }
+            var cover = bins is not null ? await TryFfmpegCoverAsync(bins, file.Path) : null;
+            audio.Cover = cover ?? await ReadCoverAsync(file);
             await audio.LoadAsync(file.Path);
             store.MergeAudioMetadata(AudioMetadata.ToTtmlMetadata(meta));
         }
@@ -147,6 +161,20 @@ public sealed class FileIntake(
         raw[key] = raw.TryGetValue(key, out var existing) && !string.IsNullOrWhiteSpace(existing)
             ? existing + ";" + value
             : value;
+    }
+
+    private static async Task<AudioCover?> TryFfmpegCoverAsync(FfmpegBins bins, string path)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var bytes = await FfmpegDecoder.ExtractCoverAsync(bins, path, cts.Token);
+            return bytes is null ? null : new AudioCover(bytes, "image/jpeg");
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static async Task<AudioCover?> ReadCoverAsync(StorageFile file)
