@@ -11,6 +11,19 @@ namespace AmllTtmlTool.WinUI
         public App()
         {
             this.InitializeComponent();
+            this.UnhandledException += OnUnhandledException;
+        }
+
+        private static void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
+        {
+            try
+            {
+                var log = Path.Combine(Path.GetTempPath(), "amll-ttml-tool-crash.log");
+                var entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {e.Exception}\n---\n";
+                File.AppendAllText(log, entry);
+                e.Handled = true;
+            }
+            catch { }
         }
 
         protected override void OnLaunched(LaunchActivatedEventArgs e)

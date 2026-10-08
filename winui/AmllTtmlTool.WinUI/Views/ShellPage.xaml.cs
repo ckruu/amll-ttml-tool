@@ -14,7 +14,7 @@ namespace AmllTtmlTool.WinUI.Views
     {
         private readonly Type[] _pages = [typeof(EditPage), typeof(SyncPage), typeof(PreviewPage)];
         private readonly LyricStore _store = new();
-        private readonly AudioEngine _audio;
+        private readonly AudioEngine _audio = new();
         private FileIntake? _intake;
         private bool _scrubbing;
         private bool _syncingSlider;
@@ -23,7 +23,6 @@ namespace AmllTtmlTool.WinUI.Views
         public ShellPage()
         {
             this.InitializeComponent();
-            _audio = new AudioEngine();
             SetupWindow();
             WireStores();
             EditModeButton.IsChecked = true;
