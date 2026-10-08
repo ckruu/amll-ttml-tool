@@ -24,4 +24,8 @@
     <ProjectReference Include="..\AmllTtmlTool.Core\AmllTtmlTool.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Fixtures\*.xml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
