@@ -37,11 +37,16 @@ public static class FileDialogs
 
     public static async Task<StorageFile?> PickSaveTtmlAsync(Window window, string suggestedName, bool appleFlavor)
     {
+        return await PickSaveFileAsync(window, appleFlavor
+            ? System.IO.Path.GetFileNameWithoutExtension(suggestedName) + ".apple"
+            : System.IO.Path.GetFileNameWithoutExtension(suggestedName));
+    }
+
+    public static async Task<StorageFile?> PickSaveFileAsync(Window window, string suggestedName)
+    {
         var picker = new FileSavePicker();
         InitPicker(picker, window);
-        picker.SuggestedFileName = appleFlavor
-            ? System.IO.Path.GetFileNameWithoutExtension(suggestedName) + ".apple"
-            : System.IO.Path.GetFileNameWithoutExtension(suggestedName);
+        picker.SuggestedFileName = suggestedName;
         picker.FileTypeChoices.Add("TTML lyrics", [".ttml"]);
         picker.SuggestedStartLocation = PickerLocationId.MusicLibrary;
         return await picker.PickSaveFileAsync();

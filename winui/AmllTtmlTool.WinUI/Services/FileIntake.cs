@@ -133,26 +133,33 @@ public sealed class FileIntake(
     {
         var file = await FileDialogs.PickSaveTtmlAsync(window, store.FileName, appleFlavor);
         if (file is null) return;
-        string text;
-        if (appleFlavor)
-        {
-            text = Core.AppleTtml.ToAppleTtml(store.Document);
-            foreach (var w in Core.AppleTtml.GetAppleTtmlWarnings(store.Document)) notify(w);
-        }
-        else
-        {
-            var prepared = Core.TtmlNormalize.PostProcess(Core.TtmlNormalize.NormalizeForExport(store.Document));
-            var gen = Core.TtmlGenerator.Generate(prepared, new(), new(false, false, Core.TtmlNormalize.IsLineTimingLyrics(prepared)));
-            if (!gen.Success)
-            {
-                await FileDialogs.ShowErrorAsync(anchor, "Save failed", "Could not generate TTML.", gen.Error?.Message);
-                return;
-            }
-            text = gen.Data!;
-        }
+        await SaveToFileAsync(file, appleFlavor);
+    }
+
+    public async Task SaveToFileAsync(StorageFile file, bool appleFlavor)
+    {
+        var text = await BuildSaveTextAsync(appleFlavor, appleFlavor ? "Save failed" : "Save failed");
+        if (text is null) return;
         await FileIO.WriteTextAsync(file, text);
         if (!appleFlavor) store.MarkSaved(file.Name);
         notify($"Saved {file.Name}.");
+    }
+
+    private async Task<string?> BuildSaveTextAsync(bool appleFlavor, string title)
+    {
+        if (appleFlavor)
+        {
+            foreach (var w in Core.AppleTtml.GetAppleTtmlWarnings(store.Document)) notify(w);
+            return Core.AppleTtml.ToAppleTtml(store.Document);
+        }
+        var prepared = Core.TtmlNormalize.PostProcess(Core.TtmlNormalize.NormalizeForExport(store.Document));
+        var gen = Core.TtmlGenerator.Generate(prepared, new(), new(false, false, Core.TtmlNormalize.IsLineTimingLyrics(prepared)));
+        if (!gen.Success)
+        {
+            await FileDialogs.ShowErrorAsync(anchor, title, "Could not generate TTML.", gen.Error?.Message);
+            return null;
+        }
+        return gen.Data!;
     }
 
     private static void Put(Dictionary<string, string> raw, string key, string value)

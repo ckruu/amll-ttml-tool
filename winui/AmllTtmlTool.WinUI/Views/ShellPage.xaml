@@ -17,6 +17,23 @@
         <KeyboardAccelerator Key="Y" Modifiers="Control" Invoked="OnRedoAccelerator" />
     </Page.KeyboardAccelerators>
     <Grid x:Name="RootGrid" AllowDrop="True" DragLeave="OnDragLeave" DragOver="OnDragOver" Drop="OnDrop">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="WideTitle">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="720" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <VisualState x:Name="NarrowTitle">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="FileNameText.Visibility" Value="Collapsed" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
             <RowDefinition Height="Auto" />
@@ -25,100 +42,217 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid x:Name="TitleBarArea" Padding="16,0,12,0" ColumnSpacing="8">
+        <Grid x:Name="TitleBarArea" Padding="8,0,8,0" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" MinWidth="48" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <FontIcon VerticalAlignment="Center" Glyph="&#xE950;" />
-            <TextBlock
-                x:Uid="ShellPage_Title"
-                Grid.Column="1"
-                VerticalAlignment="Center"
-                Style="{StaticResource CaptionTextBlockStyle}"
-                Text="AMLL TTML Tool" />
+            <MenuBar VerticalAlignment="Center">
+                <MenuBarItem x:Uid="Menu_File" Title="File">
+                    <MenuFlyoutItem x:Uid="Menu_NewFile" Click="OnNewClick" Text="New file">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE710;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Uid="Menu_OpenLyrics" Click="OnOpenClick" Text="Open lyrics">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B7;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Uid="Menu_OpenClipboard" Click="OnPasteClick" Text="Open from clipboard">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE77F;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_SaveTtml" Click="OnSaveClick" Text="Save TTML">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74E;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Uid="Menu_RestoreHistory" Click="OnStubClick" Text="Restore from history">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_CopyTtml" Click="OnCopyClick" Text="Copy TTML">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Uid="Menu_CopyApple" Click="OnCopyAppleClick" Text="Copy Apple TTML" />
+                    <MenuFlyoutItem x:Uid="Menu_SaveApple" Click="OnSaveAppleClick" Text="Save Apple TTML" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_ImportLyrics" Click="OnOpenClick" Text="Import lyrics">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B7;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_Upload" Click="OnStubClick" Text="Upload to AMLL database">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE774;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                </MenuBarItem>
+                <MenuBarItem x:Uid="Menu_Edit" Title="Edit">
+                    <MenuFlyoutItem x:Uid="Menu_Undo" Click="OnUndoClick" Text="Undo">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A7;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Uid="Menu_Redo" Click="OnRedoClick" Text="Redo">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_SelectAll" Click="OnStubClick" Text="Select all lines">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B3;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutItem x:Uid="Menu_DeselectAll" Click="OnStubClick" Text="Deselect all" />
+                    <MenuFlyoutItem x:Uid="Menu_InvertSelection" Click="OnStubClick" Text="Invert selection" />
+                    <MenuFlyoutItem x:Uid="Menu_SelectWordMatches" Click="OnStubClick" Text="Select word matches" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_DeleteWords" Click="OnStubClick" Text="Delete selected words">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_ShiftTime" Click="OnStubClick" Text="Shift time…" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_EditMetadata" Click="OnStubClick" Text="Edit metadata…" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_Preferences" Click="OnStubClick" Text="Preferences">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE713;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                </MenuBarItem>
+                <MenuBarItem x:Uid="Menu_Tools" Title="Tools">
+                    <MenuFlyoutItem x:Uid="Menu_AutoSegment" Click="OnStubClick" Text="Auto segment" />
+                    <MenuFlyoutItem x:Uid="Menu_AdvancedSegment" Click="OnStubClick" Text="Advanced segmentation…" />
+                    <MenuFlyoutItem x:Uid="Menu_SmoothTimeline" Click="OnStubClick" Text="Smooth timeline…" />
+                    <MenuFlyoutItem x:Uid="Menu_SyncTimestamps" Click="OnStubClick" Text="Sync line timestamps" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_DistributeRoman" Click="OnStubClick" Text="Auto-distribute romanization…" />
+                    <MenuFlyoutItem x:Uid="Menu_CheckRoman" Click="OnStubClick" Text="Check romanization" />
+                    <MenuFlyoutItem x:Uid="Menu_AutoRuby" Click="OnStubClick" Text="Auto ruby" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Uid="Menu_LatencyTest" Click="OnStubClick" Text="Audio latency test">
+                        <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE121;" /></MenuFlyoutItem.Icon>
+                    </MenuFlyoutItem>
+                </MenuBarItem>
+                <MenuBarItem x:Uid="Menu_Help" Title="Help">
+                    <MenuFlyoutItem x:Uid="Menu_GitHub" Click="OnGitHubClick" Text="GitHub" />
+                    <MenuFlyoutItem x:Uid="Menu_Docs" Click="OnDocsClick" Text="Docs" />
+                </MenuBarItem>
+            </MenuBar>
             <StackPanel
-                Grid.Column="2"
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="2"
+                VerticalAlignment="Center">
+                <Button x:Uid="ShellPage_Undo" Click="OnUndoClick" ToolTipService.ToolTip="Undo (Ctrl+Z)">
+                    <FontIcon FontSize="14" Glyph="&#xE7A7;" />
+                </Button>
+                <Button x:Uid="ShellPage_Redo" Click="OnRedoClick" ToolTipService.ToolTip="Redo (Ctrl+Y)">
+                    <FontIcon FontSize="14" Glyph="&#xE7A6;" />
+                </Button>
+            </StackPanel>
+            <Grid Grid.Column="2" ColumnSpacing="6" Margin="8,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <FontIcon VerticalAlignment="Center" Glyph="&#xE8B7;" FontSize="14" />
+                <TextBlock
+                    x:Name="FileNameText"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource BodyTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="lyric.ttml"
+                    TextTrimming="CharacterEllipsis" />
+            </Grid>
+            <StackPanel
+                Grid.Column="3"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
-                Spacing="4">
-                <RadioButton
-                    x:Name="EditModeButton"
-                    x:Uid="ShellPage_EditMode"
-                    Content="Edit"
-                    GroupName="Mode"
-                    Checked="OnModeChecked" />
-                <RadioButton
-                    x:Name="SyncModeButton"
-                    x:Uid="ShellPage_SyncMode"
-                    Content="Sync"
-                    GroupName="Mode"
-                    Checked="OnModeChecked" />
-                <RadioButton
-                    x:Name="PreviewModeButton"
-                    x:Uid="ShellPage_PreviewMode"
-                    Content="Preview"
-                    GroupName="Mode"
-                    Checked="OnModeChecked" />
+                Spacing="8">
+                <Border
+                    Padding="2"
+                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                        <AppBarToggleButton
+                            x:Name="RomanToggle"
+                            x:Uid="ShellPage_RomanToggle"
+                            Click="OnMasterToggleClick"
+                            Content="あ"
+                            IsCompact="True"
+                            ToolTipService.ToolTip="Romanization lines" />
+                        <AppBarToggleButton
+                            x:Name="TransToggle"
+                            x:Uid="ShellPage_TransToggle"
+                            Click="OnMasterToggleClick"
+                            Content="訳"
+                            IsCompact="True"
+                            ToolTipService.ToolTip="Translation lines" />
+                        <AppBarToggleButton
+                            x:Name="WordRomanToggle"
+                            x:Uid="ShellPage_WordRomanToggle"
+                            Click="OnMasterToggleClick"
+                            Content="ｱ"
+                            IsCompact="True"
+                            ToolTipService.ToolTip="Per-word romanization" />
+                    </StackPanel>
+                </Border>
+                <Border
+                    Padding="2"
+                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
+                        <RadioButton
+                            x:Name="EditModeButton"
+                            x:Uid="ShellPage_EditMode"
+                            Content="Edit"
+                            GroupName="Mode"
+                            Checked="OnModeChecked" />
+                        <RadioButton
+                            x:Name="SyncModeButton"
+                            x:Uid="ShellPage_SyncMode"
+                            Content="Sync"
+                            GroupName="Mode"
+                            Checked="OnModeChecked" />
+                        <RadioButton
+                            x:Name="PreviewModeButton"
+                            x:Uid="ShellPage_PreviewMode"
+                            Content="Preview"
+                            GroupName="Mode"
+                            Checked="OnModeChecked" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
             <StackPanel
-                Grid.Column="3"
+                Grid.Column="4"
                 Orientation="Horizontal"
                 Spacing="4"
                 VerticalAlignment="Center">
-                <Button x:Uid="ShellPage_Open" Click="OnOpenClick" ToolTipService.ToolTip="Open lyrics (Ctrl+O)">
-                    <FontIcon Glyph="&#xE8B7;" />
-                </Button>
-                <Button x:Uid="ShellPage_New" Click="OnNewClick" ToolTipService.ToolTip="New file (Ctrl+N)">
-                    <FontIcon Glyph="&#xE710;" />
+                <Button x:Uid="ShellPage_History" Click="OnStubClick" ToolTipService.ToolTip="History">
+                    <FontIcon FontSize="14" Glyph="&#xE81C;" />
                 </Button>
                 <DropDownButton x:Uid="ShellPage_Save" ToolTipService.ToolTip="Save (Ctrl+S)">
-                    <FontIcon Glyph="&#xE74E;" />
+                    <FontIcon FontSize="14" Glyph="&#xE74E;" />
                     <DropDownButton.Flyout>
-                        <MenuFlyout>
-                            <MenuFlyoutItem x:Uid="ShellPage_SaveTtml" Click="OnSaveClick" Text="Save TTML">
-                                <MenuFlyoutItem.KeyboardAccelerators>
-                                    <KeyboardAccelerator Key="S" Modifiers="Control" />
-                                </MenuFlyoutItem.KeyboardAccelerators>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Uid="ShellPage_SaveApple" Click="OnSaveAppleClick" Text="Save Apple TTML" />
+                        <MenuFlyout x:Name="SaveMenu" Opening="OnSaveMenuOpening">
+                            <RadioMenuFlyoutItem x:Name="SaveTtmlItem" Click="OnSaveFormatPicked" Text="TTML" Tag="ttml" />
+                            <RadioMenuFlyoutItem x:Name="SaveAppleItem" Click="OnSaveFormatPicked" Text="Apple TTML" Tag="apple" />
                             <MenuFlyoutSeparator />
-                            <MenuFlyoutItem x:Uid="ShellPage_CopyTtml" Click="OnCopyClick" Text="Copy TTML" />
-                            <MenuFlyoutItem x:Uid="ShellPage_CopyApple" Click="OnCopyAppleClick" Text="Copy Apple TTML" />
+                            <MenuFlyoutItem x:Uid="ShellPage_SaveNow" Click="OnSaveClick" Text="Save now" />
                         </MenuFlyout>
                     </DropDownButton.Flyout>
                 </DropDownButton>
-            </StackPanel>
-            <TextBlock
-                x:Name="FileNameText"
-                Grid.Column="4"
-                VerticalAlignment="Center"
-                Style="{StaticResource BodyTextBlockStyle}"
-                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="lyric.ttml" />
-            <StackPanel
-                Grid.Column="5"
-                Orientation="Horizontal"
-                Spacing="8"
-                VerticalAlignment="Center">
-                <ProgressBar
-                    x:Name="SyncProgress"
-                    Maximum="100"
-                    Minimum="0"
-                    Value="0"
-                    Width="110" />
-                <TextBlock
-                    x:Name="SyncPercent"
-                    MinWidth="40"
-                    Style="{StaticResource CaptionTextBlockStyle}"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="—" />
+                <DropDownButton x:Uid="ShellPage_Copy" ToolTipService.ToolTip="Copy">
+                    <FontIcon FontSize="14" Glyph="&#xE8C8;" />
+                    <DropDownButton.Flyout>
+                        <MenuFlyout x:Name="CopyMenu" Opening="OnCopyMenuOpening">
+                            <RadioMenuFlyoutItem x:Name="CopyTtmlItem" Click="OnCopyFormatPicked" Text="TTML" Tag="ttml" />
+                            <RadioMenuFlyoutItem x:Name="CopyAppleItem" Click="OnCopyFormatPicked" Text="Apple TTML" Tag="apple" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="ShellPage_CopyNow" Click="OnCopyClick" Text="Copy now" />
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+                <Button x:Uid="ShellPage_Export" Click="OnExportClick" ToolTipService.ToolTip="Export…">
+                    <FontIcon FontSize="14" Glyph="&#xE7C3;" />
+                </Button>
             </StackPanel>
         </Grid>
 

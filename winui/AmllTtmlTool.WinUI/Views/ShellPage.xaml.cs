@@ -58,6 +58,7 @@ namespace AmllTtmlTool.WinUI.Views
                 });
             RefreshChrome();
             RefreshAudioChrome();
+            LoadMasterToggles();
             SetupSmtc();
         }
 
@@ -151,19 +152,21 @@ namespace AmllTtmlTool.WinUI.Views
             _store.NewDocument();
         }
 
-        private async void OnSaveClick(object sender, RoutedEventArgs e) => await SaveAsync(false);
+        private async void OnSaveClick(object sender, RoutedEventArgs e) =>
+            await SaveWithFormatAsync(AppSettings.LastSaveFormat);
         private void OnSaveAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args) =>
-            _ = SaveAsync(false);
+            _ = SaveWithFormatAsync(AppSettings.LastSaveFormat);
 
-        private async void OnSaveAppleClick(object sender, RoutedEventArgs e) => await SaveAsync(true);
+        private async void OnSaveAppleClick(object sender, RoutedEventArgs e) =>
+            await SaveWithFormatAsync("apple");
         private void OnSaveAppleAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args) =>
-            _ = SaveAsync(true);
+            _ = SaveWithFormatAsync("apple");
 
         private async void OnCopyClick(object sender, RoutedEventArgs e) =>
-            await (_intake?.CopyTtmlAsync(false) ?? Task.CompletedTask);
+            await CopyWithFormatAsync(AppSettings.LastCopyFormat);
 
         private async void OnCopyAppleClick(object sender, RoutedEventArgs e) =>
-            await (_intake?.CopyTtmlAsync(true) ?? Task.CompletedTask);
+            await CopyWithFormatAsync("apple");
 
         private async void OnPasteAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
         {
@@ -177,6 +180,12 @@ namespace AmllTtmlTool.WinUI.Views
             _store.Redo();
 
         private Task SaveAsync(bool apple) => _intake?.SaveAsync(apple) ?? Task.CompletedTask;
+
+        private Task SaveWithFormatAsync(string format) =>
+            SaveAsync(format == "apple");
+
+        private Task CopyWithFormatAsync(string format) =>
+            _intake?.CopyTtmlAsync(format == "apple") ?? Task.CompletedTask;
 
         private async void OnLoadAudioClick(object sender, RoutedEventArgs e)
         {
@@ -321,6 +330,91 @@ namespace AmllTtmlTool.WinUI.Views
                     _ => "Mini preview lands here in Phase 1.",
                 };
             }
+        }
+
+        private void LoadMasterToggles()
+        {
+            RomanToggle.IsChecked = AppSettings.ShowRomanization;
+            TransToggle.IsChecked = AppSettings.ShowTranslation;
+            WordRomanToggle.IsChecked = AppSettings.ShowWordRomanization;
+        }
+
+        private void OnMasterToggleClick(object sender, RoutedEventArgs e)
+        {
+            AppSettings.ShowRomanization = RomanToggle.IsChecked == true;
+            AppSettings.ShowTranslation = TransToggle.IsChecked == true;
+            AppSettings.ShowWordRomanization = WordRomanToggle.IsChecked == true;
+            AppSettings.NotifyDisplayChanged();
+        }
+
+        private void OnStubClick(object sender, RoutedEventArgs e) =>
+            Notify("This arrives in a later slice.");
+
+        private async void OnGitHubClick(object sender, RoutedEventArgs e) =>
+            _ = await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/amll-dev/amll-ttml-tool"));
+
+        private async void OnDocsClick(object sender, RoutedEventArgs e) =>
+            _ = await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/amll-dev/amll-ttml-tool/wiki"));
+
+        private void OnUndoClick(object sender, RoutedEventArgs e) => _store.Undo();
+        private void OnRedoClick(object sender, RoutedEventArgs e) => _store.Redo();
+
+        private async void OnPasteClick(object sender, RoutedEventArgs e)
+        {
+            if (_intake is not null) await _intake.PasteAsync();
+        }
+
+        private void OnSaveMenuOpening(object sender, object e)
+        {
+            SaveTtmlItem.IsChecked = AppSettings.LastSaveFormat != "apple";
+            SaveAppleItem.IsChecked = AppSettings.LastSaveFormat == "apple";
+        }
+
+        private void OnCopyMenuOpening(object sender, object e)
+        {
+            CopyTtmlItem.IsChecked = AppSettings.LastCopyFormat != "apple";
+            CopyAppleItem.IsChecked = AppSettings.LastCopyFormat == "apple";
+        }
+
+        private void OnSaveFormatPicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is RadioMenuFlyoutItem item && item.Tag is string tag)
+                AppSettings.LastSaveFormat = tag;
+        }
+
+        private void OnCopyFormatPicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is RadioMenuFlyoutItem item && item.Tag is string tag)
+                AppSettings.LastCopyFormat = tag;
+        }
+
+        private async void OnExportClick(object sender, RoutedEventArgs e)
+        {
+            if (_intake is null) return;
+            var nameBox = new TextBox
+            {
+                Text = System.IO.Path.GetFileNameWithoutExtension(_store.FileName),
+                Header = "File name",
+            };
+            var formatBox = new ComboBox { Header = "Format", SelectedIndex = 0 };
+            formatBox.Items.Add("TTML (.ttml)");
+            formatBox.Items.Add("Apple TTML (.ttml)");
+            var panel = new StackPanel { Spacing = 12 };
+            panel.Children.Add(nameBox);
+            panel.Children.Add(formatBox);
+            var dialog = new ContentDialog
+            {
+                Title = "Export lyrics",
+                Content = panel,
+                PrimaryButtonText = "Export",
+                CloseButtonText = "Cancel",
+                XamlRoot = this.XamlRoot,
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            var window = ((App)Application.Current).MainWindow;
+            var file = await FileDialogs.PickSaveFileAsync(window, nameBox.Text.Trim());
+            if (file is null) return;
+            await _intake.SaveToFileAsync(file, formatBox.SelectedIndex == 1);
         }
     }
 }
