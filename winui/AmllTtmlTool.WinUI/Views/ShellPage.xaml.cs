@@ -645,6 +645,22 @@ namespace AmllTtmlTool.WinUI.Views
                     : 0;
                 if (Math.Abs(LeftTitleCol.MinWidth - pin) > 0.5)
                     LeftTitleCol.MinWidth = pin;
+                // TEMP-DIAG: settled readout for one verification round; remove after.
+                try
+                {
+                    var visible = string.Join(",", new (string n, FrameworkElement p)[]
+                    {
+                        ("menu", MenuBarFull), ("ham", MenuCompactButton),
+                        ("undo", UndoRedoPanel), ("file", FileInfoGrid),
+                        ("fileBtn", FileInfoButton), ("right", RightFullPanel),
+                        ("copy", RightCompactSplit),
+                    }.Where(t => t.p.Visibility == Visibility.Visible).Select(t => t.n));
+                    NoticeBar.Message =
+                        $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}]";
+                    NoticeBar.Severity = InfoBarSeverity.Informational;
+                    NoticeBar.IsOpen = true;
+                }
+                catch { }
             }
             catch { }
         }
@@ -661,6 +677,9 @@ namespace AmllTtmlTool.WinUI.Views
                     if (!_modeLabels.ContainsKey(item))
                         _modeLabels[item] = item.Content;
                     item.Content = null;
+                    // Direct width beats the Top-pane presenter style, which
+                    // stomps MenuItemContainerStyle (labels hid, width didn't).
+                    item.Width = 48;
                 }
                 if (Resources.TryGetValue("ModeNavCompactItemStyle", out var style) && style is Style compactStyle)
                     ModeNavView.MenuItemContainerStyle = compactStyle;
@@ -672,6 +691,7 @@ namespace AmllTtmlTool.WinUI.Views
                     if (item is null) continue;
                     if (_modeLabels.TryGetValue(item, out var label))
                         item.Content = label;
+                    item.ClearValue(FrameworkElement.WidthProperty);
                 }
                 ModeNavView.ClearValue(NavigationView.MenuItemContainerStyleProperty);
             }
