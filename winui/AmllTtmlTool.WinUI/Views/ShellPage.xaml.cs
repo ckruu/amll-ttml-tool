@@ -421,25 +421,14 @@ namespace AmllTtmlTool.WinUI.Views
             }
             _compositor = ElementCompositionPreview.GetElementVisual(ModeIndicatorCanvas).Compositor;
             _decelerate = _compositor.CreateCubicBezierEasingFunction(new Vector2(0, 0), new Vector2(0, 1));
-            foreach (var tb in new ToggleButton[] { RomanToggle, TransToggle, WordRomanToggle })
-            {
-                tb.AddHandler(PointerPressedEvent, new PointerEventHandler(OnPillPointerPressed), true);
-                tb.AddHandler(PointerReleasedEvent, new PointerEventHandler(OnPillPointerReleased), true);
-                tb.AddHandler(PointerCanceledEvent, new PointerEventHandler(OnPillPointerReleased), true);
-                tb.AddHandler(PointerCaptureLostEvent, new PointerEventHandler(OnPillPointerReleased), true);
-            }
-            foreach (var rb in new RadioButton[] { EditModeButton, SyncModeButton, PreviewModeButton })
-            {
-                rb.AddHandler(PointerPressedEvent, new PointerEventHandler(OnPillPointerPressed), true);
-                rb.AddHandler(PointerReleasedEvent, new PointerEventHandler(OnPillPointerReleased), true);
-                rb.AddHandler(PointerCanceledEvent, new PointerEventHandler(OnPillPointerReleased), true);
-                rb.AddHandler(PointerCaptureLostEvent, new PointerEventHandler(OnPillPointerReleased), true);
-            }
             if (!_slideHooked)
             {
                 _slideHooked = true;
                 ModeButtonRow.SizeChanged += (_, _) => UpdateModeSlide(animate: false);
+                ModeIndicatorCanvas.SizeChanged += (_, _) => UpdateModeSlide(animate: false);
             }
+            ModeSlidePill.Visibility = Visibility.Collapsed;
+            _pillX = double.NaN;
             UpdateModeSlide(animate: false);
         }
 
@@ -450,11 +439,20 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void UpdateModeSlide(bool animate)
         {
-            if (ModeSlidePill is null || ModeButtonRow.ActualWidth <= 0) return;
+            if (ModeSlidePill is null) return;
+            var rowWidth = ModeButtonRow.ActualWidth;
+            var canvasWidth = ModeIndicatorCanvas.ActualWidth;
             var button = CurrentModeButton();
+            if (rowWidth <= 0 || canvasWidth <= 0 || button.ActualWidth <= 0)
+            {
+                ModeSlidePill.Visibility = Visibility.Collapsed;
+                _pillX = double.NaN;
+                return;
+            }
             var transform = button.TransformToVisual(ModeIndicatorCanvas);
             var bounds = transform.TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
-            var targetX = bounds.X + (bounds.Width - ModeSlidePill.Width) / 2;
+            var maxX = Math.Max(0, canvasWidth - ModeSlidePill.Width);
+            var targetX = Math.Max(0, Math.Min(bounds.X + (bounds.Width - ModeSlidePill.Width) / 2, maxX));
             var targetY = Math.Max(0, ModeIndicatorCanvas.ActualHeight - ModeSlidePill.Height - 5);
             var first = double.IsNaN(_pillX);
             var delta = first ? 0 : _pillX - targetX;
@@ -466,7 +464,11 @@ namespace AmllTtmlTool.WinUI.Views
             var visual = ElementCompositionPreview.GetElementVisual(ModeSlidePill);
             visual.StopAnimation("Offset");
             visual.Offset = new Vector3((float)delta, 0, 0);
-            visual.StartAnimation("Offset", SpringTo(Vector3.Zero, new Vector3((float)delta, 0, 0), 0.75f, TimeSpan.FromMilliseconds(180)));
+            var slide = _compositor.CreateVector3KeyFrameAnimation();
+            slide.Duration = TimeSpan.FromMilliseconds(200);
+            slide.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+            slide.InsertKeyFrame(1f, Vector3.Zero, _decelerate);
+            visual.StartAnimation("Offset", slide);
         }
 
         private Visual? FindPill(ToggleButton button)
@@ -493,58 +495,18 @@ namespace AmllTtmlTool.WinUI.Views
             return null;
         }
 
-        private SpringVector3NaturalMotionAnimation SpringTo(Vector3 finalValue, Vector3 initialValue, float dampingRatio, TimeSpan period)
-        {
-            var spring = _compositor!.CreateSpringVector3Animation();
-            spring.FinalValue = finalValue;
-            spring.InitialValue = initialValue;
-            spring.InitialVelocity = Vector3.Zero;
-            spring.DampingRatio = dampingRatio;
-            spring.Period = period;
-            spring.StopBehavior = AnimationStopBehavior.SetToFinalValue;
-            return spring;
-        }
-
         private void PopPill(ToggleButton button)
         {
             if (!_motionEnabled || _compositor is null) return;
             var visual = FindPill(button);
             if (visual is null) return;
-            visual.CenterPoint = new Vector3(8, 1.5f, 0);
-            visual.StopAnimation("Scale");
             visual.StopAnimation("Opacity");
-            visual.Scale = new Vector3(0.4f, 1, 1);
             visual.Opacity = 0;
-            visual.StartAnimation("Scale", SpringTo(new Vector3(1, 1, 1), new Vector3(0.4f, 1, 1), 0.55f, TimeSpan.FromMilliseconds(220)));
             var fade = _compositor.CreateScalarKeyFrameAnimation();
             fade.Duration = TimeSpan.FromMilliseconds(150);
             fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
             fade.InsertKeyFrame(1f, 1f, _decelerate);
             visual.StartAnimation("Opacity", fade);
-        }
-
-        private void OnPillPointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            if (!_motionEnabled || _compositor is null) return;
-            if (sender is not FrameworkElement fe || fe.ActualWidth <= 0) return;
-            var visual = ElementCompositionPreview.GetElementVisual(fe);
-            visual.CenterPoint = new Vector3((float)fe.ActualWidth / 2, (float)fe.ActualHeight / 2, 0);
-            visual.StopAnimation("Scale");
-            var press = _compositor.CreateVector3KeyFrameAnimation();
-            press.Duration = TimeSpan.FromMilliseconds(100);
-            press.StopBehavior = AnimationStopBehavior.SetToFinalValue;
-            press.InsertKeyFrame(1f, new Vector3(0.96f, 0.96f, 1), _decelerate);
-            visual.StartAnimation("Scale", press);
-        }
-
-        private void OnPillPointerReleased(object sender, PointerRoutedEventArgs e)
-        {
-            if (!_motionEnabled || _compositor is null) return;
-            if (sender is not FrameworkElement fe) return;
-            var visual = ElementCompositionPreview.GetElementVisual(fe);
-            visual.StopAnimation("Scale");
-            visual.Scale = new Vector3(0.96f, 0.96f, 1);
-            visual.StartAnimation("Scale", SpringTo(new Vector3(1, 1, 1), new Vector3(0.96f, 0.96f, 1), 0.5f, TimeSpan.FromMilliseconds(180)));
         }
 
         private void OnSideTabChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
