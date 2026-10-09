@@ -28,25 +28,15 @@
             <VisualStateGroup x:Name="TitleStates" CurrentStateChanged="OnTitleStateChanged">
                 <VisualState x:Name="FullTitle">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="1200" />
+                        <AdaptiveTrigger MinWindowWidth="1100" />
                     </VisualState.StateTriggers>
                 </VisualState>
-                <VisualState x:Name="CompactFile">
+                <VisualState x:Name="CompactTitle">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="1000" />
-                    </VisualState.StateTriggers>
-                </VisualState>
-                <VisualState x:Name="MediumTitle">
-                    <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="820" />
+                        <AdaptiveTrigger MinWindowWidth="800" />
                     </VisualState.StateTriggers>
                 </VisualState>
                 <VisualState x:Name="NarrowTitle">
-                    <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="620" />
-                    </VisualState.StateTriggers>
-                </VisualState>
-                <VisualState x:Name="TinyTitle">
                     <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>

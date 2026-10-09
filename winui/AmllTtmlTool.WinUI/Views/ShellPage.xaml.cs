@@ -496,23 +496,31 @@ namespace AmllTtmlTool.WinUI.Views
             _titleStateGeneration++;
             var level = state?.Name switch
             {
-                "CompactFile" => 1,
-                "MediumTitle" => 2,
-                "NarrowTitle" => 3,
-                "TinyTitle" => 4,
+                "CompactTitle" => 1,
+                "NarrowTitle" => 2,
                 _ => 0,
             };
-            System.Diagnostics.Debug.WriteLine($"[TitleBar] State={state?.Name ?? "null"} level={level}");
+            _lastTitleStateName = state?.Name ?? "null";
+            System.Diagnostics.Debug.WriteLine($"[TitleBar] State={_lastTitleStateName} level={level}");
+            SetTarget(FileInfoGrid, level == 0);
+            SetTarget(FileInfoButton, level >= 1);
+            SetTarget(MenuBarFull, level == 0);
+            SetTarget(MenuDivider, level == 0);
+            SetTarget(MenuCompactButton, level >= 1);
+            SetTarget(UndoRedoPanel, level == 0);
+            SetTarget(UndoDivider, level == 0);
+            SetTarget(RightFullPanel, level == 0);
+            SetTarget(RightCompactSplit, level >= 1);
             CrossfadePanel(FileInfoGrid, show: level == 0, _titleStateGeneration);
-            CrossfadePanel(FileInfoButton, show: level is >= 1 and <= 3, _titleStateGeneration);
-            CrossfadePanel(MenuBarFull, show: level <= 1, _titleStateGeneration);
-            CrossfadePanel(MenuDivider, show: level <= 1, _titleStateGeneration);
-            CrossfadePanel(MenuCompactButton, show: level >= 2, _titleStateGeneration);
-            CrossfadePanel(UndoRedoPanel, show: level <= 1, _titleStateGeneration);
-            CrossfadePanel(UndoDivider, show: level <= 1, _titleStateGeneration);
-            CrossfadePanel(RightFullPanel, show: level <= 2, _titleStateGeneration);
-            CrossfadePanel(RightCompactSplit, show: level >= 3, _titleStateGeneration);
-            UpdateModeNavCompact(level >= 3);
+            CrossfadePanel(FileInfoButton, show: level >= 1, _titleStateGeneration);
+            CrossfadePanel(MenuBarFull, show: level == 0, _titleStateGeneration);
+            CrossfadePanel(MenuDivider, show: level == 0, _titleStateGeneration);
+            CrossfadePanel(MenuCompactButton, show: level >= 1, _titleStateGeneration);
+            CrossfadePanel(UndoRedoPanel, show: level == 0, _titleStateGeneration);
+            CrossfadePanel(UndoDivider, show: level == 0, _titleStateGeneration);
+            CrossfadePanel(RightFullPanel, show: level == 0, _titleStateGeneration);
+            CrossfadePanel(RightCompactSplit, show: level >= 1, _titleStateGeneration);
+            UpdateModeNavCompact(level >= 2);
             RequestCenterBalance();
         }
 
@@ -576,11 +584,33 @@ namespace AmllTtmlTool.WinUI.Views
             }), TaskScheduler.Default);
         }
 
-        private static double VisibleWidth(FrameworkElement element) =>
-            element.Visibility == Visibility.Visible ? element.ActualWidth : 0;
+        private string _lastTitleStateName = "?";
+        private int _balanceGeneration;
+        private readonly Dictionary<FrameworkElement, bool> _titleTargets = new();
+        private readonly Dictionary<FrameworkElement, double> _panelWidthCache = new();
 
-        private void RequestCenterBalance() =>
-            DispatcherQueue.TryEnqueue(BalanceCenterTitles);
+        private void SetTarget(FrameworkElement panel, bool visible) =>
+            _titleTargets[panel] = visible;
+
+        private double TargetedWidth(FrameworkElement panel)
+        {
+            if (_titleTargets.TryGetValue(panel, out var targeted) && !targeted) return 0;
+            if (panel.Visibility == Visibility.Visible && panel.ActualWidth > 0)
+            {
+                _panelWidthCache[panel] = panel.ActualWidth;
+                return panel.ActualWidth;
+            }
+            return _panelWidthCache.TryGetValue(panel, out var cached) ? cached : 0;
+        }
+
+        private void RequestCenterBalance()
+        {
+            var gen = ++_balanceGeneration;
+            _ = Task.Delay(250).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (gen == _balanceGeneration) BalanceCenterTitles();
+            }), TaskScheduler.Default);
+        }
 
         private void BalanceCenterTitles()
         {
@@ -588,12 +618,12 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 if (TitleBarArea.ActualWidth <= 0 || CenterTitleBlock.ActualWidth <= 0) return;
                 var leftNeed =
-                    VisibleWidth(MenuBarFull) + VisibleWidth(MenuCompactButton) +
-                    VisibleWidth(MenuDivider) + VisibleWidth(UndoRedoPanel) +
-                    VisibleWidth(UndoDivider) +
-                    Math.Max(VisibleWidth(FileInfoGrid), VisibleWidth(FileInfoButton)) + 32;
+                    TargetedWidth(MenuBarFull) + TargetedWidth(MenuCompactButton) +
+                    TargetedWidth(MenuDivider) + TargetedWidth(UndoRedoPanel) +
+                    TargetedWidth(UndoDivider) +
+                    Math.Max(TargetedWidth(FileInfoGrid), TargetedWidth(FileInfoButton)) + 32;
                 var rightNeed =
-                    Math.Max(VisibleWidth(RightFullPanel), VisibleWidth(RightCompactSplit)) +
+                    Math.Max(TargetedWidth(RightFullPanel), TargetedWidth(RightCompactSplit)) +
                     CaptionSpacer.Width + 8;
                 var center = CenterTitleBlock.ActualWidth;
                 var width = TitleBarArea.ActualWidth;
@@ -602,6 +632,27 @@ namespace AmllTtmlTool.WinUI.Views
                 LeftTitleCol.MinWidth = floor >= leftNeed
                     ? Math.Min(Math.Max(target, leftNeed), floor)
                     : leftNeed;
+                UpdateTitleDiagnostic(leftNeed, rightNeed, center, width);
+            }
+            catch { }
+        }
+
+        // TEMP-DIAG: on-screen title-bar readout for one verification round; remove after.
+        private void UpdateTitleDiagnostic(double leftNeed, double rightNeed, double center, double width)
+        {
+            try
+            {
+                var visible = string.Join(",", new (string n, FrameworkElement p)[]
+                {
+                    ("menu", MenuBarFull), ("ham", MenuCompactButton),
+                    ("undo", UndoRedoPanel), ("file", FileInfoGrid),
+                    ("fileBtn", FileInfoButton), ("right", RightFullPanel),
+                    ("copy", RightCompactSplit),
+                }.Where(t => t.p.Visibility == Visibility.Visible).Select(t => t.n));
+                NoticeBar.Message =
+                    $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}]";
+                NoticeBar.Severity = InfoBarSeverity.Informational;
+                NoticeBar.IsOpen = true;
             }
             catch { }
         }
