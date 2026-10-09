@@ -656,7 +656,7 @@ namespace AmllTtmlTool.WinUI.Views
                         ("copy", RightCompactSplit),
                     }.Where(t => t.p.Visibility == Visibility.Visible).Select(t => t.n));
                     NoticeBar.Message =
-                        $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}]";
+                        $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}] nav={ModeNavView.ActualWidth:F0} item={EditNavItem.ActualWidth:F0}/{FmtWidth(EditNavItem.Width)}";
                     NoticeBar.Severity = InfoBarSeverity.Informational;
                     NoticeBar.IsOpen = true;
                 }
@@ -664,6 +664,9 @@ namespace AmllTtmlTool.WinUI.Views
             }
             catch { }
         }
+
+        private static string FmtWidth(double w) =>
+            double.IsNaN(w) ? "NaN" : w.ToString("F0");
 
         private void UpdateModeNavCompact(bool compact)
         {
