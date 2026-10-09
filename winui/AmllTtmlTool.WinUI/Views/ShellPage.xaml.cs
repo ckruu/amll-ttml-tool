@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Navigation;
 using System.Numerics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
@@ -357,6 +358,7 @@ namespace AmllTtmlTool.WinUI.Views
         }
 
         private int _currentModeIndex;
+        private bool _pendingSlideFromRight;
 
         private void SwitchMode(int index)
         {
@@ -379,22 +381,34 @@ namespace AmllTtmlTool.WinUI.Views
             AnimateRibbonBar(incomingBar, fromRight: forward);
             // Built-in Frame slide is near-invisible on the sparse Phase 1 pages,
             // so motion is driven by composition (same system as the ribbon).
+            // The slide plays on the incoming Page visual in ContentFrame_Navigated,
+            // never on the persistent Frame container, so a stuck state can never
+            // strand the container off-center (it dies with the old Page).
+            _pendingSlideFromRight = forward;
             _ = ContentFrame.Navigate(_pages[index], null, new SuppressNavigationTransitionInfo());
-            AnimateMainArea(fromRight: forward);
         }
 
-        private void AnimateMainArea(bool fromRight)
+        private void ContentFrame_Navigated(object sender, NavigationEventArgs e)
         {
-            var visual = ElementCompositionPreview.GetElementVisual(ContentFrame);
+            if (ContentFrame.Content is FrameworkElement page)
+                AnimateIncomingPage(page, fromRight: _pendingSlideFromRight);
+        }
+
+        private void AnimateIncomingPage(FrameworkElement page, bool fromRight)
+        {
+            Visual? visual;
+            try
+            {
+                visual = ElementCompositionPreview.GetElementVisual(page);
+            }
+            catch { return; }
             if (!_motionEnabled || _compositor is null || _decelerate is null)
             {
-                // Never leave a displaced base behind: rest centered and opaque.
+                // Base values are never mutated, so just clear any animation.
                 try
                 {
                     visual.StopAnimation("Offset");
                     visual.StopAnimation("Opacity");
-                    visual.Offset = Vector3.Zero;
-                    visual.Opacity = 1f;
                 }
                 catch { }
                 return;
@@ -421,12 +435,11 @@ namespace AmllTtmlTool.WinUI.Views
             }
             catch
             {
+                // Base values were never mutated: clear animations to rest centered.
                 try
                 {
                     visual.StopAnimation("Offset");
                     visual.StopAnimation("Opacity");
-                    visual.Offset = Vector3.Zero;
-                    visual.Opacity = 1f;
                 }
                 catch { }
             }
