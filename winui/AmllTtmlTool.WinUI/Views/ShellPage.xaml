@@ -63,7 +63,7 @@
 
         <Grid x:Name="TitleBarArea" Padding="8,0,0,0" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MinWidth="0" />
+                <ColumnDefinition x:Name="LeftTitleCol" Width="*" MinWidth="0" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" MinWidth="0" />
             </Grid.ColumnDefinitions>
@@ -154,17 +154,16 @@
                     <MenuFlyoutItem x:Uid="Menu_Docs" Click="OnDocsClick" Text="Docs" />
                 </MenuBarItem>
             </MenuBar>
-            <DropDownButton
+            <Button
                 x:Name="MenuCompactButton"
                 x:Uid="ShellPage_MenuCompact"
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Visibility="Collapsed"
-                MinWidth="40"
-                Padding="8,6"
+                Style="{StaticResource SubtleTitleBarButtonStyle}"
                 ToolTipService.ToolTip="Menu">
                 <FontIcon FontSize="14" Glyph="&#xE700;" />
-                <DropDownButton.Flyout>
+                <Button.Flyout>
                     <MenuFlyout>
                         <MenuFlyoutSubItem x:Uid="Menu_File" Text="File">
                             <MenuFlyoutItem x:Uid="Menu_NewFile" Click="OnNewClick" Text="New file">
@@ -244,8 +243,8 @@
                             <MenuFlyoutItem x:Uid="Menu_Docs" Click="OnDocsClick" Text="Docs" />
                         </MenuFlyoutSubItem>
                     </MenuFlyout>
-                </DropDownButton.Flyout>
-            </DropDownButton>
+                </Button.Flyout>
+            </Button>
             <Border x:Name="MenuDivider" Grid.Column="1" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
             <StackPanel
                 x:Name="UndoRedoPanel"
@@ -305,6 +304,7 @@
             </Button>
             </Grid>
             <StackPanel
+                x:Name="CenterTitleBlock"
                 Grid.Column="1"
                 Canvas.ZIndex="2"
                 HorizontalAlignment="Center"

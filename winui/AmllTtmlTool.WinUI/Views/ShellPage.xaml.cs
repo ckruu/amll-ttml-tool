@@ -43,8 +43,13 @@ namespace AmllTtmlTool.WinUI.Views
             window.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
             window.ExtendsContentIntoTitleBar = true;
             window.SetTitleBar(TitleBarArea);
-            WindowSizing.SetMinSize(window, 560, 480);
+            WindowSizing.SetMinSize(window, 600, 480);
             window.SizeChanged += (_, _) => UpdateCaptionInsets();
+            TitleBarArea.SizeChanged += (_, _) =>
+            {
+                UpdateCaptionInsets();
+                RequestCenterBalance();
+            };
             if (window.AppWindow is AppWindow appWindow)
             {
                 appWindow.Title = "AMLL TTML Tool";
@@ -482,8 +487,11 @@ namespace AmllTtmlTool.WinUI.Views
         private void OnTitleStateChanged(object sender, VisualStateChangedEventArgs e) =>
             ApplyTitleState(e.NewState);
 
+        private int _titleStateGeneration;
+
         private void ApplyTitleState(VisualState? state)
         {
+            _titleStateGeneration++;
             var level = state?.Name switch
             {
                 "CompactFile" => 1,
@@ -492,19 +500,21 @@ namespace AmllTtmlTool.WinUI.Views
                 "TinyTitle" => 4,
                 _ => 0,
             };
-            CrossfadePanel(FileInfoGrid, show: level == 0);
-            CrossfadePanel(FileInfoButton, show: level is >= 1 and <= 3);
-            CrossfadePanel(MenuBarFull, show: level <= 1);
-            CrossfadePanel(MenuDivider, show: level <= 1);
-            CrossfadePanel(MenuCompactButton, show: level >= 2);
-            CrossfadePanel(UndoRedoPanel, show: level <= 1);
-            CrossfadePanel(UndoDivider, show: level <= 1);
-            CrossfadePanel(RightFullPanel, show: level <= 2);
-            CrossfadePanel(RightCompactSplit, show: level >= 3);
+            System.Diagnostics.Debug.WriteLine($"[TitleBar] State={state?.Name ?? "null"} level={level}");
+            CrossfadePanel(FileInfoGrid, show: level == 0, _titleStateGeneration);
+            CrossfadePanel(FileInfoButton, show: level is >= 1 and <= 3, _titleStateGeneration);
+            CrossfadePanel(MenuBarFull, show: level <= 1, _titleStateGeneration);
+            CrossfadePanel(MenuDivider, show: level <= 1, _titleStateGeneration);
+            CrossfadePanel(MenuCompactButton, show: level >= 2, _titleStateGeneration);
+            CrossfadePanel(UndoRedoPanel, show: level <= 1, _titleStateGeneration);
+            CrossfadePanel(UndoDivider, show: level <= 1, _titleStateGeneration);
+            CrossfadePanel(RightFullPanel, show: level <= 2, _titleStateGeneration);
+            CrossfadePanel(RightCompactSplit, show: level >= 3, _titleStateGeneration);
             UpdateModeNavCompact(level >= 3);
+            RequestCenterBalance();
         }
 
-        private void CrossfadePanel(FrameworkElement panel, bool show)
+        private void CrossfadePanel(FrameworkElement panel, bool show, int generation)
         {
             if (show)
             {
@@ -534,23 +544,60 @@ namespace AmllTtmlTool.WinUI.Views
             try
             {
                 var visual = ElementCompositionPreview.GetElementVisual(panel);
-                var batch = _compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
-                batch.Completed += (_, _) => DispatcherQueue.TryEnqueue(() =>
-                {
-                    panel.Visibility = Visibility.Collapsed;
-                });
+                visual.StopAnimation("Opacity");
                 var fade = _compositor.CreateScalarKeyFrameAnimation();
                 fade.Duration = TimeSpan.FromMilliseconds(120);
                 fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
                 fade.InsertKeyFrame(0f, 1f, _decelerate);
                 fade.InsertKeyFrame(1f, 0f, _decelerate);
                 visual.StartAnimation("Opacity", fade);
-                batch.End();
             }
-            catch
+            catch { }
+            // Deterministic collapse: never depend on batch completion.
+            // Only the latest generation may collapse, so rapid resizes can't
+            // strand a panel visible-but-transparent (which would still eat
+            // layout space and push siblings into overlap).
+            _ = Task.Delay(160).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
             {
+                if (generation != _titleStateGeneration) return;
+                try
+                {
+                    var visual = ElementCompositionPreview.GetElementVisual(panel);
+                    visual.StopAnimation("Opacity");
+                }
+                catch { }
                 panel.Visibility = Visibility.Collapsed;
+            }), TaskScheduler.Default);
+        }
+
+        private static double VisibleWidth(FrameworkElement element) =>
+            element.Visibility == Visibility.Visible ? element.ActualWidth : 0;
+
+        private void RequestCenterBalance() =>
+            DispatcherQueue.TryEnqueue(BalanceCenterTitles);
+
+        private void BalanceCenterTitles()
+        {
+            try
+            {
+                if (TitleBarArea.ActualWidth <= 0 || CenterTitleBlock.ActualWidth <= 0) return;
+                var leftNeed =
+                    VisibleWidth(MenuBarFull) + VisibleWidth(MenuCompactButton) +
+                    VisibleWidth(MenuDivider) + VisibleWidth(UndoRedoPanel) +
+                    VisibleWidth(UndoDivider) +
+                    Math.Max(VisibleWidth(FileInfoGrid), VisibleWidth(FileInfoButton)) + 32;
+                var rightNeed =
+                    Math.Max(VisibleWidth(RightFullPanel), VisibleWidth(RightCompactSplit)) +
+                    CaptionSpacer.Width + 8;
+                var center = CenterTitleBlock.ActualWidth;
+                var width = TitleBarArea.ActualWidth;
+                var target = (width - center) / 2;
+                var floor = Math.Max(0, width - center - rightNeed);
+                LeftTitleCol.MinWidth = floor >= leftNeed
+                    ? Math.Min(Math.Max(target, leftNeed), floor)
+                    : leftNeed;
             }
+            catch { }
         }
 
         private void UpdateModeNavCompact(bool compact)
