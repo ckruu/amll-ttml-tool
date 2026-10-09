@@ -44,18 +44,23 @@ namespace AmllTtmlTool.WinUI.Views
             window.ExtendsContentIntoTitleBar = true;
             window.SetTitleBar(TitleBarArea);
             WindowSizing.SetMinSize(window, 600, 480);
-            window.SizeChanged += (_, _) => UpdateCaptionInsets();
+            CompositionTarget.Rendering += OnPerfFrame;
+            window.SizeChanged += (_, _) => { StampResize(); TimeOp("winSize", UpdateCaptionInsets); };
             TitleBarArea.SizeChanged += (_, _) =>
             {
-                UpdateCaptionInsets();
-                RequestCenterBalance();
+                StampResize();
+                TimeOp("areaSize", () =>
+                {
+                    UpdateCaptionInsets();
+                    RequestCenterBalance();
+                });
             };
-            CenterTitleBlock.SizeChanged += (_, _) => RequestCenterBalance();
+            CenterTitleBlock.SizeChanged += (_, _) => TimeOp("centerSize", RequestCenterBalance);
             if (window.AppWindow is AppWindow appWindow)
             {
                 appWindow.Title = "AMLL TTML Tool";
                 appWindow.Closing += OnWindowClosing;
-                appWindow.Changed += (_, _) => UpdateCaptionInsets();
+                appWindow.Changed += (_, _) => TimeOp("appChg", UpdateCaptionInsets);
                 if (AppWindowTitleBar.IsCustomizationSupported())
                 {
                     var titleBar = appWindow.TitleBar;
@@ -501,7 +506,46 @@ namespace AmllTtmlTool.WinUI.Views
 
         private int _titleStateGeneration;
 
-        private void ApplyTitleState(VisualState? state)
+        // TEMP-DIAG perf sampler (resize 1200→600 drag); remove with readout after diagnosis.
+        private readonly Dictionary<string, (long total, long max, int n)> _perf = new();
+        private int _perfFrames;
+        private DateTime _perfWindowStart = DateTime.UtcNow;
+        private DateTime _lastResizeUtc = DateTime.MinValue;
+        private bool _dragSeen;
+        private double _lastFps;
+        private string _perfReport = "";
+
+        private void TimeOp(string key, Action body)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            body();
+            sw.Stop();
+            var us = sw.ElapsedTicks * 1_000_000 / System.Diagnostics.Stopwatch.Frequency;
+            if (_perf.TryGetValue(key, out var e)) _perf[key] = (e.total + us, Math.Max(e.max, us), e.n + 1);
+            else _perf[key] = (us, us, 1);
+        }
+
+        private void StampResize()
+        {
+            _lastResizeUtc = DateTime.UtcNow;
+            _dragSeen = true;
+            _perfReport = "";
+        }
+
+        private void OnPerfFrame(object? sender, object e)
+        {
+            _perfFrames++;
+            var now = DateTime.UtcNow;
+            if ((now - _perfWindowStart).TotalSeconds < 2) return;
+            _lastFps = _perfFrames / (now - _perfWindowStart).TotalSeconds;
+            _perfFrames = 0;
+            _perfWindowStart = now;
+        }
+
+        private void ApplyTitleState(VisualState? state) =>
+            TimeOp("apply", () => ApplyTitleStateCore(state));
+
+        private void ApplyTitleStateCore(VisualState? state)
         {
             _titleStateGeneration++;
             var level = state?.Name switch
@@ -530,7 +574,7 @@ namespace AmllTtmlTool.WinUI.Views
             CrossfadePanel(UndoDivider, show: level == 0, _titleStateGeneration);
             CrossfadePanel(RightFullPanel, show: level == 0, _titleStateGeneration);
             CrossfadePanel(RightCompactSplit, show: level >= 1, _titleStateGeneration);
-            UpdateModeNavCompact(level >= 2);
+            TimeOp("compact", () => UpdateModeNavCompact(level >= 2));
             RequestCenterBalance();
         }
 
@@ -615,7 +659,7 @@ namespace AmllTtmlTool.WinUI.Views
             var gen = ++_balanceGeneration;
             _ = Task.Delay(250).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
             {
-                if (gen == _balanceGeneration) BalanceCenterTitles();
+                if (gen == _balanceGeneration) TimeOp("balance", BalanceCenterTitles);
             }), TaskScheduler.Default);
         }
 
@@ -645,6 +689,21 @@ namespace AmllTtmlTool.WinUI.Views
                     : 0;
                 if (Math.Abs(LeftTitleCol.MinWidth - pin) > 0.5)
                     LeftTitleCol.MinWidth = pin;
+                // TEMP-DIAG: keep ticking until 1.5s past the last resize so the
+                // settled pass (not a mid-drag one) is what reports fps.
+                if ((DateTime.UtcNow - _lastResizeUtc).TotalSeconds <= 1.5)
+                {
+                    RequestCenterBalance();
+                }
+                else if (_dragSeen)
+                {
+                    _dragSeen = false;
+                    var parts = new List<string> { $"{_lastFps:F0}fps" };
+                    foreach (var kv in _perf)
+                        parts.Add($"{kv.Key} {(kv.Value.total / Math.Max(1, kv.Value.n))}µ/{kv.Value.max}µ");
+                    _perfReport = " | " + string.Join(" ", parts);
+                    _perf.Clear();
+                }
                 // TEMP-DIAG: settled readout for one verification round; remove after.
                 try
                 {
@@ -656,7 +715,7 @@ namespace AmllTtmlTool.WinUI.Views
                         ("copy", RightCompactSplit),
                     }.Where(t => t.p.Visibility == Visibility.Visible).Select(t => t.n));
                     NoticeBar.Message =
-                        $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}] nav={ModeNavView.ActualWidth:F0} item={EditNavItem.ActualWidth:F0}/{FmtWidth(EditNavItem.Width)} parts={ProbeNavParts()}";
+                        $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}] nav={ModeNavView.ActualWidth:F0} item={EditNavItem.ActualWidth:F0}/{FmtWidth(EditNavItem.Width)} parts={ProbeNavParts()}{_perfReport}";
                     NoticeBar.Severity = InfoBarSeverity.Informational;
                     NoticeBar.IsOpen = true;
                 }
