@@ -377,16 +377,35 @@ namespace AmllTtmlTool.WinUI.Views
 
             if (samePage) return;
             AnimateRibbonBar(incomingBar, fromRight: forward);
-            var firstNavigation = ContentFrame.CurrentSourcePageType is null;
-            NavigationTransitionInfo info = !_motionEnabled || firstNavigation
-                ? new SuppressNavigationTransitionInfo()
-                : new SlideNavigationTransitionInfo
-                {
-                    Effect = forward
-                        ? SlideNavigationTransitionEffect.FromRight
-                        : SlideNavigationTransitionEffect.FromLeft,
-                };
-            _ = ContentFrame.Navigate(_pages[index], null, info);
+            // Built-in Frame slide is near-invisible on the sparse Phase 1 pages,
+            // so motion is driven by composition (same system as the ribbon).
+            _ = ContentFrame.Navigate(_pages[index], null, new SuppressNavigationTransitionInfo());
+            AnimateMainArea(fromRight: forward);
+        }
+
+        private void AnimateMainArea(bool fromRight)
+        {
+            if (!_motionEnabled || _compositor is null || _decelerate is null) return;
+            try
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(ContentFrame);
+                visual.StopAnimation("Offset");
+                visual.StopAnimation("Opacity");
+                const float offset = 64f;
+                visual.Offset = new Vector3(fromRight ? offset : -offset, 0, 0);
+                visual.Opacity = 0f;
+                var slide = _compositor.CreateVector3KeyFrameAnimation();
+                slide.Duration = TimeSpan.FromMilliseconds(250);
+                slide.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                slide.InsertKeyFrame(1f, Vector3.Zero, _decelerate);
+                visual.StartAnimation("Offset", slide);
+                var fade = _compositor.CreateScalarKeyFrameAnimation();
+                fade.Duration = TimeSpan.FromMilliseconds(150);
+                fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                fade.InsertKeyFrame(1f, 1f, _decelerate);
+                visual.StartAnimation("Opacity", fade);
+            }
+            catch { }
         }
 
         private void AnimateRibbonBar(FrameworkElement bar, bool fromRight)
