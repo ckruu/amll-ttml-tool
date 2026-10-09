@@ -353,6 +353,12 @@
                     PaneDisplayMode="Top"
                     SelectionFollowsFocus="Enabled"
                     SelectionChanged="OnModeNavSelectionChanged">
+                    <NavigationView.Resources>
+                        <!-- Title-bar nav sets no custom content and needs no
+                             outer margin: reclaim the dead Top-pane columns. -->
+                        <x:Double x:Key="TopNavigationViewPaneCustomContentMinWidth">0</x:Double>
+                        <Thickness x:Key="TopNavigationViewTopNavGridMargin">0</Thickness>
+                    </NavigationView.Resources>
                     <NavigationView.MenuItems>
                         <NavigationViewItem x:Name="EditNavItem" x:Uid="ShellPage_EditMode" Content="Edit" Tag="0" ToolTipService.ToolTip="Edit">
                             <NavigationViewItem.Icon>

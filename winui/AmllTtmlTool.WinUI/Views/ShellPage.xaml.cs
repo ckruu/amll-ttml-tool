@@ -656,7 +656,7 @@ namespace AmllTtmlTool.WinUI.Views
                         ("copy", RightCompactSplit),
                     }.Where(t => t.p.Visibility == Visibility.Visible).Select(t => t.n));
                     NoticeBar.Message =
-                        $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}] nav={ModeNavView.ActualWidth:F0} item={EditNavItem.ActualWidth:F0}/{FmtWidth(EditNavItem.Width)}";
+                        $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}] nav={ModeNavView.ActualWidth:F0} item={EditNavItem.ActualWidth:F0}/{FmtWidth(EditNavItem.Width)} parts={ProbeNavParts()}";
                     NoticeBar.Severity = InfoBarSeverity.Informational;
                     NoticeBar.IsOpen = true;
                 }
@@ -667,6 +667,44 @@ namespace AmllTtmlTool.WinUI.Views
 
         private static string FmtWidth(double w) =>
             double.IsNaN(w) ? "NaN" : w.ToString("F0");
+
+        // TEMP-DIAG: locates dead width inside the Top nav pane; remove after.
+        private static FrameworkElement? FindNavPart(DependencyObject root, string name)
+        {
+            try
+            {
+                var queue = new Queue<DependencyObject>();
+                queue.Enqueue(root);
+                while (queue.Count > 0)
+                {
+                    var current = queue.Dequeue();
+                    if (current is FrameworkElement fe && fe.Name == name) return fe;
+                    var count = VisualTreeHelper.GetChildrenCount(current);
+                    for (var i = 0; i < count; i++)
+                        queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private string ProbeNavParts()
+        {
+            try
+            {
+                string Part(string name)
+                {
+                    var el = FindNavPart(ModeNavView, name);
+                    return el is null ? $"{name}=?" : $"{name}={el.ActualWidth:F0}/{el.Visibility.ToString()[0]}";
+                }
+                return string.Join(" ", new[]
+                {
+                    Part("TopNavMenuItemsHost"), Part("PaneCustomContentOnTopPane"),
+                    Part("TopPaneAutoSuggestArea"), Part("TopNavOverflowButton"),
+                });
+            }
+            catch { return "probe-fail"; }
+        }
 
         private void UpdateModeNavCompact(bool compact)
         {
