@@ -385,27 +385,51 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void AnimateMainArea(bool fromRight)
         {
-            if (!_motionEnabled || _compositor is null || _decelerate is null) return;
+            var visual = ElementCompositionPreview.GetElementVisual(ContentFrame);
+            if (!_motionEnabled || _compositor is null || _decelerate is null)
+            {
+                // Never leave a displaced base behind: rest centered and opaque.
+                try
+                {
+                    visual.StopAnimation("Offset");
+                    visual.StopAnimation("Opacity");
+                    visual.Offset = Vector3.Zero;
+                    visual.Opacity = 1f;
+                }
+                catch { }
+                return;
+            }
             try
             {
-                var visual = ElementCompositionPreview.GetElementVisual(ContentFrame);
+                // Base values are never mutated: from/to lives entirely in the
+                // keyframes, so no failure path can strand content off-center.
                 visual.StopAnimation("Offset");
                 visual.StopAnimation("Opacity");
                 const float offset = 64f;
-                visual.Offset = new Vector3(fromRight ? offset : -offset, 0, 0);
-                visual.Opacity = 0f;
                 var slide = _compositor.CreateVector3KeyFrameAnimation();
                 slide.Duration = TimeSpan.FromMilliseconds(250);
                 slide.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                slide.InsertKeyFrame(0f, new Vector3(fromRight ? offset : -offset, 0, 0), _decelerate);
                 slide.InsertKeyFrame(1f, Vector3.Zero, _decelerate);
                 visual.StartAnimation("Offset", slide);
                 var fade = _compositor.CreateScalarKeyFrameAnimation();
                 fade.Duration = TimeSpan.FromMilliseconds(150);
                 fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                fade.InsertKeyFrame(0f, 0f, _decelerate);
                 fade.InsertKeyFrame(1f, 1f, _decelerate);
                 visual.StartAnimation("Opacity", fade);
             }
-            catch { }
+            catch
+            {
+                try
+                {
+                    visual.StopAnimation("Offset");
+                    visual.StopAnimation("Opacity");
+                    visual.Offset = Vector3.Zero;
+                    visual.Opacity = 1f;
+                }
+                catch { }
+            }
         }
 
         private void AnimateRibbonBar(FrameworkElement bar, bool fromRight)
