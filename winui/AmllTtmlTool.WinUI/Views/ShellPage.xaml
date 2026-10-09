@@ -304,7 +304,7 @@
 
         <Border
             Grid.Row="1"
-            Height="96"
+            Height="108"
             Margin="8,0,8,8"
             Padding="4,0"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
