@@ -6,7 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+    <ScrollViewer x:Name="BarScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup>
                 <VisualState x:Name="Full">
@@ -19,11 +19,6 @@
                         <AdaptiveTrigger MinWindowWidth="800" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="ManageCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="LineCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="WordCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="SecondaryCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="ViewCaption.Visibility" Value="Collapsed" />
                         <Setter Target="LineStartBox.Width" Value="72" />
                         <Setter Target="LineEndBox.Width" Value="72" />
                         <Setter Target="WordStartBox.Width" Value="72" />
@@ -39,19 +34,22 @@
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
+                        <Setter Target="BarScroll.HorizontalScrollBarVisibility" Value="Visible" />
                         <Setter Target="ManageCaption.Visibility" Value="Collapsed" />
                         <Setter Target="LineCaption.Visibility" Value="Collapsed" />
                         <Setter Target="WordCaption.Visibility" Value="Collapsed" />
                         <Setter Target="SecondaryCaption.Visibility" Value="Collapsed" />
                         <Setter Target="ViewCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="LineStartBox.Width" Value="72" />
-                        <Setter Target="LineEndBox.Width" Value="72" />
-                        <Setter Target="WordStartBox.Width" Value="72" />
-                        <Setter Target="WordEndBox.Width" Value="72" />
-                        <Setter Target="WordContentBox.Width" Value="96" />
-                        <Setter Target="ObsceneToggle.MinWidth" Value="96" />
-                        <Setter Target="TransBox.Width" Value="96" />
-                        <Setter Target="RomanBox.Width" Value="96" />
+                        <Setter Target="LineStartBox.Width" Value="64" />
+                        <Setter Target="LineEndBox.Width" Value="64" />
+                        <Setter Target="WordStartBox.Width" Value="64" />
+                        <Setter Target="WordEndBox.Width" Value="64" />
+                        <Setter Target="WordContentBox.Width" Value="80" />
+                        <Setter Target="ObsceneToggle.MinWidth" Value="80" />
+                        <Setter Target="TransBox.Width" Value="80" />
+                        <Setter Target="RomanBox.Width" Value="80" />
+                        <Setter Target="BgToggle.MinWidth" Value="48" />
+                        <Setter Target="DuetToggle.MinWidth" Value="48" />
                         <Setter Target="LineStartLabel.Visibility" Value="Collapsed" />
                         <Setter Target="LineEndLabel.Visibility" Value="Collapsed" />
                         <Setter Target="LineLabelCol.Width" Value="0" />
@@ -69,7 +67,7 @@
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
-        <Grid x:Name="RootGrid" Height="88" ColumnSpacing="4">
+        <Grid x:Name="RootGrid" VerticalAlignment="Stretch" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />

@@ -6,7 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+    <ScrollViewer x:Name="BarScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup>
                 <VisualState x:Name="Full">
@@ -19,11 +19,8 @@
                         <AdaptiveTrigger MinWindowWidth="800" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="LyricsCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="WordCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="ViewCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="StyleCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="BgCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="FadeBox.Width" Value="88" />
+                        <Setter Target="FontBox.Width" Value="80" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="Narrow">
@@ -31,6 +28,7 @@
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
+                        <Setter Target="BarScroll.HorizontalScrollBarVisibility" Value="Visible" />
                         <Setter Target="LyricsCaption.Visibility" Value="Collapsed" />
                         <Setter Target="WordCaption.Visibility" Value="Collapsed" />
                         <Setter Target="ViewCaption.Visibility" Value="Collapsed" />
@@ -52,7 +50,7 @@
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
-        <Grid Height="88">
+        <Grid VerticalAlignment="Stretch">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -70,7 +68,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Center">
+                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Top" Margin="0,4,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -92,7 +90,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" Margin="0,4,0,0">
                     <NumberBox x:Name="FadeBox" x:Uid="Ribbon_FadeWidth" Header="Fade width" Minimum="0" Value="0.5" Width="88" MinHeight="28" />
                 </StackPanel>
                 <TextBlock x:Name="WordCaption" x:Uid="Ribbon_PrevWord" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Word" />
@@ -104,7 +102,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Top" Margin="0,4,0,0">
                     <NumberBox x:Name="FontBox" x:Uid="Ribbon_PrevFont" Header="Font (px)" Minimum="1" Value="16" Width="80" MinHeight="28" />
                     <CheckBox x:Uid="Ribbon_Vsync" Content="VSync" VerticalAlignment="Bottom" />
                     <AppBarButton x:Uid="Ribbon_Fullscreen" Icon="FullScreen" Label="Fullscreen" IsCompact="True" ToolTipService.ToolTip="Fullscreen" />
@@ -118,28 +116,19 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Grid ColumnSpacing="6" RowSpacing="2" VerticalAlignment="Center">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Slider x:Name="EmphasisSlider" x:Uid="Ribbon_Emphasis" Maximum="200" Minimum="0" Value="100" Width="88" ToolTipService.ToolTip="Emphasis" AutomationProperties.Name="Emphasis" />
-                    <Slider x:Name="GlowSlider" x:Uid="Ribbon_Glow" Grid.Column="1" Maximum="200" Minimum="0" Value="100" Width="88" ToolTipService.ToolTip="Glow" AutomationProperties.Name="Glow" />
-                    <Slider x:Name="LiftSlider" x:Uid="Ribbon_Lift" Grid.Column="2" Maximum="200" Minimum="0" Value="100" Width="88" ToolTipService.ToolTip="Lift" AutomationProperties.Name="Lift" />
-                    <Slider x:Name="AnimSpeedSlider" x:Uid="Ribbon_AnimSpeed" Grid.Column="3" Maximum="200" Minimum="20" Value="100" Width="88" ToolTipService.ToolTip="Anim speed" AutomationProperties.Name="Anim speed" />
-                    <Slider x:Name="InactiveScaleSlider" x:Uid="Ribbon_InactiveScale" Grid.Column="4" Maximum="100" Minimum="50" Value="97" Width="88" ToolTipService.ToolTip="Inactive scale" AutomationProperties.Name="Inactive scale" />
-                    <Slider x:Name="CascadeSlider" x:Uid="Ribbon_Cascade" Grid.Row="1" Maximum="200" Minimum="0" Value="100" Width="88" ToolTipService.ToolTip="Cascade" AutomationProperties.Name="Cascade" />
-                    <Slider x:Name="BlurSlider" x:Uid="Ribbon_BlurStrength" Grid.Row="1" Grid.Column="1" Maximum="200" Minimum="0" Value="100" Width="88" ToolTipService.ToolTip="Blur" AutomationProperties.Name="Blur" />
-                    <CheckBox x:Uid="Ribbon_InactiveBlur" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Inactive blur" IsChecked="True" VerticalAlignment="Center" />
-                    <CheckBox x:Uid="Ribbon_PlusLighter" Grid.Row="1" Grid.Column="4" Content="Plus lighter" IsChecked="True" VerticalAlignment="Center" />
-                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Top" Margin="0,2,0,0">
+                    <Slider x:Name="EmphasisSlider" x:Uid="Ribbon_Emphasis" Header="Emphasis" Maximum="200" Minimum="0" Value="100" Width="96" />
+                    <Slider x:Name="GlowSlider" x:Uid="Ribbon_Glow" Header="Glow" Maximum="200" Minimum="0" Value="100" Width="96" />
+                    <Slider x:Name="LiftSlider" x:Uid="Ribbon_Lift" Header="Lift" Maximum="200" Minimum="0" Value="100" Width="96" />
+                    <Slider x:Name="AnimSpeedSlider" x:Uid="Ribbon_AnimSpeed" Header="Anim speed" Maximum="200" Minimum="20" Value="100" Width="96" />
+                    <Slider x:Name="InactiveScaleSlider" x:Uid="Ribbon_InactiveScale" Header="Inactive scale" Maximum="100" Minimum="50" Value="97" Width="96" />
+                    <Slider x:Name="CascadeSlider" x:Uid="Ribbon_Cascade" Header="Cascade" Maximum="200" Minimum="0" Value="100" Width="96" />
+                    <Slider x:Name="BlurSlider" x:Uid="Ribbon_BlurStrength" Header="Blur" Maximum="200" Minimum="0" Value="100" Width="96" />
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <CheckBox x:Uid="Ribbon_InactiveBlur" Content="Inactive blur" IsChecked="True" />
+                        <CheckBox x:Uid="Ribbon_PlusLighter" Content="Plus lighter" IsChecked="True" />
+                    </StackPanel>
+                </StackPanel>
                 <TextBlock x:Name="StyleCaption" x:Uid="Ribbon_PrevStyle" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Style" />
             </Grid>
             <Border Grid.Column="7" Style="{StaticResource RibbonSeparator}" />
@@ -149,23 +138,16 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Grid ColumnSpacing="6" RowSpacing="2" VerticalAlignment="Center">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <Slider x:Name="BrightnessSlider" x:Uid="Ribbon_Brightness" Maximum="150" Minimum="20" Value="100" Width="88" ToolTipService.ToolTip="Brightness" AutomationProperties.Name="Brightness" />
-                    <Slider x:Name="ContrastSlider" x:Uid="Ribbon_Contrast" Grid.Column="1" Maximum="150" Minimum="50" Value="100" Width="88" ToolTipService.ToolTip="Contrast" AutomationProperties.Name="Contrast" />
-                    <Slider x:Name="SaturationSlider" x:Uid="Ribbon_Saturation" Grid.Column="2" Maximum="200" Minimum="0" Value="100" Width="88" ToolTipService.ToolTip="Saturation" AutomationProperties.Name="Saturation" />
-                    <CheckBox x:Uid="Ribbon_BgEnabled" Grid.Row="1" Content="Shader BG" IsChecked="True" VerticalAlignment="Center" />
-                    <CheckBox x:Uid="Ribbon_BgStatic" Grid.Row="1" Grid.Column="1" Content="Static" VerticalAlignment="Center" />
-                    <CheckBox x:Uid="Ribbon_AutoContrast" Grid.Row="1" Grid.Column="2" Content="Auto contrast" IsChecked="True" VerticalAlignment="Center" />
-                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Top" Margin="0,2,0,0">
+                    <Slider x:Name="BrightnessSlider" x:Uid="Ribbon_Brightness" Header="Brightness" Maximum="150" Minimum="20" Value="100" Width="96" />
+                    <Slider x:Name="ContrastSlider" x:Uid="Ribbon_Contrast" Header="Contrast" Maximum="150" Minimum="50" Value="100" Width="96" />
+                    <Slider x:Name="SaturationSlider" x:Uid="Ribbon_Saturation" Header="Saturation" Maximum="200" Minimum="0" Value="100" Width="96" />
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <CheckBox x:Uid="Ribbon_BgEnabled" Content="Shader BG" IsChecked="True" />
+                        <CheckBox x:Uid="Ribbon_BgStatic" Content="Static" />
+                        <CheckBox x:Uid="Ribbon_AutoContrast" Content="Auto contrast" IsChecked="True" />
+                    </StackPanel>
+                </StackPanel>
                 <TextBlock x:Name="BgCaption" x:Uid="Ribbon_PrevBg" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Background" />
             </Grid>
         </Grid>

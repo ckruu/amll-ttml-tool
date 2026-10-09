@@ -6,7 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+    <ScrollViewer x:Name="BarScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup>
                 <VisualState x:Name="Full">
@@ -19,12 +19,6 @@
                         <AdaptiveTrigger MinWindowWidth="800" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="BeatsCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="AdjustCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="AssistCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="DisplayCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="ViewsCaption.Visibility" Value="Collapsed" />
-                        <Setter Target="KeysCaption.Visibility" Value="Collapsed" />
                         <Setter Target="EmptyBeatSlider.Width" Value="96" />
                         <Setter Target="OffsetBox.Width" Value="88" />
                     </VisualState.Setters>
@@ -34,7 +28,7 @@
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="BeatsCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="BarScroll.HorizontalScrollBarVisibility" Value="Visible" />
                         <Setter Target="AdjustCaption.Visibility" Value="Collapsed" />
                         <Setter Target="AssistCaption.Visibility" Value="Collapsed" />
                         <Setter Target="DisplayCaption.Visibility" Value="Collapsed" />
@@ -47,7 +41,7 @@
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
-        <Grid Height="88">
+        <Grid VerticalAlignment="Stretch">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -67,7 +61,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
                     <Slider x:Name="EmptyBeatSlider" x:Uid="Ribbon_EmptyBeatSlider" Header="Empty beats" Maximum="8" Minimum="0" StepFrequency="1" Width="120" />
                     <TextBlock x:Name="BeatCountText" VerticalAlignment="Bottom" Text="0 / 0" />
                 </StackPanel>
@@ -80,7 +74,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
                     <NumberBox x:Name="OffsetBox" x:Uid="Ribbon_TimeOffset" Header="Offset (ms)" Value="0" Width="110" MinHeight="28" />
                 </StackPanel>
                 <TextBlock x:Name="AdjustCaption" x:Uid="Ribbon_SyncAdjust" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Sync adjustment" />
@@ -92,17 +86,17 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Center">
+                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Top" Margin="0,4,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
-                    <CheckBox x:Uid="Ribbon_TimestampUpdate" Content="Timestamp preview" />
-                    <CheckBox x:Uid="Ribbon_TouchPanel" Grid.Row="1" Content="Touch panel" />
+                    <CheckBox x:Uid="Ribbon_TimestampUpdate" Content="Timestamp preview" VerticalAlignment="Center" />
+                    <CheckBox x:Uid="Ribbon_TouchPanel" Grid.Row="1" Content="Touch panel" VerticalAlignment="Center" />
                     <CheckBox x:Uid="Ribbon_BgIgnore" Grid.Column="1" Grid.RowSpan="2" Content="BG lines ignore sync" VerticalAlignment="Center" />
                 </Grid>
                 <TextBlock x:Name="AssistCaption" x:Uid="Ribbon_Assist" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Assist" />
@@ -114,7 +108,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Center">
+                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Top">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -137,7 +131,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Center">
+                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Top">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
@@ -160,7 +154,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Top">
                     <Button x:Uid="Ribbon_StartSync" Content="Start: Space" MinHeight="28" />
                     <Button x:Uid="Ribbon_NextSync" Content="Next: Tab" Style="{StaticResource AccentButtonStyle}" MinHeight="28" />
                     <Button x:Uid="Ribbon_EndSync" Content="End: Enter" MinHeight="28" />
