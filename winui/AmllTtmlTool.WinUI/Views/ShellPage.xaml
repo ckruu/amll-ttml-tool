@@ -7,6 +7,13 @@
     xmlns:controls="using:AmllTtmlTool.WinUI.Controls"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
+    <Page.Resources>
+        <!-- Compact NavigationViewItem style: hug icon when labels are hidden. -->
+        <Style x:Key="ModeNavCompactItemStyle" TargetType="NavigationViewItem">
+            <Setter Property="MinWidth" Value="40" />
+            <Setter Property="Padding" Value="8,0" />
+        </Style>
+    </Page.Resources>
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnOpenAccelerator" />
         <KeyboardAccelerator Key="S" Modifiers="Control" Invoked="OnSaveAccelerator" />
@@ -18,7 +25,7 @@
     </Page.KeyboardAccelerators>
     <Grid x:Name="RootGrid" AllowDrop="True" DragLeave="OnDragLeave" DragOver="OnDragOver" Drop="OnDrop">
         <VisualStateManager.VisualStateGroups>
-            <VisualStateGroup>
+            <VisualStateGroup x:Name="TitleStates" CurrentStateChanged="OnTitleStateChanged">
                 <VisualState x:Name="FullTitle">
                     <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="1100" />
@@ -38,9 +45,6 @@
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="FileNameText.Visibility" Value="Collapsed" />
-                        <Setter Target="ModeEditLabel.Visibility" Value="Collapsed" />
-                        <Setter Target="ModeSyncLabel.Visibility" Value="Collapsed" />
-                        <Setter Target="ModePreviewLabel.Visibility" Value="Collapsed" />
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
@@ -219,54 +223,38 @@
                             <FontIcon FontSize="14" Glyph="&#xE8E9;" />
                         </ToggleButton>
                     </StackPanel>
-                <Grid VerticalAlignment="Center">
-                        <StackPanel x:Name="ModeButtonRow" Orientation="Horizontal" Spacing="2">
-                        <RadioButton
-                            x:Name="EditModeButton"
-                            x:Uid="ShellPage_EditMode"
-                            GroupName="Mode"
-                            Checked="OnModeChecked"
-                            Unchecked="OnSegmentCheckChanged"
-                            Style="{StaticResource SegmentedToggleStyle}">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon FontSize="14" Glyph="&#xE70F;" />
-                                <TextBlock x:Name="ModeEditLabel" Text="Edit" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton
-                            x:Name="SyncModeButton"
-                            x:Uid="ShellPage_SyncMode"
-                            GroupName="Mode"
-                            Checked="OnModeChecked"
-                            Unchecked="OnSegmentCheckChanged"
-                            Style="{StaticResource SegmentedToggleStyle}">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon FontSize="14" Glyph="&#xE895;" />
-                                <TextBlock x:Name="ModeSyncLabel" Text="Sync" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </RadioButton>
-                        <RadioButton
-                            x:Name="PreviewModeButton"
-                            x:Uid="ShellPage_PreviewMode"
-                            GroupName="Mode"
-                            Checked="OnModeChecked"
-                            Unchecked="OnSegmentCheckChanged"
-                            Style="{StaticResource SegmentedToggleStyle}">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon FontSize="14" Glyph="&#xE8FF;" />
-                                    <TextBlock x:Name="ModePreviewLabel" Text="Preview" VerticalAlignment="Center" />
-                                </StackPanel>
-                            </RadioButton>
-                        </StackPanel>
-                        <Canvas x:Name="ModeIndicatorCanvas" IsHitTestVisible="False">
-                            <Border x:Name="ModeSlidePill"
-                                    Width="16"
-                                    Height="3"
-                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                    CornerRadius="1.5"
-                                    Visibility="Collapsed" />
-                        </Canvas>
-                    </Grid>
+                <NavigationView x:Name="ModeNavView"
+                    VerticalAlignment="Center"
+                    MinHeight="40"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    CompactModeThresholdWidth="0"
+                    ExpandedModeThresholdWidth="0"
+                    IsBackButtonVisible="Collapsed"
+                    IsSettingsVisible="False"
+                    IsPaneToggleButtonVisible="False"
+                    IsTabStop="False"
+                    PaneDisplayMode="Top"
+                    SelectionFollowsFocus="Enabled"
+                    SelectionChanged="OnModeNavSelectionChanged">
+                    <NavigationView.MenuItems>
+                        <NavigationViewItem x:Name="EditNavItem" x:Uid="ShellPage_EditMode" Content="Edit" Tag="0" ToolTipService.ToolTip="Edit">
+                            <NavigationViewItem.Icon>
+                                <FontIcon FontSize="14" Glyph="&#xE70F;" />
+                            </NavigationViewItem.Icon>
+                        </NavigationViewItem>
+                        <NavigationViewItem x:Name="SyncNavItem" x:Uid="ShellPage_SyncMode" Content="Sync" Tag="1" ToolTipService.ToolTip="Sync">
+                            <NavigationViewItem.Icon>
+                                <FontIcon FontSize="14" Glyph="&#xE895;" />
+                            </NavigationViewItem.Icon>
+                        </NavigationViewItem>
+                        <NavigationViewItem x:Name="PreviewNavItem" x:Uid="ShellPage_PreviewMode" Content="Preview" Tag="2" ToolTipService.ToolTip="Preview">
+                            <NavigationViewItem.Icon>
+                                <FontIcon FontSize="14" Glyph="&#xE8FF;" />
+                            </NavigationViewItem.Icon>
+                        </NavigationViewItem>
+                    </NavigationView.MenuItems>
+                </NavigationView>
             </StackPanel>
             <Grid Grid.Column="2" MinWidth="0">
                 <Grid.ColumnDefinitions>
@@ -335,20 +323,24 @@
                 x:Name="SidePane"
                 IsBackButtonVisible="Collapsed"
                 IsSettingsVisible="False"
+                IsPaneToggleButtonVisible="False"
+                IsTabStop="False"
                 PaneDisplayMode="Top"
+                SelectionFollowsFocus="Enabled"
+                Background="Transparent"
                 SelectionChanged="OnSideTabChanged">
                 <NavigationView.MenuItems>
-                    <NavigationViewItem x:Uid="ShellPage_OutlineTab" Content="Outline" Tag="Outline">
+                    <NavigationViewItem x:Name="OutlineNavItem" x:Uid="ShellPage_OutlineTab" Content="Outline" Tag="Outline">
                         <NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE8FD;" />
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
-                    <NavigationViewItem x:Uid="ShellPage_BpmTab" Content="BPM" Tag="BPM">
+                    <NavigationViewItem x:Name="BpmNavItem" x:Uid="ShellPage_BpmTab" Content="BPM" Tag="BPM">
                         <NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE917;" />
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
-                    <NavigationViewItem x:Uid="ShellPage_SidePreviewTab" Content="Preview" Tag="SidePreview">
+                    <NavigationViewItem x:Name="SidePreviewNavItem" x:Uid="ShellPage_SidePreviewTab" Content="Preview" Tag="SidePreview">
                         <NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE786;" />
                         </NavigationViewItem.Icon>

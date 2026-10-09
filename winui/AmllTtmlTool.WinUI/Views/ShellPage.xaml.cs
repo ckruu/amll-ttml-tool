@@ -30,7 +30,7 @@ namespace AmllTtmlTool.WinUI.Views
             this.InitializeComponent();
             SetupWindow();
             WireStores();
-            EditModeButton.IsChecked = true;
+            ModeNavView.SelectedItem = EditNavItem;
             SidePane.SelectedItem = SidePane.MenuItems[0];
             _ = HandleStartupFileAsync();
         }
@@ -51,7 +51,10 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 UpdateCaptionInsets();
                 SetupMotion();
-                PaintAllToggles(animate: false);
+                PaintPillToggles(animate: false);
+                if (ModeNavView.SelectedItem is null)
+                    ModeNavView.SelectedItem = EditNavItem;
+                UpdateModeNavCompact(TitleStates.CurrentState == CompactLabels);
             };
         }
 
@@ -333,22 +336,55 @@ namespace AmllTtmlTool.WinUI.Views
             catch { }
         }
 
-        private void OnModeChecked(object sender, RoutedEventArgs args)
+        private void OnModeNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
-            if (sender is RadioButton button)
+            if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag &&
+                int.TryParse(tag, out var index) && index >= 0 && index < _pages.Length)
             {
-                ModeSwitch_Checked(button);
+                SwitchMode(index);
             }
         }
 
-        private void ModeSwitch_Checked(RadioButton button)
+        private void SwitchMode(int index)
         {
-            var index = button == SyncModeButton ? 1 : button == PreviewModeButton ? 2 : 0;
             EditBar.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
             SyncBar.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
             PreviewBar.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
-            _ = ContentFrame.Navigate(_pages[index]);
-            UpdateModeSlide(animate: true);
+            if (ContentFrame.CurrentSourcePageType != _pages[index])
+                _ = ContentFrame.Navigate(_pages[index]);
+        }
+
+        private readonly Dictionary<NavigationViewItem, object?> _modeLabels = new();
+
+        private void OnTitleStateChanged(object sender, VisualStateChangedEventArgs e) =>
+            UpdateModeNavCompact(e.NewState == CompactLabels);
+
+        private void UpdateModeNavCompact(bool compact)
+        {
+            if (EditNavItem is null || ModeNavView is null) return;
+            var items = new[] { EditNavItem, SyncNavItem, PreviewNavItem };
+            if (compact)
+            {
+                foreach (var item in items)
+                {
+                    if (item is null) continue;
+                    if (!_modeLabels.ContainsKey(item))
+                        _modeLabels[item] = item.Content;
+                    item.Content = null;
+                }
+                if (Resources.TryGetValue("ModeNavCompactItemStyle", out var style) && style is Style compactStyle)
+                    ModeNavView.MenuItemContainerStyle = compactStyle;
+            }
+            else
+            {
+                foreach (var item in items)
+                {
+                    if (item is null) continue;
+                    if (_modeLabels.TryGetValue(item, out var label))
+                        item.Content = label;
+                }
+                ModeNavView.ClearValue(NavigationView.MenuItemContainerStyleProperty);
+            }
         }
 
         private static Border? FindTogglePill(ToggleButton button)
@@ -375,21 +411,13 @@ namespace AmllTtmlTool.WinUI.Views
             if (pill is not null) pill.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        private void PaintSegment(RadioButton button, bool on)
-        {
-        }
-
-        private void PaintAllToggles(bool animate)
+        private void PaintPillToggles(bool animate)
         {
             foreach (var tb in new ToggleButton[] { RomanToggle, TransToggle, WordRomanToggle })
             {
                 PaintPillToggle(tb, tb.IsChecked == true);
                 if (animate && tb.IsChecked == true) PopPill(tb);
             }
-            PaintSegment(EditModeButton, EditModeButton.IsChecked == true);
-            PaintSegment(SyncModeButton, SyncModeButton.IsChecked == true);
-            PaintSegment(PreviewModeButton, PreviewModeButton.IsChecked == true);
-            UpdateModeSlide(animate: animate);
         }
 
         private void OnPillCheckChanged(object sender, RoutedEventArgs e)
@@ -397,16 +425,9 @@ namespace AmllTtmlTool.WinUI.Views
             if (sender is ToggleButton tb) PaintPillToggle(tb, tb.IsChecked == true);
         }
 
-        private void OnSegmentCheckChanged(object sender, RoutedEventArgs e)
-        {
-            if (sender is RadioButton rb) PaintSegment(rb, rb.IsChecked == true);
-        }
-
         private Compositor? _compositor;
         private CubicBezierEasingFunction? _decelerate;
         private bool _motionEnabled = true;
-        private double _pillX = double.NaN;
-        private bool _slideHooked;
         private readonly Dictionary<ToggleButton, Visual> _popVisuals = new();
 
         private void SetupMotion()
@@ -419,56 +440,8 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 _motionEnabled = true;
             }
-            _compositor = ElementCompositionPreview.GetElementVisual(ModeIndicatorCanvas).Compositor;
+            _compositor = ElementCompositionPreview.GetElementVisual(this).Compositor;
             _decelerate = _compositor.CreateCubicBezierEasingFunction(new Vector2(0, 0), new Vector2(0, 1));
-            if (!_slideHooked)
-            {
-                _slideHooked = true;
-                ModeButtonRow.SizeChanged += (_, _) => UpdateModeSlide(animate: false);
-                ModeIndicatorCanvas.SizeChanged += (_, _) => UpdateModeSlide(animate: false);
-            }
-            ModeSlidePill.Visibility = Visibility.Collapsed;
-            _pillX = double.NaN;
-            UpdateModeSlide(animate: false);
-        }
-
-        private RadioButton CurrentModeButton() =>
-            SyncModeButton.IsChecked == true ? SyncModeButton
-            : PreviewModeButton.IsChecked == true ? PreviewModeButton
-            : EditModeButton;
-
-        private void UpdateModeSlide(bool animate)
-        {
-            if (ModeSlidePill is null) return;
-            var rowWidth = ModeButtonRow.ActualWidth;
-            var canvasWidth = ModeIndicatorCanvas.ActualWidth;
-            var button = CurrentModeButton();
-            if (rowWidth <= 0 || canvasWidth <= 0 || button.ActualWidth <= 0)
-            {
-                ModeSlidePill.Visibility = Visibility.Collapsed;
-                _pillX = double.NaN;
-                return;
-            }
-            var transform = button.TransformToVisual(ModeIndicatorCanvas);
-            var bounds = transform.TransformBounds(new Rect(0, 0, button.ActualWidth, button.ActualHeight));
-            var maxX = Math.Max(0, canvasWidth - ModeSlidePill.Width);
-            var targetX = Math.Max(0, Math.Min(bounds.X + (bounds.Width - ModeSlidePill.Width) / 2, maxX));
-            var targetY = Math.Max(0, ModeIndicatorCanvas.ActualHeight - ModeSlidePill.Height - 5);
-            var first = double.IsNaN(_pillX);
-            var delta = first ? 0 : _pillX - targetX;
-            _pillX = targetX;
-            Canvas.SetLeft(ModeSlidePill, targetX);
-            Canvas.SetTop(ModeSlidePill, targetY);
-            ModeSlidePill.Visibility = Visibility.Visible;
-            if (!animate || first || delta == 0 || !_motionEnabled || _compositor is null) return;
-            var visual = ElementCompositionPreview.GetElementVisual(ModeSlidePill);
-            visual.StopAnimation("Offset");
-            visual.Offset = new Vector3((float)delta, 0, 0);
-            var slide = _compositor.CreateVector3KeyFrameAnimation();
-            slide.Duration = TimeSpan.FromMilliseconds(200);
-            slide.StopBehavior = AnimationStopBehavior.SetToFinalValue;
-            slide.InsertKeyFrame(1f, Vector3.Zero, _decelerate);
-            visual.StartAnimation("Offset", slide);
         }
 
         private Visual? FindPill(ToggleButton button)
