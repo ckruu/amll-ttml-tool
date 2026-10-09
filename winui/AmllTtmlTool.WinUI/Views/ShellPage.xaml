@@ -356,7 +356,13 @@
                     Text="Outline lands here in Phase 1."
                     TextWrapping="Wrap" />
             </NavigationView>
-            <Frame x:Name="ContentFrame" Grid.Column="1" />
+            <Frame x:Name="ContentFrame" Grid.Column="1" IsNavigationStackEnabled="False">
+                <Frame.ContentTransitions>
+                    <TransitionCollection>
+                        <NavigationThemeTransition />
+                    </TransitionCollection>
+                </Frame.ContentTransitions>
+            </Frame>
         </Grid>
 
         <InfoBar

@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using System.Numerics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
@@ -355,13 +356,62 @@ namespace AmllTtmlTool.WinUI.Views
             }
         }
 
+        private int _currentModeIndex;
+
         private void SwitchMode(int index)
         {
+            FrameworkElement incomingBar = index switch
+            {
+                1 => SyncBar,
+                2 => PreviewBar,
+                _ => EditBar,
+            };
+            var forward = index > _currentModeIndex;
+            var samePage = _currentModeIndex == index &&
+                ContentFrame.CurrentSourcePageType == _pages[index];
+            _currentModeIndex = index;
+
             EditBar.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
             SyncBar.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
             PreviewBar.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
-            if (ContentFrame.CurrentSourcePageType != _pages[index])
-                _ = ContentFrame.Navigate(_pages[index]);
+
+            if (samePage) return;
+            AnimateRibbonBar(incomingBar, fromRight: forward);
+            var firstNavigation = ContentFrame.CurrentSourcePageType is null;
+            NavigationTransitionInfo info = !_motionEnabled || firstNavigation
+                ? new SuppressNavigationTransitionInfo()
+                : new SlideNavigationTransitionInfo
+                {
+                    Effect = forward
+                        ? SlideNavigationTransitionEffect.FromRight
+                        : SlideNavigationTransitionEffect.FromLeft,
+                };
+            _ = ContentFrame.Navigate(_pages[index], null, info);
+        }
+
+        private void AnimateRibbonBar(FrameworkElement bar, bool fromRight)
+        {
+            if (!_motionEnabled || _compositor is null || _decelerate is null) return;
+            try
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(bar);
+                visual.StopAnimation("Offset");
+                visual.StopAnimation("Opacity");
+                const float offset = 24f;
+                visual.Offset = new Vector3(fromRight ? offset : -offset, 0, 0);
+                visual.Opacity = 0f;
+                var slide = _compositor.CreateVector3KeyFrameAnimation();
+                slide.Duration = TimeSpan.FromMilliseconds(200);
+                slide.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                slide.InsertKeyFrame(1f, Vector3.Zero, _decelerate);
+                visual.StartAnimation("Offset", slide);
+                var fade = _compositor.CreateScalarKeyFrameAnimation();
+                fade.Duration = TimeSpan.FromMilliseconds(150);
+                fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                fade.InsertKeyFrame(1f, 1f, _decelerate);
+                visual.StartAnimation("Opacity", fade);
+            }
+            catch { }
         }
 
         private readonly Dictionary<NavigationViewItem, object?> _modeLabels = new();
