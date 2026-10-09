@@ -7,59 +7,166 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-        <StackPanel Orientation="Horizontal" Spacing="4">
-            <StackPanel Style="{StaticResource RibbonGroup}">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="Full">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="1100" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <VisualState x:Name="Compact">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="800" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="BeatsCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="AdjustCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="AssistCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="DisplayCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="ViewsCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="KeysCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="EmptyBeatSlider.Width" Value="96" />
+                        <Setter Target="OffsetBox.Width" Value="88" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Narrow">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="BeatsCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="AdjustCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="AssistCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="DisplayCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="ViewsCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="KeysCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="EmptyBeatSlider.Width" Value="96" />
+                        <Setter Target="OffsetBox.Width" Value="88" />
+                        <Setter Target="BeatCountText.Visibility" Value="Collapsed" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+        <Grid Height="88">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Row="0" Grid.Column="0" Margin="8,6,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Slider x:Uid="Ribbon_EmptyBeatSlider" Header="Empty beats" Maximum="8" Minimum="0" StepFrequency="1" Width="120" />
-                    <TextBlock VerticalAlignment="Bottom" Text="0 / 0" />
+                    <Slider x:Name="EmptyBeatSlider" x:Uid="Ribbon_EmptyBeatSlider" Header="Empty beats" Maximum="8" Minimum="0" StepFrequency="1" Width="120" />
+                    <TextBlock x:Name="BeatCountText" VerticalAlignment="Bottom" Text="0 / 0" />
                 </StackPanel>
-                <TextBlock x:Uid="Ribbon_CurrentBeat" Style="{StaticResource RibbonCaption}" Text="Current empty beat" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
+                <TextBlock x:Name="BeatsCaption" x:Uid="Ribbon_CurrentBeat" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Current empty beat" />
+            </Grid>
+            <Border Grid.Column="1" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid Grid.Row="0" Grid.Column="2" Margin="8,6,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <NumberBox x:Uid="Ribbon_TimeOffset" Header="Offset (ms)" Value="0" Width="110" />
+                    <NumberBox x:Name="OffsetBox" x:Uid="Ribbon_TimeOffset" Header="Offset (ms)" Value="0" Width="110" MinHeight="28" />
                 </StackPanel>
-                <TextBlock x:Uid="Ribbon_SyncAdjust" Style="{StaticResource RibbonCaption}" Text="Sync adjustment" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBlock x:Name="AdjustCaption" x:Uid="Ribbon_SyncAdjust" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Sync adjustment" />
+            </Grid>
+            <Border Grid.Column="3" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid Grid.Row="0" Grid.Column="4" Margin="8,6,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <CheckBox x:Uid="Ribbon_TimestampUpdate" Content="Timestamp preview" />
-                    <CheckBox x:Uid="Ribbon_TouchPanel" Content="Touch panel" />
-                    <CheckBox x:Uid="Ribbon_BgIgnore" Content="BG lines ignore sync" />
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_Assist" Style="{StaticResource RibbonCaption}" Text="Assist" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <CheckBox x:Uid="Ribbon_TouchPanel" Grid.Row="1" Content="Touch panel" />
+                    <CheckBox x:Uid="Ribbon_BgIgnore" Grid.Column="1" Grid.RowSpan="2" Content="BG lines ignore sync" VerticalAlignment="Center" />
+                </Grid>
+                <TextBlock x:Name="AssistCaption" x:Uid="Ribbon_Assist" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Assist" />
+            </Grid>
+            <Border Grid.Column="5" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid Grid.Row="0" Grid.Column="6" Margin="8,6,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <CheckBox x:Uid="Ribbon_ShowStamps" Content="Timestamps" IsChecked="True" />
-                    <CheckBox x:Uid="Ribbon_HighlightWord" Content="Highlight syllable" IsChecked="True" />
-                    <CheckBox x:Uid="Ribbon_HighlightErr" Content="Highlight errors" IsChecked="True" />
-                    <CheckBox x:Uid="Ribbon_Wrap" Content="Wrap words" IsChecked="True" />
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_DisplayOpts" Style="{StaticResource RibbonCaption}" Text="Display" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <CheckBox x:Uid="Ribbon_HighlightWord" Grid.Column="1" Content="Highlight syllable" IsChecked="True" />
+                    <CheckBox x:Uid="Ribbon_HighlightErr" Grid.Row="1" Content="Highlight errors" IsChecked="True" />
+                    <CheckBox x:Uid="Ribbon_Wrap" Grid.Row="1" Grid.Column="1" Content="Wrap words" IsChecked="True" />
+                </Grid>
+                <TextBlock x:Name="DisplayCaption" x:Uid="Ribbon_DisplayOpts" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Display" />
+            </Grid>
+            <Border Grid.Column="7" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid Grid.Row="0" Grid.Column="8" Margin="8,6,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <CheckBox x:Uid="Ribbon_SyncOutline" Content="Outline" />
-                    <CheckBox x:Uid="Ribbon_SyncBpm" Content="BPM" />
-                    <CheckBox x:Uid="Ribbon_SyncPreview" Content="Preview" />
-                    <CheckBox x:Uid="Ribbon_SyncFollow" Content="Follow playback" />
+                    <CheckBox x:Uid="Ribbon_SyncBpm" Grid.Column="1" Content="BPM" />
+                    <CheckBox x:Uid="Ribbon_SyncPreview" Grid.Row="1" Content="Preview" />
+                    <CheckBox x:Uid="Ribbon_SyncFollow" Grid.Row="1" Grid.Column="1" Content="Follow playback" />
+                </Grid>
+                <TextBlock x:Name="ViewsCaption" x:Uid="Ribbon_Views" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Views" />
+            </Grid>
+            <Border Grid.Column="9" Style="{StaticResource RibbonSeparator}" />
+
+            <Grid Grid.Row="0" Grid.Column="10" Margin="8,6,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Button x:Uid="Ribbon_StartSync" Content="Start: Space" MinHeight="28" />
+                    <Button x:Uid="Ribbon_NextSync" Content="Next: Tab" Style="{StaticResource AccentButtonStyle}" MinHeight="28" />
+                    <Button x:Uid="Ribbon_EndSync" Content="End: Enter" MinHeight="28" />
                 </StackPanel>
-                <TextBlock x:Uid="Ribbon_Views" Style="{StaticResource RibbonCaption}" Text="Views" />
-            </StackPanel>
-            <Border Style="{StaticResource RibbonSeparator}" />
-            <StackPanel Style="{StaticResource RibbonGroup}">
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Button x:Uid="Ribbon_StartSync" Content="Start: Space" />
-                    <Button x:Uid="Ribbon_NextSync" Content="Next: Tab" Style="{StaticResource AccentButtonStyle}" />
-                    <Button x:Uid="Ribbon_EndSync" Content="End: Enter" />
-                </StackPanel>
-                <TextBlock x:Uid="Ribbon_KeyRef" Style="{StaticResource RibbonCaption}" Text="Sync keys" />
-            </StackPanel>
-        </StackPanel>
+                <TextBlock x:Name="KeysCaption" x:Uid="Ribbon_KeyRef" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Sync keys" />
+            </Grid>
+        </Grid>
     </ScrollViewer>
 </UserControl>

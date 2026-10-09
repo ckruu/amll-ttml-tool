@@ -7,7 +7,69 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-        <Grid Height="124" ColumnSpacing="4">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="Full">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="1100" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <VisualState x:Name="Compact">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="800" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ManageCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="LineCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="WordCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="ViewCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="LineStartBox.Width" Value="72" />
+                        <Setter Target="LineEndBox.Width" Value="72" />
+                        <Setter Target="WordStartBox.Width" Value="72" />
+                        <Setter Target="WordEndBox.Width" Value="72" />
+                        <Setter Target="WordContentBox.Width" Value="96" />
+                        <Setter Target="ObsceneToggle.MinWidth" Value="96" />
+                        <Setter Target="TransBox.Width" Value="96" />
+                        <Setter Target="RomanBox.Width" Value="96" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Narrow">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ManageCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="LineCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="WordCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="ViewCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="LineStartBox.Width" Value="72" />
+                        <Setter Target="LineEndBox.Width" Value="72" />
+                        <Setter Target="WordStartBox.Width" Value="72" />
+                        <Setter Target="WordEndBox.Width" Value="72" />
+                        <Setter Target="WordContentBox.Width" Value="96" />
+                        <Setter Target="ObsceneToggle.MinWidth" Value="96" />
+                        <Setter Target="TransBox.Width" Value="96" />
+                        <Setter Target="RomanBox.Width" Value="96" />
+                        <Setter Target="LineStartLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="LineEndLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="LineLabelCol.Width" Value="0" />
+                        <Setter Target="WordStartLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="WordContentLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="WordEndLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="ObsceneLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="WordLabelColA.Width" Value="0" />
+                        <Setter Target="WordLabelColB.Width" Value="0" />
+                        <Setter Target="TransLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="RomanLabel.Visibility" Value="Collapsed" />
+                        <Setter Target="TransLabelCol.Width" Value="0" />
+                        <Setter Target="RomanLabelCol.Width" Value="0" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+        <Grid x:Name="RootGrid" Height="88" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -24,123 +86,123 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+            <Grid Grid.Row="0" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Button x:Uid="Ribbon_Import" Click="OnStubClick">
+                <Button x:Uid="Ribbon_Import" Click="OnStubClick" MinHeight="28">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="14" Glyph="&#xE8B7;" />
                         <TextBlock x:Uid="Ribbon_ImportLabel" Text="Import" />
                     </StackPanel>
                 </Button>
-                <Button x:Uid="Ribbon_AddLine" Grid.Row="1" Click="OnNewLineClick">
+                <Button x:Uid="Ribbon_AddLine" Grid.Row="1" Click="OnNewLineClick" MinHeight="28">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon FontSize="14" Glyph="&#xE710;" />
                         <TextBlock x:Uid="Ribbon_AddLineLabel" Text="Line" />
                     </StackPanel>
                 </Button>
             </Grid>
-            <TextBlock x:Uid="Ribbon_Manage" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Manage" />
+            <TextBlock x:Name="ManageCaption" x:Uid="Ribbon_Manage" Grid.Row="1" Style="{StaticResource RibbonCaption}" Text="Manage" />
 
             <Border Grid.Column="1" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
 
-            <Grid Grid.Column="2" Grid.Row="0" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+            <Grid Grid.Column="2" Grid.Row="0" ColumnSpacing="6" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="44" />
+                    <ColumnDefinition x:Name="LineLabelCol" Width="40" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Uid="Ribbon_LineStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" />
-                <NumberBox x:Name="LineStartBox" Grid.Column="1" Minimum="0" Value="0" Width="104" />
-                <ToggleButton x:Name="BgToggle" Grid.Column="2" Content="BG" MinHeight="32" MinWidth="56" />
-                <ToggleButton x:Name="DuetToggle" Grid.Column="3" Content="V2" MinHeight="32" MinWidth="56" />
-                <TextBlock x:Uid="Ribbon_LineEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" />
-                <NumberBox x:Name="LineEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="104" />
-                <ToggleButton x:Name="IgnoreSyncToggle" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Ignore Sync" HorizontalAlignment="Stretch" MinHeight="32" />
+                <TextBlock x:Name="LineStartLabel" x:Uid="Ribbon_LineStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" ToolTipService.ToolTip="Start" />
+                <NumberBox x:Name="LineStartBox" Grid.Column="1" Minimum="0" Value="0" Width="88" MinHeight="28" AutomationProperties.Name="Start" />
+                <ToggleButton x:Name="BgToggle" Grid.Column="2" Content="BG" MinHeight="28" MinWidth="56" />
+                <ToggleButton x:Name="DuetToggle" Grid.Column="3" Content="V2" MinHeight="28" MinWidth="56" />
+                <TextBlock x:Name="LineEndLabel" x:Uid="Ribbon_LineEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" ToolTipService.ToolTip="End" />
+                <NumberBox x:Name="LineEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="88" MinHeight="28" AutomationProperties.Name="End" />
+                <ToggleButton x:Name="IgnoreSyncToggle" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Ignore Sync" HorizontalAlignment="Stretch" MinHeight="28" />
             </Grid>
-            <TextBlock x:Uid="Ribbon_Line" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonCaption}" Text="Line" />
+            <TextBlock x:Name="LineCaption" x:Uid="Ribbon_Line" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonCaption}" Text="Line" />
 
             <Border Grid.Column="3" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
 
-            <Grid Grid.Column="4" Grid.Row="0" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+            <Grid Grid.Column="4" Grid.Row="0" ColumnSpacing="6" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition x:Name="WordLabelColA" Width="48" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="64" />
+                    <ColumnDefinition x:Name="WordLabelColB" Width="56" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Uid="Ribbon_WordStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" />
-                <NumberBox x:Name="WordStartBox" Grid.Column="1" Minimum="0" Value="0" Width="104" />
-                <TextBlock x:Uid="Ribbon_WordContentLabel" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Content" />
-                <TextBox x:Name="WordContentBox" Grid.Column="3" Width="150" />
-                <TextBlock x:Uid="Ribbon_WordEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" />
-                <NumberBox x:Name="WordEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="104" />
-                <TextBlock x:Uid="Ribbon_ObsceneLabel" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" />
-                <ToggleButton x:Name="ObsceneToggle" Grid.Row="1" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="32" MinWidth="150" />
+                <TextBlock x:Name="WordStartLabel" x:Uid="Ribbon_WordStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" ToolTipService.ToolTip="Start" />
+                <NumberBox x:Name="WordStartBox" Grid.Column="1" Minimum="0" Value="0" Width="88" MinHeight="28" AutomationProperties.Name="Start" />
+                <TextBlock x:Name="WordContentLabel" x:Uid="Ribbon_WordContentLabel" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Content" ToolTipService.ToolTip="Content" />
+                <TextBox x:Name="WordContentBox" Grid.Column="3" Width="120" MinHeight="28" AutomationProperties.Name="Content" />
+                <TextBlock x:Name="WordEndLabel" x:Uid="Ribbon_WordEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" ToolTipService.ToolTip="End" />
+                <NumberBox x:Name="WordEndBox" Grid.Row="1" Grid.Column="1" Minimum="0" Value="0" Width="88" MinHeight="28" AutomationProperties.Name="End" />
+                <TextBlock x:Name="ObsceneLabel" x:Uid="Ribbon_ObsceneLabel" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" ToolTipService.ToolTip="Obscene" />
+                <ToggleButton x:Name="ObsceneToggle" Grid.Row="1" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="28" MinWidth="120" />
             </Grid>
-            <TextBlock x:Uid="Ribbon_Word" Grid.Row="1" Grid.Column="4" Style="{StaticResource RibbonCaption}" Text="Word" />
+            <TextBlock x:Name="WordCaption" x:Uid="Ribbon_Word" Grid.Row="1" Grid.Column="4" Style="{StaticResource RibbonCaption}" Text="Word" />
 
             <Border x:Name="SecondaryLeadSeparator" Grid.Column="5" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
 
-            <Grid x:Name="SecondaryGroup" Grid.Column="6" Grid.Row="0" ColumnSpacing="8" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+            <Grid x:Name="SecondaryGroup" Grid.Column="6" Grid.Row="0" ColumnSpacing="6" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="88" />
+                    <ColumnDefinition Width="72" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <Grid x:Name="TransRow" Grid.ColumnSpan="2" ColumnSpacing="8">
+                <Grid x:Name="TransRow" Grid.ColumnSpan="2" ColumnSpacing="6">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="88" />
+                        <ColumnDefinition x:Name="TransLabelCol" Width="72" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Uid="Ribbon_TransLabel" Style="{StaticResource RibbonFieldLabel}" Text="Translation" />
-                    <TextBox x:Name="TransBox" Grid.Column="1" Width="150" />
+                    <TextBlock x:Name="TransLabel" x:Uid="Ribbon_TransLabel" Style="{StaticResource RibbonFieldLabel}" Text="Translation" ToolTipService.ToolTip="Translation" />
+                    <TextBox x:Name="TransBox" Grid.Column="1" Width="120" MinHeight="28" AutomationProperties.Name="Translation" />
                 </Grid>
-                <Grid x:Name="RomanRow" Grid.Row="1" Grid.ColumnSpan="2" ColumnSpacing="8">
+                <Grid x:Name="RomanRow" Grid.Row="1" Grid.ColumnSpan="2" ColumnSpacing="6">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="88" />
+                        <ColumnDefinition x:Name="RomanLabelCol" Width="72" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Uid="Ribbon_RomanLabel" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" />
-                    <TextBox x:Name="RomanBox" Grid.Column="1" Width="150" />
+                    <TextBlock x:Name="RomanLabel" x:Uid="Ribbon_RomanLabel" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" ToolTipService.ToolTip="Romanization" />
+                    <TextBox x:Name="RomanBox" Grid.Column="1" Width="120" MinHeight="28" AutomationProperties.Name="Romanization" />
                 </Grid>
             </Grid>
             <TextBlock x:Name="SecondaryCaption" x:Uid="Ribbon_Secondary" Grid.Row="1" Grid.Column="6" Style="{StaticResource RibbonCaption}" Text="Secondary content" />
 
             <Border Grid.Column="7" Grid.RowSpan="2" Style="{StaticResource RibbonSeparator}" />
 
-            <Grid Grid.Column="8" Grid.Row="0" RowSpacing="6" VerticalAlignment="Top" Margin="8,8,8,0">
+            <Grid Grid.Column="8" Grid.Row="0" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <Grid ColumnSpacing="8">
+                <Grid ColumnSpacing="6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <ToggleButton x:Name="OutlineToggle" Click="OnViewToggleClick" Content="Outline" MinHeight="32" HorizontalAlignment="Stretch" />
-                    <ToggleButton x:Name="BpmToggle" Grid.Column="1" Click="OnViewToggleClick" Content="BPM" MinHeight="32" HorizontalAlignment="Stretch" />
-                    <ToggleButton x:Name="PreviewToggle" Grid.Column="2" Click="OnViewToggleClick" Content="Preview" MinHeight="32" HorizontalAlignment="Stretch" />
+                    <ToggleButton x:Name="OutlineToggle" Click="OnViewToggleClick" Content="Outline" MinHeight="28" HorizontalAlignment="Stretch" />
+                    <ToggleButton x:Name="BpmToggle" Grid.Column="1" Click="OnViewToggleClick" Content="BPM" MinHeight="28" HorizontalAlignment="Stretch" />
+                    <ToggleButton x:Name="PreviewToggle" Grid.Column="2" Click="OnViewToggleClick" Content="Preview" MinHeight="28" HorizontalAlignment="Stretch" />
                 </Grid>
-                <ToggleButton x:Name="FollowToggle" Grid.Row="1" Click="OnViewToggleClick" Content="Follow Playback" HorizontalAlignment="Stretch" MinHeight="32" />
+                <ToggleButton x:Name="FollowToggle" Grid.Row="1" Click="OnViewToggleClick" Content="Follow Playback" HorizontalAlignment="Stretch" MinHeight="28" />
             </Grid>
-            <TextBlock x:Uid="Ribbon_View" Grid.Row="1" Grid.Column="8" Style="{StaticResource RibbonCaption}" Text="View" />
+            <TextBlock x:Name="ViewCaption" x:Uid="Ribbon_View" Grid.Row="1" Grid.Column="8" Style="{StaticResource RibbonCaption}" Text="View" />
         </Grid>
     </ScrollViewer>
 </UserControl>
