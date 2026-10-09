@@ -28,24 +28,23 @@
             <VisualStateGroup x:Name="TitleStates" CurrentStateChanged="OnTitleStateChanged">
                 <VisualState x:Name="FullTitle">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="1100" />
+                        <AdaptiveTrigger MinWindowWidth="1200" />
                     </VisualState.StateTriggers>
                 </VisualState>
                 <VisualState x:Name="CompactFile">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="900" />
+                        <AdaptiveTrigger MinWindowWidth="1000" />
                     </VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="FileNameText.Visibility" Value="Collapsed" />
-                    </VisualState.Setters>
                 </VisualState>
-                <VisualState x:Name="CompactLabels">
+                <VisualState x:Name="MediumTitle">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="820" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <VisualState x:Name="NarrowTitle">
                     <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="FileNameText.Visibility" Value="Collapsed" />
-                    </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
@@ -71,7 +70,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" MinWidth="0" />
                 </Grid.ColumnDefinitions>
-            <MenuBar VerticalAlignment="Center">
+            <MenuBar x:Name="MenuBarFull" VerticalAlignment="Center">
                 <MenuBarItem x:Uid="Menu_File" Title="File">
                     <MenuFlyoutItem x:Uid="Menu_NewFile" Click="OnNewClick" Text="New file">
                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE710;" /></MenuFlyoutItem.Icon>
@@ -150,8 +149,99 @@
                     <MenuFlyoutItem x:Uid="Menu_Docs" Click="OnDocsClick" Text="Docs" />
                 </MenuBarItem>
             </MenuBar>
-            <Border Grid.Column="1" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <DropDownButton
+                x:Name="MenuCompactButton"
+                x:Uid="ShellPage_MenuCompact"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Visibility="Collapsed"
+                ToolTipService.ToolTip="Menu">
+                <FontIcon FontSize="14" Glyph="&#xE700;" />
+                <DropDownButton.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutSubItem x:Uid="Menu_File" Text="File">
+                            <MenuFlyoutItem x:Uid="Menu_NewFile" Click="OnNewClick" Text="New file">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE710;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Uid="Menu_OpenLyrics" Click="OnOpenClick" Text="Open lyrics">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B7;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Uid="Menu_OpenClipboard" Click="OnPasteClick" Text="Open from clipboard">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE77F;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_SaveTtml" Click="OnSaveClick" Text="Save TTML">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74E;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Uid="Menu_RestoreHistory" Click="OnStubClick" Text="Restore from history">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_CopyTtml" Click="OnCopyClick" Text="Copy TTML">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Uid="Menu_CopyApple" Click="OnCopyAppleClick" Text="Copy Apple TTML" />
+                            <MenuFlyoutItem x:Uid="Menu_SaveApple" Click="OnSaveAppleClick" Text="Save Apple TTML" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_ImportLyrics" Click="OnOpenClick" Text="Import lyrics">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B7;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_Upload" Click="OnStubClick" Text="Upload to AMLL database">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE898;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyoutSubItem>
+                        <MenuFlyoutSubItem x:Uid="Menu_Edit" Text="Edit">
+                            <MenuFlyoutItem x:Uid="Menu_Undo" Click="OnUndoClick" Text="Undo">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A7;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Uid="Menu_Redo" Click="OnRedoClick" Text="Redo">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_SelectAll" Click="OnStubClick" Text="Select all lines">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B3;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Uid="Menu_DeselectAll" Click="OnStubClick" Text="Deselect all" />
+                            <MenuFlyoutItem x:Uid="Menu_InvertSelection" Click="OnStubClick" Text="Invert selection" />
+                            <MenuFlyoutItem x:Uid="Menu_SelectWordMatches" Click="OnStubClick" Text="Select word matches" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_DeleteWords" Click="OnStubClick" Text="Delete selected words">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_ShiftTime" Click="OnStubClick" Text="Shift time…" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_EditMetadata" Click="OnStubClick" Text="Edit metadata…" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_Preferences" Click="OnStubClick" Text="Preferences">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE713;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyoutSubItem>
+                        <MenuFlyoutSubItem x:Uid="Menu_Tools" Text="Tools">
+                            <MenuFlyoutItem x:Uid="Menu_AutoSegment" Click="OnStubClick" Text="Auto segment" />
+                            <MenuFlyoutItem x:Uid="Menu_AdvancedSegment" Click="OnStubClick" Text="Advanced segmentation…" />
+                            <MenuFlyoutItem x:Uid="Menu_SmoothTimeline" Click="OnStubClick" Text="Smooth timeline…" />
+                            <MenuFlyoutItem x:Uid="Menu_SyncTimestamps" Click="OnStubClick" Text="Sync line timestamps" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_DistributeRoman" Click="OnStubClick" Text="Auto-distribute romanization…" />
+                            <MenuFlyoutItem x:Uid="Menu_CheckRoman" Click="OnStubClick" Text="Check romanization" />
+                            <MenuFlyoutItem x:Uid="Menu_AutoRuby" Click="OnStubClick" Text="Auto ruby" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem x:Uid="Menu_LatencyTest" Click="OnStubClick" Text="Audio latency test">
+                                <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE917;" /></MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyoutSubItem>
+                        <MenuFlyoutSubItem x:Uid="Menu_Help" Text="Help">
+                            <MenuFlyoutItem x:Uid="Menu_GitHub" Click="OnGitHubClick" Text="GitHub" />
+                            <MenuFlyoutItem x:Uid="Menu_Docs" Click="OnDocsClick" Text="Docs" />
+                        </MenuFlyoutSubItem>
+                    </MenuFlyout>
+                </DropDownButton.Flyout>
+            </DropDownButton>
+            <Border x:Name="MenuDivider" Grid.Column="1" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
             <StackPanel
+                x:Name="UndoRedoPanel"
                 Grid.Column="2"
                 Orientation="Horizontal"
                 Spacing="2"
@@ -163,8 +253,8 @@
                     <FontIcon FontSize="14" Glyph="&#xE7A6;" />
                 </Button>
             </StackPanel>
-            <Border Grid.Column="3" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-            <Grid Grid.Column="4" ColumnSpacing="6" Margin="8,0" MinWidth="0">
+            <Border x:Name="UndoDivider" Grid.Column="3" Width="1" Margin="4,14" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Grid x:Name="FileInfoGrid" Grid.Column="4" ColumnSpacing="6" Margin="8,0" MinWidth="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" MinWidth="0" />
@@ -181,6 +271,31 @@
                     TextTrimming="CharacterEllipsis"
                     TextWrapping="NoWrap" />
             </Grid>
+            <Button
+                x:Name="FileInfoButton"
+                Grid.Column="4"
+                VerticalAlignment="Center"
+                Visibility="Collapsed"
+                Style="{StaticResource SubtleTitleBarButtonStyle}"
+                ToolTipService.ToolTip="lyric.ttml">
+                <FontIcon VerticalAlignment="Center" Glyph="&#xE8B7;" FontSize="14" />
+                <Button.Flyout>
+                    <Flyout>
+                        <StackPanel Spacing="4" MinWidth="200">
+                            <TextBlock
+                                x:Name="FileInfoFlyoutName"
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="lyric.ttml"
+                                TextWrapping="Wrap" />
+                            <TextBlock
+                                x:Name="FileInfoFlyoutDirty"
+                                Style="{StaticResource CaptionTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="" />
+                        </StackPanel>
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
             </Grid>
             <StackPanel
                 Grid.Column="1"
@@ -266,6 +381,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
             <StackPanel
+                x:Name="RightFullPanel"
                 Grid.Column="1"
                 HorizontalAlignment="Right"
                 Orientation="Horizontal"
@@ -298,6 +414,36 @@
                     <FontIcon FontSize="14" Glyph="&#xE7C3;" />
                 </Button>
             </StackPanel>
+            <SplitButton
+                x:Name="RightCompactSplit"
+                x:Uid="ShellPage_CopySplit"
+                Grid.Column="1"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Visibility="Collapsed"
+                Click="OnCopySplitClick"
+                Style="{StaticResource SubtleSplitButtonStyle}"
+                ToolTipService.ToolTip="Copy">
+                <FontIcon FontSize="14" Glyph="&#xE8C8;" />
+                <SplitButton.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem x:Uid="Menu_RestoreHistory" Click="OnStubClick" Text="Version History">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE81C;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Uid="Menu_SaveTtml" Click="OnSaveClick" Text="Save">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74E;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Click="OnCompactSavePicked" Text="Save as TTML" Tag="ttml" />
+                        <MenuFlyoutItem Click="OnCompactSavePicked" Text="Save as Apple TTML" Tag="apple" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Uid="Menu_CopyTtml" Click="OnCopyClick" Text="Copy as TTML">
+                            <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Click="OnCompactCopyPicked" Text="Copy as Apple TTML" Tag="apple" />
+                    </MenuFlyout>
+                </SplitButton.Flyout>
+            </SplitButton>
             <Border x:Name="CaptionSpacer" Grid.Column="2" Width="0" />
             </Grid>
         </Grid>

@@ -66,7 +66,7 @@ namespace AmllTtmlTool.WinUI.Views
                 PaintPillToggles(animate: false);
                 if (ModeNavView.SelectedItem is null)
                     ModeNavView.SelectedItem = EditNavItem;
-                UpdateModeNavCompact(TitleStates.CurrentState == CompactLabels);
+                ApplyTitleState(TitleStates.CurrentState);
             };
         }
 
@@ -110,6 +110,9 @@ namespace AmllTtmlTool.WinUI.Views
         {
             FileNameText.Text = _store.FileName + (_store.IsDirty ? " ●" : string.Empty);
             ToolTipService.SetToolTip(FileNameText, _store.FileName);
+            FileInfoFlyoutName.Text = _store.FileName;
+            FileInfoFlyoutDirty.Text = _store.IsDirty ? "● Unsaved changes" : string.Empty;
+            ToolTipService.SetToolTip(FileInfoButton, _store.FileName);
             UndoButton.IsEnabled = _store.CanUndo;
             RedoButton.IsEnabled = _store.CanRedo;
         }
@@ -473,7 +476,77 @@ namespace AmllTtmlTool.WinUI.Views
         private readonly Dictionary<NavigationViewItem, object?> _modeLabels = new();
 
         private void OnTitleStateChanged(object sender, VisualStateChangedEventArgs e) =>
-            UpdateModeNavCompact(e.NewState == CompactLabels);
+            ApplyTitleState(e.NewState);
+
+        private void ApplyTitleState(VisualState? state)
+        {
+            var level = state?.Name switch
+            {
+                "CompactFile" => 1,
+                "MediumTitle" => 2,
+                "NarrowTitle" => 3,
+                _ => 0,
+            };
+            CrossfadePanel(FileInfoGrid, show: level == 0);
+            CrossfadePanel(FileInfoButton, show: level >= 1);
+            CrossfadePanel(MenuBarFull, show: level <= 1);
+            CrossfadePanel(MenuDivider, show: level <= 1);
+            CrossfadePanel(MenuCompactButton, show: level >= 2);
+            CrossfadePanel(UndoRedoPanel, show: level <= 1);
+            CrossfadePanel(UndoDivider, show: level <= 1);
+            CrossfadePanel(RightFullPanel, show: level <= 2);
+            CrossfadePanel(RightCompactSplit, show: level >= 3);
+            UpdateModeNavCompact(level >= 3);
+        }
+
+        private void CrossfadePanel(FrameworkElement panel, bool show)
+        {
+            if (show)
+            {
+                if (panel.Visibility == Visibility.Visible) return;
+                panel.Visibility = Visibility.Visible;
+                if (!_motionEnabled || _compositor is null || _decelerate is null) return;
+                try
+                {
+                    var visual = ElementCompositionPreview.GetElementVisual(panel);
+                    visual.StopAnimation("Opacity");
+                    var fade = _compositor.CreateScalarKeyFrameAnimation();
+                    fade.Duration = TimeSpan.FromMilliseconds(150);
+                    fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                    fade.InsertKeyFrame(0f, 0f, _decelerate);
+                    fade.InsertKeyFrame(1f, 1f, _decelerate);
+                    visual.StartAnimation("Opacity", fade);
+                }
+                catch { }
+                return;
+            }
+            if (panel.Visibility != Visibility.Visible) return;
+            if (!_motionEnabled || _compositor is null || _decelerate is null)
+            {
+                panel.Visibility = Visibility.Collapsed;
+                return;
+            }
+            try
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(panel);
+                var batch = _compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+                batch.Completed += (_, _) => DispatcherQueue.TryEnqueue(() =>
+                {
+                    panel.Visibility = Visibility.Collapsed;
+                });
+                var fade = _compositor.CreateScalarKeyFrameAnimation();
+                fade.Duration = TimeSpan.FromMilliseconds(120);
+                fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                fade.InsertKeyFrame(0f, 1f, _decelerate);
+                fade.InsertKeyFrame(1f, 0f, _decelerate);
+                visual.StartAnimation("Opacity", fade);
+                batch.End();
+            }
+            catch
+            {
+                panel.Visibility = Visibility.Collapsed;
+            }
+        }
 
         private void UpdateModeNavCompact(bool compact)
         {
@@ -661,6 +734,18 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (sender is RadioMenuFlyoutItem item && item.Tag is string tag)
                 AppSettings.LastSaveFormat = tag;
+        }
+
+        private void OnCompactSavePicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuFlyoutItem item && item.Tag is string tag)
+                _ = SaveWithFormatAsync(tag);
+        }
+
+        private void OnCompactCopyPicked(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuFlyoutItem item && item.Tag is string tag)
+                _ = CopyWithFormatAsync(tag);
         }
 
         private void OnCopyFormatPicked(object sender, RoutedEventArgs e)
