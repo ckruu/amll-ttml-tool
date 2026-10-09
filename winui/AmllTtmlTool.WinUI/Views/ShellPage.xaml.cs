@@ -80,6 +80,15 @@ namespace AmllTtmlTool.WinUI.Views
                 if (ModeNavView.SelectedItem is null)
                     ModeNavView.SelectedItem = EditNavItem;
                 ApplyTitleState(TitleStates.CurrentState);
+                var triggerFile = @"C:\Users\caake\.gemini\antigravity-ide\brain\5a23934f-d221-4e9c-a057-d15097732a36\run_diag.txt";
+                if (System.IO.File.Exists(triggerFile) || Environment.GetCommandLineArgs().Contains("--diag-resize"))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(1500);
+                        DispatcherQueue.TryEnqueue(async () => await RunAutomatedDiagResizeAsync());
+                    });
+                }
             };
         }
 
@@ -506,40 +515,114 @@ namespace AmllTtmlTool.WinUI.Views
 
         private int _titleStateGeneration;
 
-        // TEMP-DIAG perf sampler (resize 1200→600 drag); remove with readout after diagnosis.
-        private readonly Dictionary<string, (long total, long max, int n)> _perf = new();
-        private int _perfFrames;
-        private DateTime _perfWindowStart = DateTime.UtcNow;
-        private DateTime _lastResizeUtc = DateTime.MinValue;
-        private bool _dragSeen;
-        private double _lastFps;
-        private string _perfReport = "";
+        // TEMP-DIAG: Precise dev-only frame counter and stopwatch timing (resize 1200->600 drag)
+        private readonly Dictionary<string, (long totalUs, long maxUs, int count)> _diagPerf = new();
+        private readonly object _perfLock = new();
+        private readonly System.Diagnostics.Stopwatch _dragSw = new();
+        private int _dragFrames;
+        private bool _isMeasuringDrag;
+        private long _lastResizeTimestamp;
+        private int _settleTimerScheduled;
 
         private void TimeOp(string key, Action body)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            body();
-            sw.Stop();
-            var us = sw.ElapsedTicks * 1_000_000 / System.Diagnostics.Stopwatch.Frequency;
-            if (_perf.TryGetValue(key, out var e)) _perf[key] = (e.total + us, Math.Max(e.max, us), e.n + 1);
-            else _perf[key] = (us, us, 1);
+            try
+            {
+                body();
+            }
+            finally
+            {
+                sw.Stop();
+                var us = sw.ElapsedTicks * 1_000_000 / System.Diagnostics.Stopwatch.Frequency;
+                lock (_perfLock)
+                {
+                    if (_diagPerf.TryGetValue(key, out var e))
+                        _diagPerf[key] = (e.totalUs + us, Math.Max(e.maxUs, us), e.count + 1);
+                    else
+                        _diagPerf[key] = (us, us, 1);
+                }
+            }
         }
 
         private void StampResize()
         {
-            _lastResizeUtc = DateTime.UtcNow;
-            _dragSeen = true;
-            _perfReport = "";
+            _lastResizeTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (!_isMeasuringDrag)
+            {
+                _isMeasuringDrag = true;
+                _dragFrames = 0;
+                lock (_perfLock) { _diagPerf.Clear(); }
+                _dragSw.Restart();
+            }
+            ScheduleSettleCheck();
+        }
+
+        private void ScheduleSettleCheck()
+        {
+            var current = System.Threading.Interlocked.Increment(ref _settleTimerScheduled);
+            _ = Task.Delay(500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (current != _settleTimerScheduled) return;
+                var elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _lastResizeTimestamp) * 1000 / System.Diagnostics.Stopwatch.Frequency;
+                if (elapsedMs >= 400 && _isMeasuringDrag)
+                {
+                    EndDragMeasurement();
+                }
+            }), TaskScheduler.Default);
         }
 
         private void OnPerfFrame(object? sender, object e)
         {
-            _perfFrames++;
-            var now = DateTime.UtcNow;
-            if ((now - _perfWindowStart).TotalSeconds < 2) return;
-            _lastFps = _perfFrames / (now - _perfWindowStart).TotalSeconds;
-            _perfFrames = 0;
-            _perfWindowStart = now;
+            if (_isMeasuringDrag)
+            {
+                _dragFrames++;
+            }
+        }
+
+        private void EndDragMeasurement()
+        {
+            _dragSw.Stop();
+            _isMeasuringDrag = false;
+            var elapsedSec = _dragSw.Elapsed.TotalSeconds;
+            var fps = elapsedSec > 0 ? _dragFrames / elapsedSec : 0;
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("=== RESIZE DRAG DIAGNOSTIC REPORT ===");
+            sb.AppendLine($"Drag duration: {elapsedSec:F2}s, Rendered Frames: {_dragFrames}, FPS: {fps:F1} fps");
+            sb.AppendLine("Handler execution costs:");
+            lock (_perfLock)
+            {
+                foreach (var kv in _diagPerf.OrderByDescending(x => x.Value.totalUs))
+                {
+                    var avg = kv.Value.count > 0 ? (double)kv.Value.totalUs / kv.Value.count : 0;
+                    sb.AppendLine($"  {kv.Key,-12}: count={kv.Value.count,4}, avg={avg,8:F1}µs, max={kv.Value.maxUs,8}µs, total={kv.Value.totalUs / 1000.0,7:F2}ms");
+                }
+            }
+            sb.AppendLine("=====================================");
+            var report = sb.ToString();
+            System.Diagnostics.Debug.WriteLine(report);
+            Console.WriteLine(report);
+            try
+            {
+                System.IO.File.WriteAllText(@"C:\Users\caake\.gemini\antigravity-ide\brain\5a23934f-d221-4e9c-a057-d15097732a36\resize_diag.txt", report);
+            }
+            catch { }
+        }
+
+        private async Task RunAutomatedDiagResizeAsync()
+        {
+            var window = ((App)Application.Current).MainWindow;
+            if (window.AppWindow is not AppWindow appWindow) return;
+            appWindow.Resize(new Windows.Graphics.SizeInt32(1200, 700));
+            await Task.Delay(1000);
+            StampResize();
+            for (int w = 1200; w >= 600; w -= 10)
+            {
+                appWindow.Resize(new Windows.Graphics.SizeInt32(w, 700));
+                await Task.Delay(16);
+            }
+            await Task.Delay(600);
+            EndDragMeasurement();
         }
 
         private void ApplyTitleState(VisualState? state) =>
@@ -689,37 +772,8 @@ namespace AmllTtmlTool.WinUI.Views
                     : 0;
                 if (Math.Abs(LeftTitleCol.MinWidth - pin) > 0.5)
                     LeftTitleCol.MinWidth = pin;
-                // TEMP-DIAG: keep ticking until 1.5s past the last resize so the
-                // settled pass (not a mid-drag one) is what reports fps.
-                if ((DateTime.UtcNow - _lastResizeUtc).TotalSeconds <= 1.5)
-                {
-                    RequestCenterBalance();
-                }
-                else if (_dragSeen)
-                {
-                    _dragSeen = false;
-                    var parts = new List<string> { $"{_lastFps:F0}fps" };
-                    foreach (var kv in _perf)
-                        parts.Add($"{kv.Key} {(kv.Value.total / Math.Max(1, kv.Value.n))}µ/{kv.Value.max}µ");
-                    _perfReport = " | " + string.Join(" ", parts);
-                    _perf.Clear();
-                }
-                // TEMP-DIAG: settled readout for one verification round; remove after.
-                try
-                {
-                    var visible = string.Join(",", new (string n, FrameworkElement p)[]
-                    {
-                        ("menu", MenuBarFull), ("ham", MenuCompactButton),
-                        ("undo", UndoRedoPanel), ("file", FileInfoGrid),
-                        ("fileBtn", FileInfoButton), ("right", RightFullPanel),
-                        ("copy", RightCompactSplit),
-                    }.Where(t => t.p.Visibility == Visibility.Visible).Select(t => t.n));
-                    NoticeBar.Message =
-                        $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}] nav={ModeNavView.ActualWidth:F0} item={EditNavItem.ActualWidth:F0}/{FmtWidth(EditNavItem.Width)} parts={ProbeNavParts()}{_perfReport}";
-                    NoticeBar.Severity = InfoBarSeverity.Informational;
-                    NoticeBar.IsOpen = true;
-                }
-                catch { }
+                // NoticeBar debug banner disabled while measuring to prevent visual-tree probing cost.
+                NoticeBar.IsOpen = false;
             }
             catch { }
         }
