@@ -43,6 +43,8 @@ namespace AmllTtmlTool.WinUI.Views
             window.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
             window.ExtendsContentIntoTitleBar = true;
             window.SetTitleBar(TitleBarArea);
+            WindowSizing.SetMinSize(window, 560, 480);
+            window.SizeChanged += (_, _) => UpdateCaptionInsets();
             if (window.AppWindow is AppWindow appWindow)
             {
                 appWindow.Title = "AMLL TTML Tool";
@@ -78,6 +80,8 @@ namespace AmllTtmlTool.WinUI.Views
             var scale = XamlRoot.RasterizationScale;
             if (scale <= 0) return;
             CaptionSpacer.Width = appWindow.TitleBar.RightInset / scale;
+            System.Diagnostics.Debug.WriteLine(
+                $"[TitleBar] RightInset={appWindow.TitleBar.RightInset} scale={scale} spacer={CaptionSpacer.Width}");
         }
 
         private void WireStores()
@@ -485,10 +489,11 @@ namespace AmllTtmlTool.WinUI.Views
                 "CompactFile" => 1,
                 "MediumTitle" => 2,
                 "NarrowTitle" => 3,
+                "TinyTitle" => 4,
                 _ => 0,
             };
             CrossfadePanel(FileInfoGrid, show: level == 0);
-            CrossfadePanel(FileInfoButton, show: level >= 1);
+            CrossfadePanel(FileInfoButton, show: level is >= 1 and <= 3);
             CrossfadePanel(MenuBarFull, show: level <= 1);
             CrossfadePanel(MenuDivider, show: level <= 1);
             CrossfadePanel(MenuCompactButton, show: level >= 2);

@@ -43,6 +43,11 @@
                 </VisualState>
                 <VisualState x:Name="NarrowTitle">
                     <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="620" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <VisualState x:Name="TinyTitle">
+                    <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                 </VisualState>
@@ -155,6 +160,8 @@
                 Grid.Column="0"
                 VerticalAlignment="Center"
                 Visibility="Collapsed"
+                MinWidth="40"
+                Padding="8,6"
                 ToolTipService.ToolTip="Menu">
                 <FontIcon FontSize="14" Glyph="&#xE700;" />
                 <DropDownButton.Flyout>
@@ -299,6 +306,7 @@
             </Grid>
             <StackPanel
                 Grid.Column="1"
+                Canvas.ZIndex="2"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
