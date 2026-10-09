@@ -84,7 +84,9 @@ namespace AmllTtmlTool.WinUI.Views
             if (window.AppWindow is not AppWindow appWindow) return;
             var scale = XamlRoot.RasterizationScale;
             if (scale <= 0) return;
-            CaptionSpacer.Width = appWindow.TitleBar.RightInset / scale;
+            // Logical caption-strip width is DPI-invariant (~138); floor guards
+            // against small/zero reads so content never slides under - □ X.
+            CaptionSpacer.Width = Math.Max(appWindow.TitleBar.RightInset / scale, 140);
             System.Diagnostics.Debug.WriteLine(
                 $"[TitleBar] RightInset={appWindow.TitleBar.RightInset} scale={scale} spacer={CaptionSpacer.Width}");
         }
@@ -518,7 +520,9 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (show)
             {
-                if (panel.Visibility == Visibility.Visible) return;
+                // Always heal: a panel re-shown mid hide-fade would otherwise be
+                // stranded visible-but-transparent, still eating layout space.
+                var wasHidden = panel.Visibility != Visibility.Visible;
                 panel.Visibility = Visibility.Visible;
                 if (!_motionEnabled || _compositor is null || _decelerate is null) return;
                 try
@@ -531,6 +535,8 @@ namespace AmllTtmlTool.WinUI.Views
                     fade.InsertKeyFrame(0f, 0f, _decelerate);
                     fade.InsertKeyFrame(1f, 1f, _decelerate);
                     visual.StartAnimation("Opacity", fade);
+                    if (!wasHidden)
+                        System.Diagnostics.Debug.WriteLine("[TitleBar] healed panel to visible");
                 }
                 catch { }
                 return;
