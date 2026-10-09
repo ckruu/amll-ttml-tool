@@ -197,8 +197,9 @@
                             Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Romanization lines"
-                            Width="30">
-                            <FontIcon FontSize="14" Glyph="&#xE7DE;" />
+                            Width="36"
+                            Margin="2">
+                            <FontIcon FontSize="16" Glyph="&#xE7DE;" />
                         </ToggleButton>
                         <ToggleButton
                             x:Name="TransToggle"
@@ -208,8 +209,9 @@
                             Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Translation lines"
-                            Width="30">
-                            <FontIcon FontSize="14" Glyph="&#xE775;" />
+                            Width="36"
+                            Margin="2">
+                            <FontIcon FontSize="16" Glyph="&#xE775;" />
                         </ToggleButton>
                         <ToggleButton
                             x:Name="WordRomanToggle"
@@ -219,8 +221,9 @@
                             Unchecked="OnPillCheckChanged"
                             Style="{StaticResource PillToggleStyle}"
                             ToolTipService.ToolTip="Per-word romanization"
-                            Width="30">
-                            <FontIcon FontSize="14" Glyph="&#xE8E9;" />
+                            Width="36"
+                            Margin="2">
+                            <FontIcon FontSize="16" Glyph="&#xE8E9;" />
                         </ToggleButton>
                     </StackPanel>
                 <NavigationView x:Name="ModeNavView"
@@ -240,17 +243,17 @@
                     <NavigationView.MenuItems>
                         <NavigationViewItem x:Name="EditNavItem" x:Uid="ShellPage_EditMode" Content="Edit" Tag="0" ToolTipService.ToolTip="Edit">
                             <NavigationViewItem.Icon>
-                                <FontIcon FontSize="14" Glyph="&#xE70F;" />
+                                <FontIcon FontSize="16" Glyph="&#xE70F;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
                         <NavigationViewItem x:Name="SyncNavItem" x:Uid="ShellPage_SyncMode" Content="Sync" Tag="1" ToolTipService.ToolTip="Sync">
                             <NavigationViewItem.Icon>
-                                <FontIcon FontSize="14" Glyph="&#xE895;" />
+                                <FontIcon FontSize="16" Glyph="&#xE895;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
                         <NavigationViewItem x:Name="PreviewNavItem" x:Uid="ShellPage_PreviewMode" Content="Preview" Tag="2" ToolTipService.ToolTip="Preview">
                             <NavigationViewItem.Icon>
-                                <FontIcon FontSize="14" Glyph="&#xE8FF;" />
+                                <FontIcon FontSize="16" Glyph="&#xE8FF;" />
                             </NavigationViewItem.Icon>
                         </NavigationViewItem>
                     </NavigationView.MenuItems>

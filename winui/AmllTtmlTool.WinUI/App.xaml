@@ -105,11 +105,11 @@
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
             <Style x:Key="PillToggleStyle" TargetType="ToggleButton">
-                <Setter Property="MinWidth" Value="30" />
-                <Setter Property="MinHeight" Value="30" />
+                <Setter Property="MinWidth" Value="36" />
+                <Setter Property="MinHeight" Value="36" />
                 <Setter Property="VerticalAlignment" Value="Center" />
-                <Setter Property="Padding" Value="2,0,2,7" />
-                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderBrush" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
@@ -131,14 +131,14 @@
                                         VerticalAlignment="Bottom"
                                         Width="16"
                                         Height="3"
-                                        Margin="0,0,0,2"
+                                        Margin="0,0,0,4"
                                         Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                        CornerRadius="1.5"
+                                        CornerRadius="2"
                                         Visibility="Collapsed" />
                                 <Border x:Name="FocusRing"
                                         BorderBrush="{ThemeResource FocusStrokeColorOuterBrush}"
                                         BorderThickness="2"
-                                        CornerRadius="6"
+                                        CornerRadius="{ThemeResource ControlCornerRadius}"
                                         Opacity="0" />
                                 <VisualStateManager.VisualStateGroups>
                                     <VisualStateGroup x:Name="CommonStates">
@@ -148,7 +148,7 @@
                                                 <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid"
                                                                                Storyboard.TargetProperty="Background">
                                                     <DiscreteObjectKeyFrame KeyTime="0"
-                                                                            Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                                                            Value="{ThemeResource TopNavigationViewItemBackgroundPointerOver}" />
                                                 </ObjectAnimationUsingKeyFrames>
                                             </Storyboard>
                                         </VisualState>
@@ -157,7 +157,7 @@
                                                 <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid"
                                                                                Storyboard.TargetProperty="Background">
                                                     <DiscreteObjectKeyFrame KeyTime="0"
-                                                                            Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                                                            Value="{ThemeResource TopNavigationViewItemBackgroundPressed}" />
                                                 </ObjectAnimationUsingKeyFrames>
                                             </Storyboard>
                                         </VisualState>
