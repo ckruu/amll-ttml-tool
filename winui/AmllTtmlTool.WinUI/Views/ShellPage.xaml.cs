@@ -46,6 +46,16 @@ namespace AmllTtmlTool.WinUI.Views
                 appWindow.Title = "AMLL TTML Tool";
                 appWindow.Closing += OnWindowClosing;
                 appWindow.Changed += (_, _) => UpdateCaptionInsets();
+                if (AppWindowTitleBar.IsCustomizationSupported())
+                {
+                    var titleBar = appWindow.TitleBar;
+                    titleBar.ExtendsContentIntoTitleBar = true;
+                    // Tall caption buttons match the 48px TitleBarArea row.
+                    titleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+                    // Transparent buttons let the Mica backdrop show through.
+                    titleBar.ButtonBackgroundColor = Colors.Transparent;
+                    titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+                }
             }
             this.Loaded += (_, _) =>
             {
