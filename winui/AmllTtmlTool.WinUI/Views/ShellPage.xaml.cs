@@ -50,6 +50,7 @@ namespace AmllTtmlTool.WinUI.Views
                 UpdateCaptionInsets();
                 RequestCenterBalance();
             };
+            CenterTitleBlock.SizeChanged += (_, _) => RequestCenterBalance();
             if (window.AppWindow is AppWindow appWindow)
             {
                 appWindow.Title = "AMLL TTML Tool";
@@ -87,8 +88,6 @@ namespace AmllTtmlTool.WinUI.Views
             // Logical caption-strip width is DPI-invariant (~138); floor guards
             // against small/zero reads so content never slides under - □ X.
             CaptionSpacer.Width = Math.Max(appWindow.TitleBar.RightInset / scale, 140);
-            System.Diagnostics.Debug.WriteLine(
-                $"[TitleBar] RightInset={appWindow.TitleBar.RightInset} scale={scale} spacer={CaptionSpacer.Width}");
         }
 
         private void WireStores()
@@ -464,24 +463,35 @@ namespace AmllTtmlTool.WinUI.Views
             if (!_motionEnabled || _compositor is null || _decelerate is null) return;
             try
             {
+                // Base values are never mutated: from/to lives entirely in the
+                // keyframes, so an interrupted switch can't strand the bar offset.
                 var visual = ElementCompositionPreview.GetElementVisual(bar);
                 visual.StopAnimation("Offset");
                 visual.StopAnimation("Opacity");
                 const float offset = 24f;
-                visual.Offset = new Vector3(fromRight ? offset : -offset, 0, 0);
-                visual.Opacity = 0f;
                 var slide = _compositor.CreateVector3KeyFrameAnimation();
                 slide.Duration = TimeSpan.FromMilliseconds(200);
                 slide.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                slide.InsertKeyFrame(0f, new Vector3(fromRight ? offset : -offset, 0, 0), _decelerate);
                 slide.InsertKeyFrame(1f, Vector3.Zero, _decelerate);
                 visual.StartAnimation("Offset", slide);
                 var fade = _compositor.CreateScalarKeyFrameAnimation();
                 fade.Duration = TimeSpan.FromMilliseconds(150);
                 fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
+                fade.InsertKeyFrame(0f, 0f, _decelerate);
                 fade.InsertKeyFrame(1f, 1f, _decelerate);
                 visual.StartAnimation("Opacity", fade);
             }
-            catch { }
+            catch
+            {
+                try
+                {
+                    var visual = ElementCompositionPreview.GetElementVisual(bar);
+                    visual.StopAnimation("Offset");
+                    visual.StopAnimation("Opacity");
+                }
+                catch { }
+            }
         }
 
         private readonly Dictionary<NavigationViewItem, object?> _modeLabels = new();
@@ -530,7 +540,6 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 // Always heal: a panel re-shown mid hide-fade would otherwise be
                 // stranded visible-but-transparent, still eating layout space.
-                var wasHidden = panel.Visibility != Visibility.Visible;
                 panel.Visibility = Visibility.Visible;
                 if (!_motionEnabled || _compositor is null || _decelerate is null) return;
                 try
@@ -543,8 +552,6 @@ namespace AmllTtmlTool.WinUI.Views
                     fade.InsertKeyFrame(0f, 0f, _decelerate);
                     fade.InsertKeyFrame(1f, 1f, _decelerate);
                     visual.StartAnimation("Opacity", fade);
-                    if (!wasHidden)
-                        System.Diagnostics.Debug.WriteLine("[TitleBar] healed panel to visible");
                 }
                 catch { }
                 return;
@@ -629,30 +636,15 @@ namespace AmllTtmlTool.WinUI.Views
                 var width = TitleBarArea.ActualWidth;
                 var target = (width - center) / 2;
                 var floor = Math.Max(0, width - center - rightNeed);
-                LeftTitleCol.MinWidth = floor >= leftNeed
+                // Elastic-first: when even the parked minimum doesn't fit, pin
+                // nothing and let the filename ellipsis absorb it. Forcing
+                // leftNeed here would manufacture overflow (e.g. Full at 1185:
+                // 388+453+358 > width pushes copy under the caption buttons).
+                var pin = floor >= leftNeed
                     ? Math.Min(Math.Max(target, leftNeed), floor)
-                    : leftNeed;
-                UpdateTitleDiagnostic(leftNeed, rightNeed, center, width);
-            }
-            catch { }
-        }
-
-        // TEMP-DIAG: on-screen title-bar readout for one verification round; remove after.
-        private void UpdateTitleDiagnostic(double leftNeed, double rightNeed, double center, double width)
-        {
-            try
-            {
-                var visible = string.Join(",", new (string n, FrameworkElement p)[]
-                {
-                    ("menu", MenuBarFull), ("ham", MenuCompactButton),
-                    ("undo", UndoRedoPanel), ("file", FileInfoGrid),
-                    ("fileBtn", FileInfoButton), ("right", RightFullPanel),
-                    ("copy", RightCompactSplit),
-                }.Where(t => t.p.Visibility == Visibility.Visible).Select(t => t.n));
-                NoticeBar.Message =
-                    $"[TitleBar] {width:F0}px state={_lastTitleStateName} L={leftNeed:F0} C={center:F0} R={rightNeed:F0} minCol={LeftTitleCol.MinWidth:F0} spacer={CaptionSpacer.Width:F0} [{visible}]";
-                NoticeBar.Severity = InfoBarSeverity.Informational;
-                NoticeBar.IsOpen = true;
+                    : 0;
+                if (Math.Abs(LeftTitleCol.MinWidth - pin) > 0.5)
+                    LeftTitleCol.MinWidth = pin;
             }
             catch { }
         }
