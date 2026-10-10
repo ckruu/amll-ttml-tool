@@ -40,10 +40,11 @@ namespace AmllTtmlTool.WinUI.Views
         private void SetupWindow()
         {
             var window = ((App)Application.Current).MainWindow;
+            _windowHwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
             window.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
-            window.ExtendsContentIntoTitleBar = true;
+            window.ExtendsContentIntoTitleBar = false; // BISECT-C (custom titlebar off)
             window.SetTitleBar(TitleBarArea);
-            WindowSizing.SetMinSize(window, 600, 480);
+            // WindowSizing.SetMinSize(window, 600, 480); // BISECT-B (subclass disabled)
             window.SizeChanged += (_, _) => UpdateCaptionInsets();
             TitleBarArea.SizeChanged += (_, _) => UpdateCaptionInsets();
             // Centering recompute runs after every layout pass (not just resizes):
@@ -69,7 +70,7 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 appWindow.Title = "AMLL TTML Tool";
                 appWindow.Closing += OnWindowClosing;
-                appWindow.Changed += (_, _) => UpdateCaptionInsets();
+                // BISECT-D: appWindow.Changed += (_, _) => UpdateCaptionInsets();
                 if (AppWindowTitleBar.IsCustomizationSupported())
                 {
                     var titleBar = appWindow.TitleBar;
@@ -124,6 +125,7 @@ namespace AmllTtmlTool.WinUI.Views
                         finally
                         {
                             var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
                     });
@@ -131,7 +133,10 @@ namespace AmllTtmlTool.WinUI.Views
                 // Audio-test harness: --audio-test <folder> [reportPath].
                 // Drives the real AudioEngine path per file (silent volume-0
                 // playback, seeks), writes a report, self-closes. DEBUG-only.
-                var audioArgs = Environment.GetCommandLineArgs();
+                // Mode/report come from the environment when set (launchers
+                // are not trusted to forward args); the host injects them as
+                // args so this dispatch chain stays unchanged.
+                var audioArgs = Services.HarnessHost.ResolveArgs(Environment.GetCommandLineArgs());
                 var audioIdx = Array.IndexOf(audioArgs, "--audio-test");
                 if (audioIdx >= 0)
                 {
@@ -157,6 +162,7 @@ namespace AmllTtmlTool.WinUI.Views
                         finally
                         {
                             var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
                     });
@@ -188,6 +194,7 @@ namespace AmllTtmlTool.WinUI.Views
                         finally
                         {
                             var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
                     });
@@ -220,6 +227,7 @@ namespace AmllTtmlTool.WinUI.Views
                         finally
                         {
                             var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
                     });
@@ -253,6 +261,7 @@ namespace AmllTtmlTool.WinUI.Views
                         finally
                         {
                             var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
                     });
@@ -308,6 +317,7 @@ namespace AmllTtmlTool.WinUI.Views
                         finally
                         {
                             var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
                     });
@@ -341,6 +351,40 @@ namespace AmllTtmlTool.WinUI.Views
                         finally
                         {
                             var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
+                // Minimize-test harness: --minimize-test [reportPath].
+                // Minimize/restore crash hunt across tiers, states, and OS
+                // paths (presenter, ShowWindow, WM_SYSCOMMAND). Self-closes.
+                // DEBUG-only.
+                var minIdx = Array.IndexOf(audioArgs, "--minimize-test");
+                if (minIdx >= 0)
+                {
+                    var minReport = minIdx + 1 < audioArgs.Length ? audioArgs[minIdx + 1] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.MinimizeTestCheck.RunAsync(win, _audio, minReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.MinimizeTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
                     });
@@ -349,12 +393,33 @@ namespace AmllTtmlTool.WinUI.Views
             };
         }
 
+        private nint _windowHwnd;
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool IsIconic(nint hWnd);
+
+        // True while the window is minimized. Windows reports a minimized
+        // window as zero-sized, which the title-bar layout math must never
+        // consume (and which used to reach AppWindow.TitleBar and hard-kill
+        // the process inside Microsoft.UI.Windowing.dll). Boundary guard,
+        // called before any measurement or inset read.
+        private bool IsMinimized()
+        {
+            if (_windowHwnd == nint.Zero) return false;
+            try { return IsIconic(_windowHwnd); } catch { return false; }
+        }
+
         private void UpdateCaptionInsets()
         {
             if (XamlRoot is null) return;
+            // Guard the boundary: while minimized the window measures 0 and
+            // inset/region calls are not valid. Bail instead of computing
+            // degenerate sizes.
+            if (IsMinimized()) return;
             var window = ((App)Application.Current).MainWindow;
             if (window.AppWindow is not AppWindow appWindow) return;
             var scale = WindowSizing.GetScale(window);
+            // Scale 0 would divide by zero below (never measured yet).
+            if (!(scale > 0)) return;
             // Physical -> logical. No hardcoded floor: the system strip width is
             // whatever the OS reports, at whatever DPI the monitor is at.
             var right = appWindow.TitleBar.RightInset / scale;
@@ -393,6 +458,9 @@ namespace AmllTtmlTool.WinUI.Views
             try
             {
                 if (XamlRoot is null) return;
+                // Guard the boundary: a minimized window measures 0x0, and
+                // the clamp math below assumes positive sizes.
+                if (IsMinimized()) return;
                 var areaW = TitleBarArea.ActualWidth;
                 if (areaW <= 0 || CenterNudge is null) return;
                 var tier = (_titleStateGroup ??= VisualStateManager.GetVisualStateGroups(RootGrid)
