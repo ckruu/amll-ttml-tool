@@ -314,11 +314,13 @@
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
                 Spacing="4">
-                <StackPanel.Transitions>
-                    <TransitionCollection>
-                        <RepositionThemeTransition />
-                    </TransitionCollection>
-                </StackPanel.Transitions>
+                <!-- RenderTransform (not composition Offset) so hit testing and
+                     TransformToVisual follow the centering shift automatically.
+                     No RepositionThemeTransition here: the shift below owns this
+                     block's motion; a second driver would double-animate. -->
+                <StackPanel.RenderTransform>
+                    <TranslateTransform x:Name="CenterNudge" />
+                </StackPanel.RenderTransform>
                 <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                         <ToggleButton
                             x:Name="RomanToggle"

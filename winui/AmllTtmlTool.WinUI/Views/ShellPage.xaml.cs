@@ -47,6 +47,12 @@ namespace AmllTtmlTool.WinUI.Views
             WindowSizing.SetMinSize(window, 600, 480);
             window.SizeChanged += (_, _) => UpdateCaptionInsets();
             TitleBarArea.SizeChanged += (_, _) => UpdateCaptionInsets();
+            // Centering recompute runs after every layout pass (not just resizes):
+            // multi-pass cascades (star redistribution after a collapse, ellipsis
+            // settling) only reach final numbers on the LAST pass, and only
+            // LayoutUpdated fires for pure-reposition passes. The handler is
+            // read-only plus a layout-neutral transform set, so it cannot loop.
+            RootGrid.LayoutUpdated += (_, _) => UpdateCenterOffset();
             if (window.AppWindow is AppWindow appWindow)
             {
                 appWindow.Title = "AMLL TTML Tool";
@@ -73,6 +79,9 @@ namespace AmllTtmlTool.WinUI.Views
                 if (SidePane.SelectedItem is null)
                     SidePane.SelectedItem = SidePane.MenuItems[0];
                 ApplyTitleState(TitleStates.CurrentState);
+                // First paint: layout is already complete, so a direct read is
+                // fresh. Later state changes go through RequestNavWidthPass.
+                SizeNavToItems();
 #if DEBUG
                 // Layout-test harness (kept for ribbon/separator/animation items).
                 // Env var or --layout-test arg; either avoids startup-file handling.
@@ -126,6 +135,101 @@ namespace AmllTtmlTool.WinUI.Views
             if (Math.Abs(LeftInsetCol.Width.Value - left) > 0.5)
                 LeftInsetCol.Width = new GridLength(left);
             UpdatePassthroughRegions(appWindow, scale);
+        }
+
+        // Centers the pill+tabs unit on the window. Cheap by design: only reads
+        // measured widths and sets a layout-neutral RenderTransform. No layout
+        // writes, no timers, no Task.Delay, so there is no feedback loop.
+        private string? _centerTier;
+        private bool _centerFirst = true;
+        private Storyboard? _centerStoryboard;
+        private double _centerAppliedShift;
+        private VisualStateGroup? _titleStateGroup;
+
+        private void UpdateCenterOffset()
+        {
+            double RectLeft(FrameworkElement element) =>
+                element.TransformToVisual(TitleBarArea).TransformPoint(new Windows.Foundation.Point(0, 0)).X;
+            double RectRight(FrameworkElement element) => RectLeft(element) + element.ActualWidth;
+            FrameworkElement? LeftClusterGrid()
+            {
+                foreach (var child in TitleBarArea.Children)
+                {
+                    if (child is FrameworkElement fe && Grid.GetColumn(fe) == 1) return fe;
+                }
+                return null;
+            }
+            try
+            {
+                if (XamlRoot is null) return;
+                var areaW = TitleBarArea.ActualWidth;
+                if (areaW <= 0 || CenterNudge is null) return;
+                var tier = (_titleStateGroup ??= VisualStateManager.GetVisualStateGroups(RootGrid)
+                    .OfType<VisualStateGroup>()
+                    .FirstOrDefault(g => g.Name == "TitleStates"))?.CurrentState?.Name;
+                var leftCluster = LeftClusterGrid();
+                if (leftCluster is null) return;
+                var leftRight = RectRight(leftCluster);
+                FrameworkElement rightPanel = RightFullPanel.Visibility == Visibility.Visible ? RightFullPanel : RightCompactSplit;
+                var rightLeft = RectLeft(rightPanel);
+                var unitLeft = RectLeft(CenterTitleBlock);
+                var unitW = CenterTitleBlock.ActualWidth;
+                if (unitW <= 0) return;
+                // All rects below include any previously applied shift, so the new
+                // absolute shift is computed relative to the unshifted layout.
+                var target = areaW / 2 - (unitLeft + unitW / 2) + _centerAppliedShift;
+                var lo = -(unitLeft - leftRight - 2) + _centerAppliedShift;
+                var hi = +(rightLeft - (unitLeft + unitW) - 2) + _centerAppliedShift;
+                var shift = lo > hi ? 0 : Math.Clamp(target, lo, hi);
+                var tierChanged = tier != _centerTier;
+                _centerTier = tier;
+                // Converged (or already gliding there): leave everything alone.
+                // Restarting here is what made offsets flicker mid-cascade.
+                if (Math.Abs(shift - _centerAppliedShift) < 0.5) return;
+                if (!_motionEnabled || _centerFirst || !tierChanged)
+                {
+                    _centerStoryboard?.Stop();
+                    _centerStoryboard = null;
+                    CenterNudge.X = shift;
+                }
+                else
+                {
+                    try
+                    {
+                        _centerStoryboard?.Stop();
+                        var animation = new DoubleAnimation
+                        {
+                            From = _centerAppliedShift,
+                            To = shift,
+                            Duration = TimeSpan.FromMilliseconds(180),
+                            EnableDependentAnimation = true,
+                        };
+                        // Held in a field: a collected Storyboard drops its values
+                        // and the offset snaps back mid-glide.
+                        _centerStoryboard = new Storyboard();
+                        _centerStoryboard.Children.Add(animation);
+                        Storyboard.SetTarget(animation, CenterNudge);
+                        Storyboard.SetTargetProperty(animation, "X");
+                        var board = _centerStoryboard;
+                        board.Completed += (_, _) =>
+                        {
+                            if (ReferenceEquals(_centerStoryboard, board)) _centerStoryboard = null;
+                            UpdateCaptionInsets();
+                        };
+                        board.Begin();
+                    }
+                    catch
+                    {
+                        // Motion is enhancement-only: a failed glide must still
+                        // land on the correct offset, instantly.
+                        _centerStoryboard = null;
+                        CenterNudge.X = shift;
+                    }
+                }
+                _centerAppliedShift = shift;
+                _centerFirst = false;
+            }
+            catch { }
         }
 
         // Interactive elements inside SetTitleBar's drag region need explicit
@@ -606,6 +710,92 @@ namespace AmllTtmlTool.WinUI.Views
             ShowCollapse(RightFullPanel, level == 0);
             ShowCollapse(RightCompactSplit, level >= 1);
             UpdateModeNavCompact(level >= 2);
+            CollapseDeadNavParts();
+            RequestNavWidthPass();
+        }
+
+        // Sizes the nav to its live items plus a small chrome allowance, once
+        // per layout-state change, after layout has settled the item widths.
+        // A synchronous read here would see pre-compact widths, so this waits
+        // for the next layout pass (one-shot, generation-guarded). This is what
+        // actually shrinks the nav in Narrow: collapsing the custom-content
+        // column alone does not move it.
+        private void RequestNavWidthPass()
+        {
+            var gen = _titleStateGeneration;
+            void Handler(object? s, object? e)
+            {
+                RootGrid.LayoutUpdated -= Handler;
+                if (gen != _titleStateGeneration) return;
+                SizeNavToItems();
+            }
+            RootGrid.LayoutUpdated += Handler;
+        }
+
+        private void SizeNavToItems()
+        {
+            try
+            {
+                var host = FindNavPart(ModeNavView, "TopNavMenuItemsHost") as FrameworkElement;
+                if (host is null || host.ActualWidth <= 0) return;
+                var target = host.ActualWidth + 12;
+                // NaN (auto) never satisfies the tolerance check, so an
+                // uninitialized Width would stick forever. Treat it as changed.
+                if (double.IsNaN(ModeNavView.Width) || Math.Abs(ModeNavView.Width - target) > 0.5)
+                    ModeNavView.Width = target;
+            }
+            catch { }
+        }
+
+        private static DependencyObject? FindNavPart(DependencyObject root, string name)
+        {
+            var queue = new Queue<DependencyObject>();
+            queue.Enqueue(root);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                if (current is FrameworkElement fe && fe.Name == name) return current;
+                var count = VisualTreeHelper.GetChildrenCount(current);
+                for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+            }
+            return null;
+        }
+
+        // The app never sets pane custom content, but the Top-mode template
+        // still reserves layout width for its host column (51px full, ~176px
+        // when the items shrink): collapsing the content alone does not shrink
+        // the column, so the column itself is zeroed. Runs on layout-state
+        // change only, never per frame. Re-applied per state because template
+        // parts can be recreated.
+        private void CollapseDeadNavParts()
+        {
+            try
+            {
+                var queue = new Queue<DependencyObject>();
+                queue.Enqueue(ModeNavView);
+                while (queue.Count > 0)
+                {
+                    var current = queue.Dequeue();
+                    if (current is FrameworkElement fe
+                        && fe.Name == "PaneCustomContentOnTopPane")
+                    {
+                        if (fe.Visibility == Visibility.Visible)
+                            fe.Visibility = Visibility.Collapsed;
+                        var parent = VisualTreeHelper.GetParent(fe) as Grid;
+                        var col = parent is not null ? Grid.GetColumn(fe) : -1;
+                        if (parent is not null && col >= 0 && col < parent.ColumnDefinitions.Count)
+                        {
+                            var cd = parent.ColumnDefinitions[col];
+                            cd.MinWidth = 0;
+                            cd.Width = new GridLength(0);
+                        }
+                        return;
+                    }
+                    var count = VisualTreeHelper.GetChildrenCount(current);
+                    for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+                }
+            }
+            catch { }
         }
 
         private void ShowCollapse(FrameworkElement panel, bool show)
