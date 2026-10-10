@@ -19,7 +19,9 @@ param(
     [string[]]$Args = @(),
     [string]$ReportPath,
     [int]$TimeoutSec = 90,
-    [int]$HandshakeSec = 15
+    [int]$HandshakeSec = 15,
+    [switch]$Detach,
+    [string]$DetachLog = (Join-Path $env:TEMP "harness-detached-$([guid]::NewGuid().ToString('N')).log")
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +55,39 @@ $outFile = Join-Path $env:TEMP "harness-$Mode-$PID.out.txt"
 $errFile = Join-Path $env:TEMP "harness-$Mode-$PID.err.txt"
 foreach ($f in @($ReportPath, $marker, $outFile, $errFile)) {
     if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+}
+
+# --- Detached long runs -------------------------------------------------
+# Placed AFTER the report path is resolved and the stale report is cleared,
+# so the detached run owns exactly one clean report. Runs in a background
+# process that survives the caller's shell timeout; the caller polls for the
+# VERDICT line. Background output must NOT be redirected inside that process:
+# redirecting stdout made the caller wait for the pipe to close, which is
+# exactly how earlier attempts hung for the full timeout.
+if ($Detach) {
+    $outerExe = $Exe
+    $outerReport = $ReportPath
+    $outerMode = $Mode
+    $outerTimeout = $TimeoutSec
+    $argText = ($Args | ForEach-Object { "'$_'" }) -join ' '
+    $inner = Join-Path $env:TEMP "run-harness-inner-$([guid]::NewGuid().ToString('N')).ps1"
+    $body = @"
+`$ErrorActionPreference = 'Stop'
+`$env:AMLL_HARNESS_MODE = '$outerMode'
+`$env:AMLL_HARNESS_REPORT = '$outerReport'
+`$env:AMLL_HARNESS_TIMEOUT = '$outerTimeout'
+& '$outerExe' --$outerMode $argText
+"@
+    Set-Content -LiteralPath $inner -Value $body -Encoding utf8
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = 'pwsh'
+    $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$inner`""
+    $psi.UseShellExecute = $true
+    $psi.WindowStyle = 'Hidden'
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    Write-Host "DETACHED: harness pid=$($proc.Id) report=$outerReport"
+    Write-Host "POLL: wait for a VERDICT line in $outerReport"
+    exit 0
 }
 
 $startedAt = Get-Date

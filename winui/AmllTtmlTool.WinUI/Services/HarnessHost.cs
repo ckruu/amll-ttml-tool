@@ -105,7 +105,15 @@ internal static class HarnessHost
         if (string.IsNullOrWhiteSpace(report) && fromArgs is not null)
         {
             var i = Array.IndexOf(args, "--" + fromArgs);
-            if (i >= 0 && i + 1 < args.Length) report = args[i + 1];
+            // -ui-hold / -ui-target modes take a FILE as their first
+            // positional argument, not a report path. Treating it as one wrote
+            // the .started marker next to the audio file. Only the report
+            // modes derive a path from args; everything else waits for the
+            // AMLL_HARNESS_REPORT env var and otherwise defaults to temp.
+            var positionalIsReport = fromArgs is not (null
+                or "seek-ui-hold" or "seek-ui-target" or "minimize-ui-hold");
+            if (positionalIsReport && i >= 0 && i + 1 < args.Length)
+                report = args[i + 1];
         }
         Report = string.IsNullOrWhiteSpace(report)
             ? Path.Combine(Path.GetTempPath(), $"{Mode}-report.txt")

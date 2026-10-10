@@ -686,12 +686,14 @@
                 </Button>
                 <TextBlock
                     x:Name="PositionText"
+                    AutomationProperties.AutomationId="PositionText"
                     Grid.Column="4"
                     VerticalAlignment="Center"
                     Text="00:00.000"
                     Typography.NumeralAlignment="Tabular" />
                 <Slider
                     x:Name="SeekSlider"
+                    AutomationProperties.AutomationId="SeekSlider"
                     Grid.Column="5"
                     VerticalAlignment="Center"
                     IsEnabled="False"
@@ -703,6 +705,7 @@
                     ValueChanged="OnSeekValueChanged" />
                 <TextBlock
                     x:Name="DurationText"
+                    AutomationProperties.AutomationId="DurationText"
                     Grid.Column="6"
                     VerticalAlignment="Center"
                     Text="00:00.000" />

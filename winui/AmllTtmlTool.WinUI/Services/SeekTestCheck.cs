@@ -13,6 +13,13 @@ internal static class SeekTestCheck
     private static readonly double[] Rates = [0.5, 1.0, 2.0];
     private static readonly double[] Fracs = [0.25, 0.5, 0.75];
 
+    // Files the decoder supports, so stray markers/images/text in a test
+    // folder never masquerade as a failed decode.
+    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "m4a", "aac", "flac", "mp3", "wav", "ogg", "opus", "wma", "alac",
+    };
+
     private static DateTime CrashLogStart()
     {
         try
@@ -63,6 +70,11 @@ internal static class SeekTestCheck
                 return;
             }
             var files = Directory.GetFiles(folder)
+                // Harness markers and stray non-audio files are not test
+                // material: a leftover "<file>.started" beside the audio must
+                // not produce a bogus decode-failure row.
+                .Where(f => AudioExtensions.Contains(
+                    Path.GetExtension(f).TrimStart('.').ToLowerInvariant()))
                 .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             Write(report, $"files={files.Length}");
@@ -298,6 +310,125 @@ internal static class SeekTestCheck
                 if (!playing)
                     Expect(!await OnUiAsync(window, () => audio.IsPlaying), $"rate={rate} paused: stayed paused through seeks");
                 await OnUiAsync(window, () => audio.StopAndUnload());
+            }
+        }
+
+        // BUG 2a: the reported seek-to-edges symptom. SeekTo(0) then play must
+        // start at the FIRST sample (thumb moves, decoder really rebases, the
+        // first buffer delivered has a source time near 0). SeekTo(duration)
+        // must land on the true end with end-of-track fired exactly once.
+        // Same sequence while paused. 0.5x/1x/2x and both pitch modes come
+        // from the outer loop plus a dedicated pair of legs below.
+        foreach (var rate in Rates)
+        {
+            foreach (var playing in new[] { true, false })
+            {
+                var mode = playing ? "playing" : "paused";
+                await OnUiAsync(window, () => audio.SetVolume(0));
+                await audio.LoadAsync(file);
+                var dur = audio.Duration.TotalSeconds;
+                if (!(dur > 1.0))
+                {
+                    Expect(false, $"rate={rate} {mode}: duration too short ({dur:F2}s)");
+                    await OnUiAsync(window, () => audio.StopAndUnload());
+                    continue;
+                }
+                // Play 3 seconds first, exactly the user's sequence.
+                await OnUiAsync(window, () =>
+                {
+                    audio.SetPlaybackRate(rate);
+                    audio.SeekTo(0);
+                    audio.Play();
+                });
+                await Task.Delay(3000);
+                var pre = await OnUiAsync(window, () => audio.Position.TotalSeconds);
+                if (!(pre > 1.0))
+                {
+                    Expect(false, $"rate={rate} {mode}: 3s warm-up did not advance (got {pre:F3}s)");
+                    await OnUiAsync(window, () => audio.StopAndUnload());
+                    continue;
+                }
+                if (!playing)
+                {
+                    // Pause BEFORE the edge seek: the paused leg must measure a
+                    // decoder that is not being pulled by the device.
+                    await OnUiAsync(window, () => audio.Pause());
+                    await Task.Delay(200);
+                    pre = await OnUiAsync(window, () => audio.Position.TotalSeconds);
+                }
+                // --- SeekTo(0) ---
+                var seek0 = await OnUiAsync(window, () =>
+                {
+                    audio.SeekTo(0);
+                    return (Pos: audio.Position.TotalSeconds, Frame: audio.DecodedFramePosition);
+                });
+                var settled0 = await OnUiAsync(window, () =>
+                    (Pos: audio.Position.TotalSeconds, Frame: audio.DecodedFramePosition));
+                Expect(seek0.Pos <= 0.05,
+                    $"rate={rate} {mode} SeekTo(0) immediate pos={seek0.Pos:F3}s want<=0.05");
+                // Decoder proof, read in the SAME UI-thread block as the seek.
+                // Paused: nothing pulls, so the raw PCM cursor must land on the
+                // seek target exactly (within a couple of frames).
+                // Playing: the WASAPI stream prerolls immediately, so the
+                // cursor already carries the device startup burst
+                // (~200ms at 1x, ~450ms at 2x) — the bound scales with rate and
+                // is still far below a seek that never happened (which leaves
+                // the cursor at the 3s+ warm-up position).
+                var frameBound = playing ? 48000.0 * (0.2 + rate * 0.3) : 960.0;
+                Expect(seek0.Frame >= 0 && seek0.Frame < frameBound,
+                    $"rate={rate} {mode} SeekTo(0) first-buffer frame={seek0.Frame} (~{seek0.Frame / 48000.0:F3}s) want<{frameBound / 48000.0:F3}s");
+                Expect(settled0.Pos <= (playing ? rate * 0.25 : 0.05),
+                    $"rate={rate} {mode} SeekTo(0) stable+300ms pos={settled0.Pos:F3}s");
+                if (playing)
+                {
+                    await OnUiAsync(window, () => audio.Play());
+                    // 500ms after resume the position must be near 0. Rate-aware:
+                    // at rate r, 500ms of wall time is r*0.5s of source audio,
+                    // so the bound scales with the rate (+300ms for the output
+                    // latency budget and the device startup gate).
+                    await Task.Delay(500);
+                    var afterPlay = await OnUiAsync(window, () => audio.Position.TotalSeconds);
+                    var playErr = await OnUiAsync(window, () => audio.LastOutputError);
+                    var bound = rate * 0.5 + 0.3;
+                    Expect(afterPlay < bound,
+                        $"rate={rate} {mode} play-after-SeekTo(0) 500ms pos={afterPlay:F3}s want<{bound:F3} " +
+                        $"lasterr=\"{playErr}\"");
+                }
+                else
+                {
+                    Expect(!await OnUiAsync(window, () => audio.IsPlaying),
+                        $"rate={rate} paused: SeekTo(0) did not start playback");
+                }
+
+                // --- SeekTo(duration) ---
+                await OnUiAsync(window, () => audio.SetPlaybackRate(rate));
+                var endPos = await OnUiAsync(window, () =>
+                {
+                    audio.SeekTo(dur);
+                    return audio.Position.TotalSeconds;
+                });
+                Expect(Math.Abs(endPos - dur) <= 0.05,
+                    $"rate={rate} {mode} SeekTo(duration) pos={endPos:F3}s want={dur:F3}s");
+                var ended = 0;
+                void OnEnded() => ended++;
+                audio.TrackEnded += OnEnded;
+                try
+                {
+                    await OnUiAsync(window, () => audio.Play());
+                    var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(8);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        await Task.Delay(200);
+                        if (!await OnUiAsync(window, () => audio.IsPlaying)) break;
+                    }
+                    await Task.Delay(500);
+                    Expect(ended == 1, $"rate={rate} {mode} end-of-track fired exactly once (got {ended})");
+                }
+                finally
+                {
+                    audio.TrackEnded -= OnEnded;
+                    await OnUiAsync(window, () => audio.StopAndUnload());
+                }
             }
         }
 
