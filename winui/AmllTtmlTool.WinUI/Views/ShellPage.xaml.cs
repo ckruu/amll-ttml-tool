@@ -241,18 +241,35 @@ namespace AmllTtmlTool.WinUI.Views
                 var source = InputNonClientPointerSource.GetForWindowId(appWindow.Id);
                 var passthrough = new List<Windows.Graphics.RectInt32>();
                 foreach (var child in TitleBarArea.Children)
-                {
-                    if (child is not FrameworkElement { Visibility: Visibility.Visible, ActualWidth: > 0, ActualHeight: > 0 } element)
-                        continue;
-                    if (!IsInteractive(element)) continue;
-                    passthrough.Add(ToPhysical(element, scale, TitleBarArea));
-                }
+                    CollectPassthroughRegions(child, passthrough, scale);
                 source.SetRegionRects(NonClientRegionKind.Passthrough, passthrough.ToArray());
             }
             catch
             {
                 // Non-customized title bars (rare OS configs) don't expose this.
             }
+        }
+
+        private void CollectPassthroughRegions(
+            DependencyObject current,
+            List<Windows.Graphics.RectInt32> passthrough,
+            double scale)
+        {
+            if (current is FrameworkElement element)
+            {
+                if (element.Visibility != Visibility.Visible ||
+                    element.ActualWidth <= 0 ||
+                    element.ActualHeight <= 0)
+                    return;
+                if (element is Control control && !control.IsEnabled)
+                    return;
+                if (IsInteractive(element))
+                    passthrough.Add(ToPhysical(element, scale, TitleBarArea));
+            }
+
+            var count = VisualTreeHelper.GetChildrenCount(current);
+            for (var i = 0; i < count; i++)
+                CollectPassthroughRegions(VisualTreeHelper.GetChild(current, i), passthrough, scale);
         }
 
         // A Button/SplitButton/ToggleButton/MenuBar child is interactive; a
@@ -693,6 +710,7 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 "CompactTitle" => 1,
                 "NarrowTitle" => 2,
+                "ToggleOverflowTitle" => 3,
                 _ => 0,
             };
             _lastTitleStateName = state?.Name ?? "null";
@@ -709,6 +727,8 @@ namespace AmllTtmlTool.WinUI.Views
             ShowCollapse(UndoDivider, level == 0);
             ShowCollapse(RightFullPanel, level == 0);
             ShowCollapse(RightCompactSplit, level >= 1);
+            ShowCollapse(MasterTogglePanel, level <= 2);
+            ShowCollapse(CenterToggleOverflowButton, level >= 3);
             UpdateModeNavCompact(level >= 2);
             CollapseDeadNavParts();
             RequestNavWidthPass();
@@ -960,6 +980,33 @@ namespace AmllTtmlTool.WinUI.Views
             AppSettings.NotifyDisplayChanged();
             if (sender is ToggleButton tb && tb.IsChecked == true)
                 PopPill(tb);
+        }
+
+        private void OnCenterToggleMenuOpening(object sender, object e)
+        {
+            SyncCenterToggleMenuItem(RomanOverflowItem, RomanToggle);
+            SyncCenterToggleMenuItem(TransOverflowItem, TransToggle);
+            SyncCenterToggleMenuItem(WordRomanOverflowItem, WordRomanToggle);
+        }
+
+        private static void SyncCenterToggleMenuItem(ToggleMenuFlyoutItem item, ToggleButton toggle)
+        {
+            item.IsChecked = toggle.IsChecked == true;
+        }
+
+        private void OnCenterToggleMenuItemClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is not ToggleMenuFlyoutItem item) return;
+            ToggleButton? toggle = (item.Tag as string) switch
+            {
+                "RomanToggle" => RomanToggle,
+                "TransToggle" => TransToggle,
+                "WordRomanToggle" => WordRomanToggle,
+                _ => null,
+            };
+            if (toggle is null) return;
+            toggle.IsChecked = item.IsChecked;
+            OnMasterToggleClick(toggle, e);
         }
 
         private void OnStubClick(object sender, RoutedEventArgs e) =>

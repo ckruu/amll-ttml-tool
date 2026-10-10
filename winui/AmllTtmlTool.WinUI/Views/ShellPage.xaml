@@ -38,6 +38,11 @@
                 </VisualState>
                 <VisualState x:Name="NarrowTitle">
                     <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="720" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <VisualState x:Name="ToggleOverflowTitle">
+                    <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                 </VisualState>
@@ -321,7 +326,11 @@
                 <StackPanel.RenderTransform>
                     <TranslateTransform x:Name="CenterNudge" />
                 </StackPanel.RenderTransform>
-                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                <StackPanel
+                    x:Name="MasterTogglePanel"
+                    Orientation="Horizontal"
+                    Spacing="2"
+                    VerticalAlignment="Center">
                         <ToggleButton
                             x:Name="RomanToggle"
                             x:Uid="ShellPage_RomanToggle"
@@ -359,6 +368,48 @@
                             <FontIcon FontSize="16" Glyph="&#xE8E9;" />
                         </ToggleButton>
                     </StackPanel>
+                <Button
+                    x:Name="CenterToggleOverflowButton"
+                    VerticalAlignment="Center"
+                    Visibility="Collapsed"
+                    MinWidth="44"
+                    MinHeight="40"
+                    AutomationProperties.AutomationId="CenterToggleOverflow"
+                    Style="{StaticResource SubtleTitleBarButtonStyle}"
+                    ToolTipService.ToolTip="Secondary content options">
+                    <Button.Flyout>
+                        <MenuFlyout x:Name="CenterToggleMenu" Opening="OnCenterToggleMenuOpening">
+                            <ToggleMenuFlyoutItem
+                                x:Name="RomanOverflowItem"
+                                Tag="RomanToggle"
+                                Text="Romanization lines"
+                                Click="OnCenterToggleMenuItemClick">
+                                <ToggleMenuFlyoutItem.Icon>
+                                    <FontIcon FontSize="16" Glyph="&#xE7DE;" />
+                                </ToggleMenuFlyoutItem.Icon>
+                            </ToggleMenuFlyoutItem>
+                            <ToggleMenuFlyoutItem
+                                x:Name="TransOverflowItem"
+                                Tag="TransToggle"
+                                Text="Translation lines"
+                                Click="OnCenterToggleMenuItemClick">
+                                <ToggleMenuFlyoutItem.Icon>
+                                    <FontIcon FontSize="16" Glyph="&#xE775;" />
+                                </ToggleMenuFlyoutItem.Icon>
+                            </ToggleMenuFlyoutItem>
+                            <ToggleMenuFlyoutItem
+                                x:Name="WordRomanOverflowItem"
+                                Tag="WordRomanToggle"
+                                Text="Per-word romanization"
+                                Click="OnCenterToggleMenuItemClick">
+                                <ToggleMenuFlyoutItem.Icon>
+                                    <FontIcon FontSize="16" Glyph="&#xE8E9;" />
+                                </ToggleMenuFlyoutItem.Icon>
+                            </ToggleMenuFlyoutItem>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                    <FontIcon FontSize="16" Glyph="&#xE712;" />
+                </Button>
                 <NavigationView x:Name="ModeNavView"
                     VerticalAlignment="Center"
                     MinHeight="40"
