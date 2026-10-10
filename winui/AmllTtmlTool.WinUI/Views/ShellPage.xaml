@@ -23,7 +23,7 @@
         <KeyboardAccelerator Key="Z" Modifiers="Control" Invoked="OnUndoAccelerator" />
         <KeyboardAccelerator Key="Y" Modifiers="Control" Invoked="OnRedoAccelerator" />
     </Page.KeyboardAccelerators>
-    <Grid x:Name="RootGrid" AllowDrop="True" DragLeave="OnDragLeave" DragOver="OnDragOver" Drop="OnDrop">
+    <Grid x:Name="RootGrid" AllowDrop="True" Background="Transparent">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="TitleStates" CurrentStateChanged="OnTitleStateChanged">
                 <VisualState x:Name="FullTitle">
@@ -722,6 +722,7 @@
             <StackPanel HorizontalAlignment="Center" Spacing="12" VerticalAlignment="Center">
                 <FontIcon FontSize="48" Glyph="&#xE896;" />
                 <TextBlock
+                    x:Name="DropHintText"
                     x:Uid="ShellPage_DropHint"
                     FontSize="20"
                     Text="Drop to open" />

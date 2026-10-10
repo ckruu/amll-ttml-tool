@@ -53,6 +53,14 @@ namespace AmllTtmlTool.WinUI.Views
             // LayoutUpdated fires for pure-reposition passes. The handler is
             // read-only plus a layout-neutral transform set, so it cannot loop.
             RootGrid.LayoutUpdated += (_, _) => UpdateCenterOffset();
+            // Drag-and-drop is registered with handledEventsToo: child
+            // controls (TextBox, ribbon cards, list views) mark drag events
+            // handled, which would otherwise stop them before RootGrid.
+            // XAML attributes cannot set handledEventsToo, hence code here.
+            RootGrid.AddHandler(UIElement.DragEnterEvent, new DragEventHandler(OnDragEnter), true);
+            RootGrid.AddHandler(UIElement.DragOverEvent, new DragEventHandler(OnDragOver), true);
+            RootGrid.AddHandler(UIElement.DragLeaveEvent, new DragEventHandler(OnDragLeave), true);
+            RootGrid.AddHandler(UIElement.DropEvent, new DragEventHandler(OnDrop), true);
             if (window.AppWindow is AppWindow appWindow)
             {
                 appWindow.Title = "AMLL TTML Tool";
@@ -138,6 +146,37 @@ namespace AmllTtmlTool.WinUI.Views
                             try
                             {
                                 System.IO.File.AppendAllText(Services.AudioTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
+                // Drop-test harness: --drop-test [reportPath]. Structural
+                // drag-and-drop verification (real OLE drags cannot be
+                // synthesized headless). Self-closes. DEBUG-only.
+                var dropIdx = Array.IndexOf(audioArgs, "--drop-test");
+                if (dropIdx >= 0)
+                {
+                    var dropReport = dropIdx + 1 < audioArgs.Length ? audioArgs[dropIdx + 1] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.DropCheck.RunAsync(win, dropReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.DropCheck.DefaultReportFile,
                                     "HARNESS-ERROR: " + ex.ToString() + "\n");
                             }
                             catch { }
@@ -532,31 +571,74 @@ namespace AmllTtmlTool.WinUI.Views
             if (SpectroToggle.IsChecked == true) SpectroToggle.IsChecked = false;
         }
 
-        private void OnDragOver(object sender, DragEventArgs e)
+        private void OnDragEnter(object sender, DragEventArgs e) =>
+            _ = HandleDragAsync(e);
+
+        private void OnDragOver(object sender, DragEventArgs e) =>
+            _ = HandleDragAsync(e);
+
+        // Shows the overlay immediately on enter and refines the caption and
+        // accepted operation once the file names arrive (async, via deferral
+        // so the OS keeps the right cursor while we inspect).
+        private async Task HandleDragAsync(DragEventArgs e)
         {
-            if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
+            e.Handled = true;
+            var deferral = e.GetDeferral();
+            try
             {
-                e.AcceptedOperation = DataPackageOperation.Copy;
+                var items = await e.DataView.GetStorageItemsAsync();
+                var names = items.OfType<StorageFile>().Select(f => f.Name).ToList();
+                var kind = AmllTtmlTool.Core.DropFiles.Classify(
+                    names, Services.LyricStore.AudioExtensions, Services.LyricStore.LyricExtensions);
+                var accept = kind is AmllTtmlTool.Core.DropKind.Lyrics
+                    or AmllTtmlTool.Core.DropKind.Audio
+                    or AmllTtmlTool.Core.DropKind.Both;
+                e.AcceptedOperation = accept
+                    ? DataPackageOperation.Copy
+                    : DataPackageOperation.None;
+                DropHintText.Text = AmllTtmlTool.Core.DropFiles.Caption(kind);
                 DropOverlay.Visibility = Visibility.Visible;
+            }
+            catch
+            {
+                e.AcceptedOperation = DataPackageOperation.None;
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
-        private void OnDragLeave(object sender, DragEventArgs e) =>
+        private void OnDragLeave(object sender, DragEventArgs e)
+        {
+            e.Handled = true;
             DropOverlay.Visibility = Visibility.Collapsed;
+        }
 
         private async void OnDrop(object sender, DragEventArgs e)
         {
             DropOverlay.Visibility = Visibility.Collapsed;
+            e.Handled = true;
             if (_intake is null || !e.DataView.Contains(StandardDataFormats.StorageItems)) return;
             try
             {
                 var items = await e.DataView.GetStorageItemsAsync();
                 if (items.Count == 0) return;
-                if (items[0] is StorageFile file)
+                var files = items.OfType<StorageFile>().ToList();
+                var lyrics = files.Where(f => Services.LyricStore.IsLyricFile(f.Name)).ToList();
+                var audios = files.Where(f => Services.LyricStore.IsAudioFile(f.Name)).ToList();
+                if (lyrics.Count == 0 && audios.Count == 0)
                 {
-                    if (LyricStore.IsLyricFile(file.Name) && !await ConfirmDirtyAsync("Open")) return;
-                    await _intake.OpenAnyAsync(file);
+                    Notify($"Unsupported file{(files.Count == 1 ? string.Empty : "s")}: " +
+                        string.Join(", ", files.Select(f => f.Name).DefaultIfEmpty(items[0].Name)));
+                    return;
                 }
+                // One dirty-confirm for the lyric side; a cancelled lyric
+                // open still lets a co-dropped audio file through.
+                var openLyric = lyrics.Count > 0 && await ConfirmDirtyAsync("Open");
+                if (openLyric) await _intake.OpenLyricFileAsync(lyrics[0]);
+                if (audios.Count > 0) await _intake.OpenAudioFileAsync(audios[0]);
             }
             catch { }
         }
