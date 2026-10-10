@@ -97,6 +97,19 @@ internal static class MinimizeTestCheck
                 Write(report, $"FILE-ERROR: not found: {file}");
                 return;
             }
+            // Legs are env-controlled (launchers are not trusted with args).
+            // "all" = bare-window probes + 1b leg + 20-rep sweep; "probe" runs
+            // the bare-window probes alone (no audio), which is both the crash
+            // site and fast enough to fit one short shell timeout; "1b" runs
+            // the reported-crash leg alone; "sweep" runs the matrix alone.
+            var legs = (Environment.GetEnvironmentVariable("AMLL_MINIMIZE_LEGS")
+                ?? "all").Trim().ToLowerInvariant();
+            var runProbes = legs is "all" or "sweep" or "probe";
+            var run1b = legs is "all" or "1b";
+            var runSweep = legs is "all" or "sweep";
+            Write(report, $"legs={legs} (probes={runProbes} leg1b={run1b} sweep={runSweep})");
+            if (runProbes)
+            {
             await OnUiAsync(window, () => audio.SetVolume(0));
             // Bare-window probes FIRST (no audio loaded, no resize): if the
             // window dies here, audio is innocent and the cause is in window
@@ -105,7 +118,17 @@ internal static class MinimizeTestCheck
             await ProbeOneAsync(window, report, hwnd, appWindow, "syscommand");
             await ProbeOneAsync(window, report, hwnd, appWindow, "presenter-get");
             await ProbeOneAsync(window, report, hwnd, appWindow, "presenter-minimize");
+            }
             await audio.LoadAsync(file);
+            if (!run1b && !runSweep)
+            {
+                // Probe-only leg: the bare window is the crash site, so stop
+                // before audio. Finished cleanly iff every probe restored and
+                // the process never died (a native crash shows up as a missing
+                // line and a non-zero exit code, never as a managed error).
+                Write(report, "probes | OK");
+                return;
+            }
             var dur = audio.Duration.TotalSeconds;
             Write(report, $"loaded duration={dur:F3}s");
 
@@ -118,9 +141,11 @@ internal static class MinimizeTestCheck
                     (int)Math.Round(1200 * scale), appWindow.Size.Height));
             });
 
+            var fails = 0;
+            if (runSweep)
+            {
             var paths = new[] { "presenter", "showwindow", "syscommand" };
             var widths = new[] { 500, 750, 900, 1200 };
-            var fails = 0;
             var rnd = new Random(7);
             for (var rep = 0; rep < 20; rep++)
             {
@@ -153,6 +178,7 @@ internal static class MinimizeTestCheck
             var crashOk = crashNow == crashBase;
             if (!crashOk) fails++;
             Write(report, $"crashlog lines base={crashBase} now={crashNow} {(crashOk ? "OK" : "FAIL")}");
+            }
             await OnUiAsync(window, () =>
             {
                 audio.Pause();

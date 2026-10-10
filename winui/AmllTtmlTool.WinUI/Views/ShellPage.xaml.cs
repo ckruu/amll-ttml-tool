@@ -42,9 +42,12 @@ namespace AmllTtmlTool.WinUI.Views
             var window = ((App)Application.Current).MainWindow;
             _windowHwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
             window.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
-            window.ExtendsContentIntoTitleBar = false; // BISECT-C (custom titlebar off)
+            window.ExtendsContentIntoTitleBar = true;
             window.SetTitleBar(TitleBarArea);
-            // WindowSizing.SetMinSize(window, 600, 480); // BISECT-B (subclass disabled)
+            // Min-track-size subclass (verified safe while minimized: the
+            // subclass only answers WM_GETMINMAXINFO and never measures the
+            // client area, so a 0x0 minimized window cannot reach it).
+            WindowSizing.SetMinSize(window, 600, 480);
             window.SizeChanged += (_, _) => UpdateCaptionInsets();
             TitleBarArea.SizeChanged += (_, _) => UpdateCaptionInsets();
             // Centering recompute runs after every layout pass (not just resizes):
@@ -70,7 +73,12 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 appWindow.Title = "AMLL TTML Tool";
                 appWindow.Closing += OnWindowClosing;
-                // BISECT-D: appWindow.Changed += (_, _) => UpdateCaptionInsets();
+                // Re-armed. Necessary: without it the caption insets go stale on
+                // every move/resize. Safe now because UpdateCaptionInsets and
+                // UpdateCenterOffset both bail on HasRealSize(), which covers
+                // the minimize stub and the 160x28 transitional state where
+                // IsIconic alone reported false and killed the process.
+                appWindow.Changed += (_, _) => UpdateCaptionInsets();
                 if (AppWindowTitleBar.IsCustomizationSupported())
                 {
                     var titleBar = appWindow.TitleBar;
@@ -411,19 +419,42 @@ namespace AmllTtmlTool.WinUI.Views
         // True while the window is minimized. Windows reports a minimized
         // window as zero-sized, which the title-bar layout math must never
         // consume (and which used to reach AppWindow.TitleBar and hard-kill
-        // the process inside Microsoft.UI.Windowing.dll). Boundary guard,
-        // called before any measurement or inset read.
-        private bool IsMinimized()
+        // the process inside Microsoft.UI.Windowing.dll).
+        // NOTE: this alone is NOT sufficient. During a restore the OS clears
+        // the iconic flag BEFORE the window is re-laid out, so AppWindow.
+        // Changed can fire with iconic=false while the size is still the
+        // 160x28 minimized stub — that is exactly when the inset read killed
+        // the process natively (SEH exit, no managed exception, silent in the
+        // crash log). Whatever consumes the size must validate the size too.
+        private bool IsMinimized() => !HasRealSize();
+
+        // True when the window has a real, non-degenerate size. A minimized
+        // window, and the transient stub states on the way in and out of one,
+        // all collapse to the same 160x28 rect. This is the invariant the
+        // title-bar math requires: scale, insets and passthrough rects are
+        // meaningless for a window the user cannot see.
+        private bool HasRealSize()
         {
-            if (_windowHwnd == nint.Zero) return false;
-            try { return IsIconic(_windowHwnd); } catch { return false; }
+            try
+            {
+                var size = ((App)Application.Current).MainWindow.AppWindow?.Size;
+                // 160x28 is the documented caption-only minimize stub; anything
+                // at or below it carries no client area to lay out.
+                return size is { Width: > 160, Height: > 28 };
+            }
+            catch
+            {
+                // An AppWindow that cannot be read is not a layoutable window.
+                return false;
+            }
         }
 
         private void UpdateCaptionInsets()
         {
             if (XamlRoot is null) return;
-            // Guard the boundary: while minimized the window measures 0 and
-            // inset/region calls are not valid. Bail instead of computing
+            // Guard the boundary: while minimized the window measures a 160x28
+            // caption-only stub (and stays there mid-transition), for which
+            // inset/region geometry is meaningless. Bail instead of computing
             // degenerate sizes.
             if (IsMinimized()) return;
             var window = ((App)Application.Current).MainWindow;
@@ -435,6 +466,16 @@ namespace AmllTtmlTool.WinUI.Views
             // whatever the OS reports, at whatever DPI the monitor is at.
             var right = appWindow.TitleBar.RightInset / scale;
             var left = appWindow.TitleBar.LeftInset / scale;
+            // Negative insets are not a caption strip: Windows deliberately
+            // reports negative border values while a customized-titlebar window
+            // transitions (observed RightInset = -8 px on every restore from
+            // minimize), meaning "draw no border here yet". Feeding that into
+            // GridLength and InputNonClientPointerSource.SetRegionRects
+            // produced invalid non-client rects and hard-killed the process
+            // inside the OS (SEH 0xE0464645: no managed exception, so nothing
+            // reached the crash log). Skip the pass; the next Changed with
+            // settled geometry applies the real insets.
+            if (right < 0 || left < 0) return;
             if (Math.Abs(RightInsetCol.Width.Value - right) > 0.5)
                 RightInsetCol.Width = new GridLength(right);
             if (Math.Abs(LeftInsetCol.Width.Value - left) > 0.5)
