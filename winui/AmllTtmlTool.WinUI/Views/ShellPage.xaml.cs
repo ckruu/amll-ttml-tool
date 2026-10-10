@@ -732,14 +732,17 @@ namespace AmllTtmlTool.WinUI.Views
             UpdateModeNavCompact(level >= 2);
             CollapseDeadNavParts();
             RequestNavWidthPass();
+            // Visibility changes here move interactive rects without changing
+            // TitleBarArea's size, so refresh the OS passthrough regions now:
+            // otherwise the toggle overflow button can be keyboard-reachable
+            // but dead to the mouse until some later resize.
+            UpdateCaptionInsets();
         }
 
-        // Sizes the nav to its live items plus a small chrome allowance, once
-        // per layout-state change, after layout has settled the item widths.
-        // A synchronous read here would see pre-compact widths, so this waits
-        // for the next layout pass (one-shot, generation-guarded). This is what
-        // actually shrinks the nav in Narrow: collapsing the custom-content
-        // column alone does not move it.
+        // Applies the deterministic nav width once per layout-state change,
+        // after layout has settled any in-flight transition widths. A
+        // synchronous read here would see pre-compact widths, so this waits
+        // for the next layout pass (one-shot, generation-guarded).
         private void RequestNavWidthPass()
         {
             var gen = _titleStateGeneration;
@@ -752,13 +755,28 @@ namespace AmllTtmlTool.WinUI.Views
             RootGrid.LayoutUpdated += Handler;
         }
 
+        // Sizes the nav from the items' UNCONSTRAINED widths plus a small
+        // chrome allowance, once per layout-state change. Never reads the
+        // items host: measuring constrained layout ratchets (a host that is
+        // already overflowed measures small, the nav shrinks to it, and the
+        // tabs stay stranded in the internal overflow forever, in both
+        // directions). A manual Measure here is synchronous and exact, so no
+        // post-settle wait is needed; the one-shot pass is kept so the width
+        // still lands after any in-flight transition.
         private void SizeNavToItems()
         {
             try
             {
-                var host = FindNavPart(ModeNavView, "TopNavMenuItemsHost") as FrameworkElement;
-                if (host is null || host.ActualWidth <= 0) return;
-                var target = host.ActualWidth + 12;
+                if (EditNavItem is null || SyncNavItem is null || PreviewNavItem is null || ModeNavView is null)
+                    return;
+                var total = 0.0;
+                foreach (var item in new[] { EditNavItem, SyncNavItem, PreviewNavItem })
+                {
+                    if (item is null) return;
+                    item.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    total += item.DesiredSize.Width;
+                }
+                var target = total + 12;
                 // NaN (auto) never satisfies the tolerance check, so an
                 // uninitialized Width would stick forever. Treat it as changed.
                 if (double.IsNaN(ModeNavView.Width) || Math.Abs(ModeNavView.Width - target) > 0.5)
@@ -784,32 +802,48 @@ namespace AmllTtmlTool.WinUI.Views
         // The app never sets pane custom content, but the Top-mode template
         // still reserves layout width for its host column (51px full, ~176px
         // when the items shrink): collapsing the content alone does not shrink
-        // the column, so the column itself is zeroed. Runs on layout-state
-        // change only, never per frame. Re-applied per state because template
-        // parts can be recreated.
+        // the column, so the column itself is zeroed. The internal top-nav
+        // overflow button is collapsed for the same reason in reverse: the
+        // mode tabs must never live in any overflow, and the nav is always
+        // given its full deterministic width, so the button can never be
+        // needed. If it ever reappears, tabs would strand in it silently, so
+        // the harness asserts it stays idle at every width. Runs on
+        // layout-state change only, never per frame. Re-applied per state
+        // because template parts can be recreated.
         private void CollapseDeadNavParts()
         {
             try
             {
+                var foundCustomContent = false;
+                var foundOverflowButton = false;
                 var queue = new Queue<DependencyObject>();
                 queue.Enqueue(ModeNavView);
                 while (queue.Count > 0)
                 {
                     var current = queue.Dequeue();
-                    if (current is FrameworkElement fe
-                        && fe.Name == "PaneCustomContentOnTopPane")
+                    if (current is FrameworkElement fe)
                     {
-                        if (fe.Visibility == Visibility.Visible)
-                            fe.Visibility = Visibility.Collapsed;
-                        var parent = VisualTreeHelper.GetParent(fe) as Grid;
-                        var col = parent is not null ? Grid.GetColumn(fe) : -1;
-                        if (parent is not null && col >= 0 && col < parent.ColumnDefinitions.Count)
+                        if (!foundCustomContent && fe.Name == "PaneCustomContentOnTopPane")
                         {
-                            var cd = parent.ColumnDefinitions[col];
-                            cd.MinWidth = 0;
-                            cd.Width = new GridLength(0);
+                            foundCustomContent = true;
+                            if (fe.Visibility == Visibility.Visible)
+                                fe.Visibility = Visibility.Collapsed;
+                            var parent = VisualTreeHelper.GetParent(fe) as Grid;
+                            var col = parent is not null ? Grid.GetColumn(fe) : -1;
+                            if (parent is not null && col >= 0 && col < parent.ColumnDefinitions.Count)
+                            {
+                                var cd = parent.ColumnDefinitions[col];
+                                cd.MinWidth = 0;
+                                cd.Width = new GridLength(0);
+                            }
                         }
-                        return;
+                        else if (!foundOverflowButton && fe.Name == "TopNavOverflowButton")
+                        {
+                            foundOverflowButton = true;
+                            if (fe.Visibility == Visibility.Visible)
+                                fe.Visibility = Visibility.Collapsed;
+                        }
+                        if (foundCustomContent && foundOverflowButton) return;
                     }
                     var count = VisualTreeHelper.GetChildrenCount(current);
                     for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(current, i));

@@ -40,6 +40,15 @@ internal static class TitleCenteringCheck
             });
             if (appWindow is null) { WriteLine("HARNESS-ERROR: no AppWindow"); return; }
             WriteLine($"scale={scale:F3}");
+            try
+            {
+                var exe = Environment.ProcessPath;
+                var stamp = exe is null ? "?" : System.IO.File.GetLastWriteTimeUtc(exe).ToString("u");
+                WriteLine($"binary={exe ?? "?"}");
+                WriteLine($"buildUtc={stamp}");
+                WriteLine($"relaunch=$env:AMLL_SELF_CHECK = \"1\"; & \"{exe ?? "<exe>"}\"");
+            }
+            catch (Exception ex) { WriteLine("HARNESS-ERROR binary info: " + ex.Message); }
             FrameworkElement? leftCluster = null;
             await OnUiAsync(window, () =>
             {
@@ -95,11 +104,176 @@ internal static class TitleCenteringCheck
                     WriteLine($"---- client width {w}: SECONDARY-ERROR {ex.GetType().Name}: {ex.Message} ----");
                 }
             }
+            await RunRoundTripAsync(window, probe, leftCluster, appWindow, scale);
         }
         catch (Exception ex)
         {
             WriteLine("HARNESS-ERROR: " + ex.GetType().Name + ": " + ex.Message);
         }
+    }
+
+    // Directional sweep: descending then ascending (twice), plus seeded
+    // random jumps. Fast asserts only: no flyout opens, no settings writes.
+    // Catches ratchets and stuck states the one-way sweep cannot see.
+    private static async Task RunRoundTripAsync(Window window, TitleProbe probe, FrameworkElement leftCluster, AppWindow appWindow, double scale)
+    {
+        WriteLine("=== ROUND TRIP SWEEP ===");
+        var route = new List<(int Width, string Leg)>();
+        for (var w = 2000; w >= 560; w -= 20) route.Add((w, "down1"));
+        for (var w = 560; w <= 2000; w += 20) route.Add((w, "up1"));
+        for (var w = 2000; w >= 560; w -= 20) route.Add((w, "down2"));
+        for (var w = 560; w <= 2000; w += 20) route.Add((w, "up2"));
+        var rng = new Random(12345);
+        for (var i = 0; i < 40; i++) route.Add((560 + 20 * rng.Next(0, 101), "random"));
+        foreach (var w in new[] { 1745, 1920, 2200, 2560 }) route.Add((w, "fixed"));
+        var signatures = new Dictionary<int, string>();
+        var legs = new Dictionary<int, string>();
+        foreach (var (reqW, leg) in route)
+        {
+            string result;
+            try { result = await SweepStepAsync(window, probe, leftCluster, appWindow, scale, reqW, leg, signatures, legs); }
+            catch (Exception ex) { result = $"sweep {leg} req={reqW}: SWEEP-ERROR {ex.GetType().Name}: {ex.Message}"; }
+            WriteLine(result);
+        }
+    }
+
+    private static async Task<string> SweepStepAsync(Window window, TitleProbe probe, FrameworkElement leftCluster, AppWindow appWindow, double scale, int reqW, string leg, Dictionary<int, string> signatures, Dictionary<int, string> legs)
+    {
+        try
+        {
+            await OnUiAsync(window, () =>
+                appWindow.Resize(new SizeInt32(
+                    (int)Math.Round(reqW * scale),
+                    (int)Math.Round(700 * scale))));
+        }
+        catch (Exception ex)
+        {
+            return $"sweep {leg} req={reqW}: RESIZE-ERROR {ex.GetType().Name}: {ex.Message}";
+        }
+        // 700ms settle: a title-tier transition carries a 180ms designed
+        // glide plus a multi-pass cluster cascade; sampling earlier catches
+        // mid-flight geometry that always converges (proven by trajectory).
+        await Task.Delay(700);
+        await OnUiAsync(window, () => { });
+        await OnUiAsync(window, () => { });
+        await OnUiAsync(window, () => { });
+        (int AreaKey, string Sig, string Detail, string OvActive, string PillsHidden, string NovState, string Tabs, string OvGeom, double Off, double Nudge, double Want, double ClearL, double ClearR) snap = (0, "?", "?", "?", "?", "?", "?", "?", 0, double.NaN, double.NaN, 0, 0);
+        await OnUiAsync(window, () => { snap = SweepSnapshot(window, probe, leftCluster, appWindow, scale); });
+        var failures = new List<string>();
+        if (snap.Tabs.Split('/').Any(t => !t.StartsWith("V"))) failures.Add("tab-hidden:" + snap.Tabs);
+        if (snap.NovState == "ACTIVE") failures.Add("internal-overflow-engaged");
+        if (snap.OvActive != snap.PillsHidden) failures.Add($"overflow-iff-mismatch ov={snap.OvActive} pillsHidden={snap.PillsHidden}");
+        if (snap.OvGeom.StartsWith("BAD")) failures.Add(snap.OvGeom);
+        // Off-center is only a defect when room is wasted: an honest clamp
+        // pins one clearance near 2px. But ANY off at settle also starts a
+        // convergence trajectory: frozen, drifting, or late-converged.
+        if (Math.Abs(snap.Off) > 2 && Math.Min(snap.ClearL, snap.ClearR) > 3)
+            failures.Add($"off-wastes-room[{snap.Off:F0} clearL={snap.ClearL:F0} clearR={snap.ClearR:F0}]");
+        if (Math.Abs(snap.Off) > 2 && Math.Min(snap.ClearL, snap.ClearR) > 3)
+        {
+            var traj = new List<string> { snap.Off.ToString("F0") };
+            var last = snap;
+            for (var i = 0; i < 3; i++)
+            {
+                await Task.Delay(400);
+                await OnUiAsync(window, () => { last = SweepSnapshot(window, probe, leftCluster, appWindow, scale); });
+                traj.Add(last.Off.ToString("F0"));
+                if (Math.Abs(last.Off) <= 2) break;
+            }
+            var settled = Math.Abs(last.Off) <= 2;
+            var moved = traj.Distinct().Count() > 1;
+            failures.Add(settled
+                ? $"off-late-converged[{string.Join(">", traj)}]"
+                : moved
+                    ? $"off-drifting[{string.Join(">", traj)} nudge={last.Nudge:F0} want={last.Want:F0}]"
+                    : $"off-frozen[{string.Join(">", traj)} nudge={last.Nudge:F0} want={last.Want:F0}]");
+        }
+        if (signatures.TryGetValue(snap.AreaKey, out var prevSig))
+        {
+            if (prevSig != snap.Sig)
+                failures.Add($"SIG-MISMATCH[{legs[snap.AreaKey]}:{prevSig} vs {leg}:{snap.Sig}]");
+        }
+        else
+        {
+            signatures[snap.AreaKey] = snap.Sig;
+            legs[snap.AreaKey] = leg;
+        }
+        return failures.Count == 0
+            ? $"sweep {leg} req={reqW} {snap.Detail} SIG-OK"
+            : $"sweep {leg} req={reqW} {snap.Detail} VERIFY-FAIL[{string.Join("; ", failures)}]";
+    }
+
+    private static (int AreaKey, string Sig, string Detail, string OvActive, string PillsHidden, string NovState, string Tabs, string OvGeom, double Off, double Nudge, double Want, double ClearL, double ClearR) SweepSnapshot(Window window, TitleProbe probe, FrameworkElement leftCluster, AppWindow appWindow, double scale)
+    {
+        var area = probe.TitleBarArea;
+        var areaW = area.ActualWidth;
+        var state = probe.CurrentState() ?? "?";
+        var navProp = "?";
+        if (probe.Nav is NavigationView navCtrl)
+            navProp = double.IsNaN(navCtrl.Width) ? "NaN" : navCtrl.Width.ToString("F0");
+        string Tab(string name)
+        {
+            var el = FindByName(probe.Nav, name) as FrameworkElement;
+            if (el is null) return "?";
+            return IsEffectivelyVisible(el, probe.Nav) && el.ActualWidth > 0.5
+                ? "V" + el.ActualWidth.ToString("F0") : "C";
+        }
+        var tabs = Tab("EditNavItem") + "/" + Tab("SyncNavItem") + "/" + Tab("PreviewNavItem");
+        var novEl = FindByName(probe.Nav, "TopNavOverflowButton") as FrameworkElement;
+        var novState = novEl is null ? "?"
+            : novEl.Visibility == Visibility.Visible && novEl.ActualWidth > 0.5 ? "ACTIVE" : "idle";
+        var panel = FindByName(probe.CenterBlock, "MasterTogglePanel") as FrameworkElement;
+        var overflow = FindByName(probe.CenterBlock, "CenterToggleOverflowButton") as Button;
+        var pillsHidden = panel is not null && panel.Visibility != Visibility.Visible ? "Y" : "N";
+        var ovActive = overflow is not null && overflow.Visibility == Visibility.Visible && overflow.ActualWidth > 0.5 ? "Y" : "N";
+        var ovGeom = "ok";
+        if (ovActive == "Y" && overflow is not null)
+        {
+            var origin = overflow.TransformToVisual(probe.CenterBlock)
+                .TransformPoint(new Windows.Foundation.Point(0, 0));
+            var clipped = origin.X < -0.5 || origin.Y < -0.5 ||
+                origin.X + overflow.ActualWidth > probe.CenterBlock.ActualWidth + 0.5 ||
+                origin.Y + overflow.ActualHeight > probe.CenterBlock.ActualHeight + 0.5;
+            UIElement? topHit = null;
+            if (window.Content is UIElement content)
+            {
+                var co = overflow.TransformToVisual(content)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0));
+                var center = new Windows.Foundation.Point(
+                    co.X + overflow.ActualWidth / 2, co.Y + overflow.ActualHeight / 2);
+                foreach (var hit in VisualTreeHelper.FindElementsInHostCoordinates(center, content))
+                {
+                    topHit = hit;
+                    break;
+                }
+            }
+            var topOk = topHit is not null && IsWithin(topHit, overflow);
+            if (overflow.ActualWidth < 1 || overflow.Opacity < 0.99 || clipped || !topOk)
+                ovGeom = $"BAD[W={overflow.ActualWidth:F0} op={overflow.Opacity:F2} clip={clipped} top={Describe(topHit)}]";
+            else
+                ovGeom = $"ok[W={overflow.ActualWidth:F0} top={Describe(topHit)}]";
+        }
+        var leftRight = RectOf(leftCluster, area).Right;
+        var rightPanel = probe.RightFull.Visibility == Visibility.Visible ? probe.RightFull : probe.RightCompact;
+        var rightRect = RectOf(rightPanel, area);
+        var unitRect = RectOf(probe.CenterBlock, area);
+        var off = unitRect.Left + unitRect.Width / 2 - areaW / 2;
+        var sig = $"state={state} unitW={unitRect.Width:F0} navProp={navProp} pills={pillsHidden} ov={ovActive} tabs={tabs} nov={novState} off={off:F0}";
+        var clearL = unitRect.Left - leftRight;
+        var clearR = rightRect.Left - (unitRect.Left + unitRect.Width);
+        var detail = $"area={areaW:F0} {sig}";
+        double nudgeX = double.NaN;
+        if (probe.CenterBlock.RenderTransform is TranslateTransform nudge) nudgeX = nudge.X;
+        var want = double.NaN;
+        if (!double.IsNaN(nudgeX))
+        {
+            var target = areaW / 2 - (unitRect.Left + unitRect.Width / 2) + nudgeX;
+            var lo = -(unitRect.Left - leftRight - 2) + nudgeX;
+            var hi = (rightRect.Left - (unitRect.Left + unitRect.Width) - 2) + nudgeX;
+            want = lo > hi ? nudgeX : Math.Clamp(target, lo, hi);
+        }
+        detail += $" nudge={nudgeX:F0} want={want:F0} clearL={clearL:F0} clearR={clearR:F0}";
+        return ((int)Math.Round(areaW), sig, detail, ovActive, pillsHidden, novState, tabs, ovGeom, off, nudgeX, want, clearL, clearR);
     }
 
     private static void WriteLine(string text)
@@ -529,18 +703,31 @@ internal static class TitleCenteringCheck
             }
             sb.Append($" | trans-only group={s1.Group} btn={s1.Btn} flyout={(f1.Opened ? $"trans={f1.Trans} roman={f1.Roman} syncT={f1.SyncT} {f1.Edge}" : "hidden")}");
 
-            // Live transitions with the flyout held open.
+            // Live transitions with the flyout held open. Reads retry once
+            // after an extra pump: a single stale frame is timing, twice is
+            // a bug.
             var held = await OpenHeldAsync();
+            async Task<(string T, string R)> HeldBothAsync()
+            {
+                var t = await HeldFieldAsync("Translation");
+                var r = await HeldFieldAsync("Romanization");
+                if (t == "?" || r == "?") return (t, r);
+                return (t, r);
+            }
+            async Task<(string T, string R)> HeldBothSettledAsync()
+            {
+                await HeldBothAsync();
+                await PumpAsync();
+                return await HeldBothAsync();
+            }
             if (!wide)
             {
                 Expect(held.Opened && held.Trans == "V" && held.Roman != "V", "held-open trans-only wrong");
                 await SetTogglesAsync(true, true);
-                var h2t = await HeldFieldAsync("Translation");
-                var h2r = await HeldFieldAsync("Romanization");
+                var (h2t, h2r) = await HeldBothSettledAsync();
                 Expect(h2t == "V" && h2r == "V", "roman-on-while-open did not appear");
                 await SetTogglesAsync(false, false);
-                var h3t = await HeldFieldAsync("Translation");
-                var h3r = await HeldFieldAsync("Romanization");
+                var (h3t, h3r) = await HeldBothSettledAsync();
                 Expect(h3t != "V" && h3r != "V", "off-while-open did not disappear");
                 await CloseFlyoutAsync();
                 sb.Append($" | held trans={held.Trans} both-on={h2t}/{h2r} both-off={h3t}/{h3r}");
