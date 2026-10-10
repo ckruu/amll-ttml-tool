@@ -36,6 +36,18 @@ public static class WindowSizing
     [DllImport("user32.dll")]
     private static extern int GetDpiForWindow(nint hWnd);
 
+    /// <summary>
+    /// Real DPI for the window. <see cref="XamlRoot.RasterizationScale"/> is null
+    /// in a constructor and stale after AppWindow.Move, so title-bar inset math
+    /// must not rely on it.
+    /// </summary>
+    public static double GetScale(Window window)
+    {
+        var hwnd = WindowNative.GetWindowHandle(window);
+        var dpi = GetDpiForWindow(hwnd);
+        return dpi > 0 ? dpi / 96.0 : 1.0;
+    }
+
     private static int _minWidthLogical = 560;
     private static int _minHeightLogical = 480;
     private static SubclassProc? _proc;

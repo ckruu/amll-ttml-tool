@@ -2,6 +2,7 @@ using AmllTtmlTool.Core.Models;
 using AmllTtmlTool.WinUI.Services;
 using Microsoft.UI;
 using Microsoft.UI.Composition;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Hosting;
@@ -33,7 +34,7 @@ namespace AmllTtmlTool.WinUI.Views
             SetupWindow();
             WireStores();
             ModeNavView.SelectedItem = EditNavItem;
-            SidePane.SelectedItem = SidePane.MenuItems[0];
+            SidePane.SelectedItem = OutlineNavItem;
             _ = HandleStartupFileAsync();
         }
 
@@ -44,23 +45,13 @@ namespace AmllTtmlTool.WinUI.Views
             window.ExtendsContentIntoTitleBar = true;
             window.SetTitleBar(TitleBarArea);
             WindowSizing.SetMinSize(window, 600, 480);
-            CompositionTarget.Rendering += OnPerfFrame;
-            window.SizeChanged += (_, _) => { StampResize(); TimeOp("winSize", UpdateCaptionInsets); };
-            TitleBarArea.SizeChanged += (_, _) =>
-            {
-                StampResize();
-                TimeOp("areaSize", () =>
-                {
-                    UpdateCaptionInsets();
-                    RequestCenterBalance();
-                });
-            };
-            CenterTitleBlock.SizeChanged += (_, _) => TimeOp("centerSize", RequestCenterBalance);
+            window.SizeChanged += (_, _) => UpdateCaptionInsets();
+            TitleBarArea.SizeChanged += (_, _) => UpdateCaptionInsets();
             if (window.AppWindow is AppWindow appWindow)
             {
                 appWindow.Title = "AMLL TTML Tool";
                 appWindow.Closing += OnWindowClosing;
-                appWindow.Changed += (_, _) => TimeOp("appChg", UpdateCaptionInsets);
+                appWindow.Changed += (_, _) => UpdateCaptionInsets();
                 if (AppWindowTitleBar.IsCustomizationSupported())
                 {
                     var titleBar = appWindow.TitleBar;
@@ -79,17 +70,24 @@ namespace AmllTtmlTool.WinUI.Views
                 PaintPillToggles(animate: false);
                 if (ModeNavView.SelectedItem is null)
                     ModeNavView.SelectedItem = EditNavItem;
+                if (SidePane.SelectedItem is null)
+                    SidePane.SelectedItem = OutlineNavItem;
                 ApplyTitleState(TitleStates.CurrentState);
-                var triggerFile = @"C:\Users\caake\.gemini\antigravity-ide\brain\5a23934f-d221-4e9c-a057-d15097732a36\run_diag.txt";
-                if (System.IO.File.Exists(triggerFile) || Environment.GetCommandLineArgs().Contains("--diag-resize"))
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        await Task.Delay(1500);
-                        DispatcherQueue.TryEnqueue(async () => await RunAutomatedDiagResizeAsync());
-                    });
-                }
+                BindRibbonWidthScopes();
             };
+        }
+
+        /// <summary>
+        /// The ribbon's width triggers must watch the space the ribbon is actually
+        /// given, not its own content width: a content-sized element's ActualWidth
+        /// only ever grows, so every threshold would fire at once. The card Border
+        /// is the real constraint, so it is wired in once the page is laid out.
+        /// </summary>
+        private void BindRibbonWidthScopes()
+        {
+            EditBar.BindWidthScope(RibbonCard);
+            SyncBar.BindWidthScope(RibbonCard);
+            PreviewBar.BindWidthScope(RibbonCard);
         }
 
         private void UpdateCaptionInsets()
@@ -97,11 +95,57 @@ namespace AmllTtmlTool.WinUI.Views
             if (XamlRoot is null) return;
             var window = ((App)Application.Current).MainWindow;
             if (window.AppWindow is not AppWindow appWindow) return;
-            var scale = XamlRoot.RasterizationScale;
-            if (scale <= 0) return;
-            // Logical caption-strip width is DPI-invariant (~138); floor guards
-            // against small/zero reads so content never slides under - □ X.
-            CaptionSpacer.Width = Math.Max(appWindow.TitleBar.RightInset / scale, 140);
+            var scale = WindowSizing.GetScale(window);
+            // Physical -> logical. No hardcoded floor: the system strip width is
+            // whatever the OS reports, at whatever DPI the monitor is at.
+            var right = appWindow.TitleBar.RightInset / scale;
+            var left = appWindow.TitleBar.LeftInset / scale;
+            if (Math.Abs(RightInsetCol.Width.Value - right) > 0.5)
+                RightInsetCol.Width = new GridLength(right);
+            if (Math.Abs(LeftInsetCol.Width.Value - left) > 0.5)
+                LeftInsetCol.Width = new GridLength(left);
+            UpdatePassthroughRegions(appWindow, scale);
+        }
+
+        // Interactive elements inside SetTitleBar's drag region need explicit
+        // Passthrough rects or the title bar swallows their input.
+        private void UpdatePassthroughRegions(AppWindow appWindow, double scale)
+        {
+            try
+            {
+                var source = InputNonClientPointerSource.GetForWindowId(appWindow.Id);
+                var passthrough = new List<Windows.Graphics.RectInt32>();
+                foreach (var child in TitleBarArea.Children)
+                {
+                    if (child is not FrameworkElement { Visibility: Visibility.Visible, ActualWidth: > 0, ActualHeight: > 0 } element)
+                        continue;
+                    if (!IsInteractive(element)) continue;
+                    passthrough.Add(ToPhysical(element, scale, TitleBarArea));
+                }
+                source.SetRegionRects(NonClientRegionKind.Passthrough, passthrough.ToArray());
+            }
+            catch
+            {
+                // Non-customized title bars (rare OS configs) don't expose this.
+            }
+        }
+
+        // A Button/SplitButton/ToggleButton/MenuBar child is interactive; a
+        // Border or plain layout panel is inert and stays draggable.
+        private static bool IsInteractive(FrameworkElement element) =>
+            element is ButtonBase or MenuBar or SelectorBar or TextBox or NumberBox;
+
+        private static Windows.Graphics.RectInt32 ToPhysical(FrameworkElement element, double scale, FrameworkElement host)
+        {
+            var transform = element.TransformToVisual(host);
+            var origin = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+            return new Windows.Graphics.RectInt32
+            {
+                X = (int)Math.Round(origin.X * scale),
+                Y = (int)Math.Round(origin.Y * scale),
+                Width = (int)Math.Round(element.ActualWidth * scale),
+                Height = (int)Math.Round(element.ActualHeight * scale),
+            };
         }
 
         private void WireStores()
@@ -375,9 +419,9 @@ namespace AmllTtmlTool.WinUI.Views
             catch { }
         }
 
-        private void OnModeNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+        private void OnModeNavSelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
         {
-            if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag &&
+            if (sender.SelectedItem is SelectorBarItem item && item.Tag is string tag &&
                 int.TryParse(tag, out var index) && index >= 0 && index < _pages.Length)
             {
                 SwitchMode(index);
@@ -508,125 +552,14 @@ namespace AmllTtmlTool.WinUI.Views
             }
         }
 
-        private readonly Dictionary<NavigationViewItem, object?> _modeLabels = new();
+        private readonly Dictionary<SelectorBarItem, object?> _modeLabels = new();
 
         private void OnTitleStateChanged(object sender, VisualStateChangedEventArgs e) =>
             ApplyTitleState(e.NewState);
 
         private int _titleStateGeneration;
 
-        // TEMP-DIAG: Precise dev-only frame counter and stopwatch timing (resize 1200->600 drag)
-        private readonly Dictionary<string, (long totalUs, long maxUs, int count)> _diagPerf = new();
-        private readonly object _perfLock = new();
-        private readonly System.Diagnostics.Stopwatch _dragSw = new();
-        private int _dragFrames;
-        private bool _isMeasuringDrag;
-        private long _lastResizeTimestamp;
-        private int _settleTimerScheduled;
-
-        private void TimeOp(string key, Action body)
-        {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            try
-            {
-                body();
-            }
-            finally
-            {
-                sw.Stop();
-                var us = sw.ElapsedTicks * 1_000_000 / System.Diagnostics.Stopwatch.Frequency;
-                lock (_perfLock)
-                {
-                    if (_diagPerf.TryGetValue(key, out var e))
-                        _diagPerf[key] = (e.totalUs + us, Math.Max(e.maxUs, us), e.count + 1);
-                    else
-                        _diagPerf[key] = (us, us, 1);
-                }
-            }
-        }
-
-        private void StampResize()
-        {
-            _lastResizeTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (!_isMeasuringDrag)
-            {
-                _isMeasuringDrag = true;
-                _dragFrames = 0;
-                lock (_perfLock) { _diagPerf.Clear(); }
-                _dragSw.Restart();
-            }
-            ScheduleSettleCheck();
-        }
-
-        private void ScheduleSettleCheck()
-        {
-            var current = System.Threading.Interlocked.Increment(ref _settleTimerScheduled);
-            _ = Task.Delay(500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
-            {
-                if (current != _settleTimerScheduled) return;
-                var elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _lastResizeTimestamp) * 1000 / System.Diagnostics.Stopwatch.Frequency;
-                if (elapsedMs >= 400 && _isMeasuringDrag)
-                {
-                    EndDragMeasurement();
-                }
-            }), TaskScheduler.Default);
-        }
-
-        private void OnPerfFrame(object? sender, object e)
-        {
-            if (_isMeasuringDrag)
-            {
-                _dragFrames++;
-            }
-        }
-
-        private void EndDragMeasurement()
-        {
-            _dragSw.Stop();
-            _isMeasuringDrag = false;
-            var elapsedSec = _dragSw.Elapsed.TotalSeconds;
-            var fps = elapsedSec > 0 ? _dragFrames / elapsedSec : 0;
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("=== RESIZE DRAG DIAGNOSTIC REPORT ===");
-            sb.AppendLine($"Drag duration: {elapsedSec:F2}s, Rendered Frames: {_dragFrames}, FPS: {fps:F1} fps");
-            sb.AppendLine("Handler execution costs:");
-            lock (_perfLock)
-            {
-                foreach (var kv in _diagPerf.OrderByDescending(x => x.Value.totalUs))
-                {
-                    var avg = kv.Value.count > 0 ? (double)kv.Value.totalUs / kv.Value.count : 0;
-                    sb.AppendLine($"  {kv.Key,-12}: count={kv.Value.count,4}, avg={avg,8:F1}µs, max={kv.Value.maxUs,8}µs, total={kv.Value.totalUs / 1000.0,7:F2}ms");
-                }
-            }
-            sb.AppendLine("=====================================");
-            var report = sb.ToString();
-            System.Diagnostics.Debug.WriteLine(report);
-            Console.WriteLine(report);
-            try
-            {
-                System.IO.File.WriteAllText(@"C:\Users\caake\.gemini\antigravity-ide\brain\5a23934f-d221-4e9c-a057-d15097732a36\resize_diag.txt", report);
-            }
-            catch { }
-        }
-
-        private async Task RunAutomatedDiagResizeAsync()
-        {
-            var window = ((App)Application.Current).MainWindow;
-            if (window.AppWindow is not AppWindow appWindow) return;
-            appWindow.Resize(new Windows.Graphics.SizeInt32(1200, 700));
-            await Task.Delay(1000);
-            StampResize();
-            for (int w = 1200; w >= 600; w -= 10)
-            {
-                appWindow.Resize(new Windows.Graphics.SizeInt32(w, 700));
-                await Task.Delay(16);
-            }
-            await Task.Delay(600);
-            EndDragMeasurement();
-        }
-
-        private void ApplyTitleState(VisualState? state) =>
-            TimeOp("apply", () => ApplyTitleStateCore(state));
+        private void ApplyTitleState(VisualState? state) => ApplyTitleStateCore(state);
 
         private void ApplyTitleStateCore(VisualState? state)
         {
@@ -639,217 +572,60 @@ namespace AmllTtmlTool.WinUI.Views
             };
             _lastTitleStateName = state?.Name ?? "null";
             System.Diagnostics.Debug.WriteLine($"[TitleBar] State={_lastTitleStateName} level={level}");
-            SetTarget(FileInfoGrid, level == 0);
-            SetTarget(FileInfoButton, level >= 1);
-            SetTarget(MenuBarFull, level == 0);
-            SetTarget(MenuDivider, level == 0);
-            SetTarget(MenuCompactButton, level >= 1);
-            SetTarget(UndoRedoPanel, level == 0);
-            SetTarget(UndoDivider, level == 0);
-            SetTarget(RightFullPanel, level == 0);
-            SetTarget(RightCompactSplit, level >= 1);
-            CrossfadePanel(FileInfoGrid, show: level == 0, _titleStateGeneration);
-            CrossfadePanel(FileInfoButton, show: level >= 1, _titleStateGeneration);
-            CrossfadePanel(MenuBarFull, show: level == 0, _titleStateGeneration);
-            CrossfadePanel(MenuDivider, show: level == 0, _titleStateGeneration);
-            CrossfadePanel(MenuCompactButton, show: level >= 1, _titleStateGeneration);
-            CrossfadePanel(UndoRedoPanel, show: level == 0, _titleStateGeneration);
-            CrossfadePanel(UndoDivider, show: level == 0, _titleStateGeneration);
-            CrossfadePanel(RightFullPanel, show: level == 0, _titleStateGeneration);
-            CrossfadePanel(RightCompactSplit, show: level >= 1, _titleStateGeneration);
-            TimeOp("compact", () => UpdateModeNavCompact(level >= 2));
-            RequestCenterBalance();
+            // Synchronous visibility: both right-hand panels share
+            // RightStar, so a delayed collapse would let them overdraw each
+            // other straight under the caption buttons.
+            ShowCollapse(FileInfoGrid, level == 0);
+            ShowCollapse(FileInfoButton, level >= 1);
+            ShowCollapse(MenuBarFull, level == 0);
+            ShowCollapse(MenuDivider, level == 0);
+            ShowCollapse(MenuCompactButton, level >= 1);
+            ShowCollapse(UndoRedoPanel, level == 0);
+            ShowCollapse(UndoDivider, level == 0);
+            ShowCollapse(RightFullPanel, level == 0);
+            ShowCollapse(RightCompactSplit, level >= 1);
+            UpdateModeNavCompact(level >= 2);
         }
 
-        private void CrossfadePanel(FrameworkElement panel, bool show, int generation)
+        private void ShowCollapse(FrameworkElement panel, bool show)
         {
-            if (show)
-            {
-                // Always heal: a panel re-shown mid hide-fade would otherwise be
-                // stranded visible-but-transparent, still eating layout space.
-                panel.Visibility = Visibility.Visible;
-                if (!_motionEnabled || _compositor is null || _decelerate is null) return;
-                try
-                {
-                    var visual = ElementCompositionPreview.GetElementVisual(panel);
-                    visual.StopAnimation("Opacity");
-                    var fade = _compositor.CreateScalarKeyFrameAnimation();
-                    fade.Duration = TimeSpan.FromMilliseconds(150);
-                    fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
-                    fade.InsertKeyFrame(0f, 0f, _decelerate);
-                    fade.InsertKeyFrame(1f, 1f, _decelerate);
-                    visual.StartAnimation("Opacity", fade);
-                }
-                catch { }
-                return;
-            }
-            if (panel.Visibility != Visibility.Visible) return;
-            if (!_motionEnabled || _compositor is null || _decelerate is null)
-            {
-                panel.Visibility = Visibility.Collapsed;
-                return;
-            }
-            try
-            {
-                var visual = ElementCompositionPreview.GetElementVisual(panel);
-                visual.StopAnimation("Opacity");
-                var fade = _compositor.CreateScalarKeyFrameAnimation();
-                fade.Duration = TimeSpan.FromMilliseconds(120);
-                fade.StopBehavior = AnimationStopBehavior.SetToFinalValue;
-                fade.InsertKeyFrame(0f, 1f, _decelerate);
-                fade.InsertKeyFrame(1f, 0f, _decelerate);
-                visual.StartAnimation("Opacity", fade);
-            }
-            catch { }
-            // Deterministic collapse: never depend on batch completion.
-            // Only the latest generation may collapse, so rapid resizes can't
-            // strand a panel visible-but-transparent (which would still eat
-            // layout space and push siblings into overlap).
-            _ = Task.Delay(160).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
-            {
-                if (generation != _titleStateGeneration) return;
-                try
-                {
-                    var visual = ElementCompositionPreview.GetElementVisual(panel);
-                    visual.StopAnimation("Opacity");
-                }
-                catch { }
-                panel.Visibility = Visibility.Collapsed;
-            }), TaskScheduler.Default);
+            panel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private string _lastTitleStateName = "?";
-        private int _balanceGeneration;
-        private readonly Dictionary<FrameworkElement, bool> _titleTargets = new();
-        private readonly Dictionary<FrameworkElement, double> _panelWidthCache = new();
-
-        private void SetTarget(FrameworkElement panel, bool visible) =>
-            _titleTargets[panel] = visible;
-
-        private double TargetedWidth(FrameworkElement panel)
-        {
-            if (_titleTargets.TryGetValue(panel, out var targeted) && !targeted) return 0;
-            if (panel.Visibility == Visibility.Visible && panel.ActualWidth > 0)
-            {
-                _panelWidthCache[panel] = panel.ActualWidth;
-                return panel.ActualWidth;
-            }
-            return _panelWidthCache.TryGetValue(panel, out var cached) ? cached : 0;
-        }
-
-        private void RequestCenterBalance()
-        {
-            var gen = ++_balanceGeneration;
-            _ = Task.Delay(250).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
-            {
-                if (gen == _balanceGeneration) TimeOp("balance", BalanceCenterTitles);
-            }), TaskScheduler.Default);
-        }
-
-        private void BalanceCenterTitles()
-        {
-            try
-            {
-                if (TitleBarArea.ActualWidth <= 0 || CenterTitleBlock.ActualWidth <= 0) return;
-                var leftNeed =
-                    TargetedWidth(MenuBarFull) + TargetedWidth(MenuCompactButton) +
-                    TargetedWidth(MenuDivider) + TargetedWidth(UndoRedoPanel) +
-                    TargetedWidth(UndoDivider) +
-                    Math.Max(TargetedWidth(FileInfoGrid), TargetedWidth(FileInfoButton)) + 32;
-                var rightNeed =
-                    Math.Max(TargetedWidth(RightFullPanel), TargetedWidth(RightCompactSplit)) +
-                    CaptionSpacer.Width + 8;
-                var center = CenterTitleBlock.ActualWidth;
-                var width = TitleBarArea.ActualWidth;
-                var target = (width - center) / 2;
-                var floor = Math.Max(0, width - center - rightNeed);
-                // Elastic-first: when even the parked minimum doesn't fit, pin
-                // nothing and let the filename ellipsis absorb it. Forcing
-                // leftNeed here would manufacture overflow (e.g. Full at 1185:
-                // 388+453+358 > width pushes copy under the caption buttons).
-                var pin = floor >= leftNeed
-                    ? Math.Min(Math.Max(target, leftNeed), floor)
-                    : 0;
-                if (Math.Abs(LeftTitleCol.MinWidth - pin) > 0.5)
-                    LeftTitleCol.MinWidth = pin;
-                // NoticeBar debug banner disabled while measuring to prevent visual-tree probing cost.
-                NoticeBar.IsOpen = false;
-            }
-            catch { }
-        }
-
-        private static string FmtWidth(double w) =>
-            double.IsNaN(w) ? "NaN" : w.ToString("F0");
-
-        // TEMP-DIAG: locates dead width inside the Top nav pane; remove after.
-        private static FrameworkElement? FindNavPart(DependencyObject root, string name)
-        {
-            try
-            {
-                var queue = new Queue<DependencyObject>();
-                queue.Enqueue(root);
-                while (queue.Count > 0)
-                {
-                    var current = queue.Dequeue();
-                    if (current is FrameworkElement fe && fe.Name == name) return fe;
-                    var count = VisualTreeHelper.GetChildrenCount(current);
-                    for (var i = 0; i < count; i++)
-                        queue.Enqueue(VisualTreeHelper.GetChild(current, i));
-                }
-            }
-            catch { }
-            return null;
-        }
-
-        private string ProbeNavParts()
-        {
-            try
-            {
-                string Part(string name)
-                {
-                    var el = FindNavPart(ModeNavView, name);
-                    return el is null ? $"{name}=?" : $"{name}={el.ActualWidth:F0}/{el.Visibility.ToString()[0]}";
-                }
-                return string.Join(" ", new[]
-                {
-                    Part("TopNavMenuItemsHost"), Part("PaneCustomContentOnTopPane"),
-                    Part("TopPaneAutoSuggestArea"), Part("TopNavOverflowButton"),
-                });
-            }
-            catch { return "probe-fail"; }
-        }
 
         private void UpdateModeNavCompact(bool compact)
         {
             if (EditNavItem is null || ModeNavView is null) return;
             var items = new[] { EditNavItem, SyncNavItem, PreviewNavItem };
-            if (compact)
+            foreach (var item in items)
             {
-                foreach (var item in items)
+                if (item is null) continue;
+                if (compact)
                 {
-                    if (item is null) continue;
                     if (!_modeLabels.ContainsKey(item))
-                        _modeLabels[item] = item.Content;
-                    item.Content = null;
-                    // Direct width beats the Top-pane presenter style, which
-                    // stomps MenuItemContainerStyle (labels hid, width didn't).
-                    item.Width = 48;
+                        _modeLabels[item] = item.Text;
+                    // Icons only. The SelectorBar item template sizes the label
+                    // away when Text is empty, so there is no width to compute.
+                    item.Text = string.Empty;
+                    item.Icon ??= new FontIcon { FontSize = 16, Glyph = ModeGlyph(item) };
                 }
-                if (Resources.TryGetValue("ModeNavCompactItemStyle", out var style) && style is Style compactStyle)
-                    ModeNavView.MenuItemContainerStyle = compactStyle;
-            }
-            else
-            {
-                foreach (var item in items)
+                else
                 {
-                    if (item is null) continue;
-                    if (_modeLabels.TryGetValue(item, out var label))
-                        item.Content = label;
-                    item.ClearValue(FrameworkElement.WidthProperty);
+                    if (_modeLabels.TryGetValue(item, out var label) && label is string text)
+                        item.Text = text;
+                    item.Icon = null;
                 }
-                ModeNavView.ClearValue(NavigationView.MenuItemContainerStyleProperty);
             }
         }
+
+        // Segoe Fluent icon code points chosen to match the original glyphs.
+        private static string ModeGlyph(SelectorBarItem item) => item.Tag switch
+        {
+            "0" => "\uE70F", // edit
+            "1" => "\uE895", // sync
+            _ => "\uE8FF",   // preview
+        };
 
         private static Border? FindTogglePill(ToggleButton button)
         {
@@ -946,9 +722,9 @@ namespace AmllTtmlTool.WinUI.Views
             visual.StartAnimation("Opacity", fade);
         }
 
-        private void OnSideTabChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+        private void OnSideTabChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
         {
-            if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
+            if (sender.SelectedItem is SelectorBarItem item && item.Tag is string tag)
             {
                 SideContent.Text = tag switch
                 {
@@ -1059,3 +835,4 @@ namespace AmllTtmlTool.WinUI.Views
         }
     }
 }
+
