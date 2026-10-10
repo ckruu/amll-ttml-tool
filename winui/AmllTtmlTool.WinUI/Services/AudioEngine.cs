@@ -110,9 +110,29 @@ public partial class AudioEngine : ObservableObject, IDisposable
     public string DeviceMixFormatDescription { get; private set; } = "?";
     public string LastOutputDescription { get; private set; } = "?";
 
+    // Total output latency in wall seconds at the last BuildOutput:
+    // measured stream latency + endpoint buffer + stretcher priming (0 at
+    // 1x bypass). The displayed/recorded time subtracts this.
+    public double OutputLatencySeconds { get; private set; }
+
     // Last device/output error that did not throw (background rebuilds).
     // Plain property on purpose: read any time, never blocks.
     public string LastOutputError { get; private set; } = "";
+
+    // Device-startup gate: after Play()/restarting-seek the WASAPI stream
+    // takes a device-dependent while (USB DAC <2ms, onboard 30-50ms)
+    // before the first pull. The position line must not run on wall time
+    // during that window, or the first rebase steps back by the lag. While
+    // armed, ticks run fast (20ms) and publish flat snapshots, watching
+    // fed for the preroll-burst -> flat -> gradual signature of a started
+    // device; the playing line anchors at device start. Falls back to
+    // normal after 500ms. LastStartGateReport documents the measured
+    // startup lag and preroll burst per start (harness-visible).
+    public string LastStartGateReport { get; private set; } = "start-gate: no playback yet";
+    private bool _startGate;
+    private double _startGateFed;
+    private long _startGateSinceQpc;
+    private double _startGateBurstWall;
 
     // Test/diagnostic introspection: raw decoded-frame position. Frame
     // advances prove the device is actually pulling.
@@ -237,6 +257,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
             Duration = duration;
             Position = TimeSpan.Zero;
             HasAudio = true;
+            PublishClock(PlaybackClockState.Paused);
         });
     }
 
@@ -250,6 +271,12 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _output.Play();
         IsPlaying = true;
         _clock.Start();
+        // Arm the startup gate BEFORE the first snapshot: the playing line
+        // must not run until the device provably pulls. The flat snapshot
+        // below is synchronously superseded by gated ticks; no frame ever
+        // sees an optimistic line.
+        ArmStartGate();
+        PublishFlatClock();
     }
 
     public void Pause()
@@ -260,8 +287,10 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _userPaused = true;
         IsPlaying = false;
         _clock.Stop();
+        DisarmStartGate();
         ClearAudition();
         RefreshPosition();
+        PublishClock(PlaybackClockState.Paused);
     }
 
     // The one seek path. Atomically: bumps the generation (stale async
@@ -286,10 +315,16 @@ public partial class AudioEngine : ObservableObject, IDisposable
             try { _output.Stop(); } catch { }
         }
         SeekWithoutClearing(seconds);
+        PublishClock(IsPlaying ? PlaybackClockState.Playing : PlaybackClockState.Paused);
         if (wasPlaying && _output is not null && gen == _seekGen && !_disposed)
         {
             try { _output.Play(); } catch (Exception ex) { LastOutputError = AudioErrorText.MessageOf(ex); }
             finally { _output.PlaybackStopped += OnPlaybackStopped; }
+            // The restart re-prerolls and re-lags like a fresh Play: arm
+            // the gate and synchronously replace the optimistic snapshot
+            // above with a flat one before any frame renders.
+            ArmStartGate();
+            PublishFlatClock();
         }
         else if (wasPlaying && _output is not null)
         {
@@ -314,8 +349,11 @@ public partial class AudioEngine : ObservableObject, IDisposable
         PlaybackRate = rate;
         // Live change straight into the stretch provider: no rebuild, no
         // gap, no click. The provider takes its own lock (device thread may
-        // be pulling); tempo slews inside the engine.
+        // be pulling); tempo slews inside the engine. Slope changes, so the
+        // snapshot must be re-anchored immediately or extrapolation runs on
+        // the old rate.
         _stretch?.Tempo = rate;
+        PublishClock(IsPlaying ? PlaybackClockState.Playing : PlaybackClockState.Paused);
     }
 
     public void AuditionRange(double startSeconds, double endSeconds)
@@ -341,6 +379,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         ProbeTags.Clear();
         DecodeBackend = "none";
         _clock.Stop();
+        PositionClock.Publish(PlaybackSnapshot.Empty);
     }
 
     private void SeekWithoutClearing(double seconds)
@@ -425,6 +464,23 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _output.PlaybackStopped += OnPlaybackStopped;
         LastOutputDescription =
             $"in={DescribeSampleFormat(_source)} chain={DescribeSampleFormat(chain)} tried=[{string.Join(" | ", attempts)}]";
+        // Output latency budget, all measured, all wall time: the audio
+        // client's stream latency + its endpoint buffer (native audio
+        // clock) + the stretcher priming (0 at 1x bypass).
+        var streamMs = 0.0;
+        var bufferMs = 0.0;
+        if (NativeAudioClock.TryReadLatency(out var sl, out var bufFrames, out var bufRate) && bufRate > 0)
+        {
+            streamMs = sl;
+            bufferMs = bufFrames * 1000.0 / bufRate;
+        }
+        var primeMs = 0.0;
+        if (Math.Abs(PlaybackRate - 1.0) > 0.001)
+        {
+            var prime = stretch.GetPrimeLatencyFrames();
+            if (prime >= 0) primeMs = prime * 1000.0 / FfmpegDecoder.OutSampleRate;
+        }
+        OutputLatencySeconds = (streamMs + bufferMs + primeMs) / 1000.0;
         SeekWithoutClearing(positionSeconds);
     }
 
@@ -506,6 +562,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
             {
                 IsPlaying = false;
                 _clock.Stop();
+                DisarmStartGate();
                 ClearAudition();
                 RefreshPosition();
                 return;
@@ -513,6 +570,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
             var wasPlaying = IsPlaying;
             IsPlaying = false;
             _clock.Stop();
+            DisarmStartGate();
             ClearAudition();
             RefreshPosition();
             // Natural stream exhaustion (provider returned 0 at EOF) lands
@@ -559,6 +617,130 @@ public partial class AudioEngine : ObservableObject, IDisposable
             return;
         }
         PositionChanged?.Invoke();
+        // Re-anchor the position snapshot every tick (250ms): USB DAC
+        // clocks wander in steps, so no fixed slope stays true — but a
+        // 250ms-old anchor can never be more than ~1ms off, which also
+        // covers QPC-vs-hardware skew without any EWMA machinery. While
+        // the startup gate is armed the ticks run fast and stay flat.
+        if (IsPlaying && HasAudio && !_disposed)
+        {
+            if (_startGate && !StartGateSettled())
+                PublishFlatClock();
+            else
+                PublishClock(PlaybackClockState.Playing);
+        }
+    }
+
+    private void ArmStartGate()
+    {
+        _startGate = true;
+        _startGateFed = ReadFedSeconds();
+        _startGateSinceQpc = System.Diagnostics.Stopwatch.GetTimestamp();
+        _startGateBurstWall = 0;
+        // DispatcherQueueTimer ignores an Interval change while running:
+        // restart it so the fast 20ms detection ticks actually happen.
+        _clock.Stop();
+        _clock.Interval = TimeSpan.FromMilliseconds(20);
+        _clock.Start();
+    }
+
+    private void DisarmStartGate()
+    {
+        _startGate = false;
+        if (_clock.Interval.TotalMilliseconds < 250)
+        {
+            var running = IsPlaying && HasAudio && !_disposed;
+            _clock.Stop();
+            _clock.Interval = TimeSpan.FromMilliseconds(250);
+            if (running) _clock.Start();
+        }
+    }
+
+    // Fast-tick (20ms) startup detection, UI thread only. Fed advance is
+    // measured in wall-equivalent seconds (divided by rate) so the
+    // thresholds hold at every tempo: a preroll burst is ~a device buffer
+    // (>=60ms wall-equiv), gradual pulling is ~a tick (2-60ms), and a
+    // stalled device shows ~0. Settles when the device provably pulls AND
+    // the unclamped heard time is non-negative (settling earlier would
+    // anchor the line at the clamp floor and the first rebase would step
+    // back by the clamped amount), or after 500ms (broken-device fallback).
+    private bool StartGateSettled()
+    {
+        var fed = ReadFedSeconds();
+        var rate = Math.Max(0.1, PlaybackRate);
+        var wall = (System.Diagnostics.Stopwatch.GetTimestamp() - _startGateSinceQpc)
+            / (double)System.Diagnostics.Stopwatch.Frequency;
+        var advanceWall = (fed - _startGateFed) / rate;
+        if (advanceWall > _startGateBurstWall) _startGateBurstWall = advanceWall;
+        _startGateFed = fed;
+        var heardNow = fed - OutputLatencySeconds * PlaybackRate;
+        string? note = null;
+        if (advanceWall >= 0.002 && advanceWall <= 0.060 && heardNow >= 0)
+            note = "started";
+        else if (wall >= 0.5)
+            note = "TIMEOUT fallback";
+        if (note is null) return false;
+        _startGate = false;
+        DisarmStartGate();
+        LastStartGateReport =
+            $"start-gate {note}: startup-lag={wall * 1000:F0}ms " +
+            $"preroll-burst={_startGateBurstWall * 1000:F0}ms rate={PlaybackRate}";
+        return true;
+    }
+
+    // Frozen snapshot at current fed truth with zero slope: nothing is
+    // provably audible yet, so the line must not run ahead of sound.
+    // Unclamped like all anchors (display clamps at read).
+    private void PublishFlatClock()
+    {
+        var heard = ReadFedSeconds() - OutputLatencySeconds * PlaybackRate;
+        PositionClock.Publish(new PlaybackSnapshot
+        {
+            SourceSeconds = heard,
+            QpcTicks = System.Diagnostics.Stopwatch.GetTimestamp(),
+            Rate = 0,
+            State = PlaybackClockState.Playing,
+        });
+    }
+
+    private double ReadFedSeconds()
+    {
+        try
+        {
+            return _stretch is not null ? _stretch.ReportedSourceSeconds
+                : _pcm is not null ? _pcm.CurrentTime.TotalSeconds : Position.TotalSeconds;
+        }
+        catch
+        {
+            return Position.TotalSeconds;
+        }
+    }
+
+    // Publishes one immutable position snapshot: provider-integrated
+    // source time minus measured output latency, stamped with a Stopwatch
+    // QPC read taken immediately after the fed read (microsecond-level
+    // correlation). Deliberately NOT the device IAudioClock: that clock
+    // belongs to a running stream, and a short-lived probe client that was
+    // never started returns undefined QPC values (observed: stale stamps
+    // injecting ~27ms steps and 11ms drift). The probe client's one sound
+    // use is GetStreamLatency (a static device property). Thread-agnostic:
+    // provider reads take their lock, the stamp is a QPC read, the swap
+    // is atomic.
+    private void PublishClock(PlaybackClockState state)
+    {
+        var raw = ReadFedSeconds();
+        // Anchors stay unclamped (possibly negative while fed < latency
+        // comp during startup): clamping an anchor bends the line and the
+        // next rebase steps back by the clamped amount (observed 34-98ms).
+        // Display clamps at read time (PositionClock.Clamp).
+        var heard = raw - OutputLatencySeconds * PlaybackRate;
+        PositionClock.Publish(new PlaybackSnapshot
+        {
+            SourceSeconds = heard,
+            QpcTicks = System.Diagnostics.Stopwatch.GetTimestamp(),
+            Rate = PlaybackRate,
+            State = state,
+        });
     }
 
     private void RefreshPosition()
@@ -612,6 +794,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         {
             _clock.Stop();
             IsPlaying = false;
+            DisarmStartGate();
         });
     }
 
@@ -655,6 +838,10 @@ public partial class AudioEngine : ObservableObject, IDisposable
                 if (gen != _buildGen || _disposed) return;
                 _lastRenderDeviceId = id;
                 if (resume) RunOnUi(Play);
+                // Resume re-arms the startup gate inside Play(); only the
+                // paused path needs its snapshot here, or an optimistic
+                // line would overwrite the gate's flat anchor.
+                if (!resume) RunOnUi(() => PublishClock(PlaybackClockState.Paused));
             }
             catch (Exception ex)
             {

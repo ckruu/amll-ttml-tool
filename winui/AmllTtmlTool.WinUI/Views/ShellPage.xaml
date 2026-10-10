@@ -682,7 +682,8 @@
                     x:Name="PositionText"
                     Grid.Column="4"
                     VerticalAlignment="Center"
-                    Text="00:00.000" />
+                    Text="00:00.000"
+                    Typography.NumeralAlignment="Tabular" />
                 <Slider
                     x:Name="SeekSlider"
                     Grid.Column="5"

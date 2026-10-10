@@ -92,6 +92,18 @@ internal sealed class TimeStretchProvider : ISampleProvider
         }
     }
 
+    // Stretcher priming latency in frames (0 in bypass, where nothing is
+    // buffered). -1 when unreadable; callers must ignore it then.
+    public int GetPrimeLatencyFrames()
+    {
+        lock (_gate)
+        {
+            if (_bypass) return 0;
+            try { return Math.Max(0, _st.GetSetting(SoundTouch.SettingId.InitialLatency)); }
+            catch { return -1; }
+        }
+    }
+
     public int Read(float[] buffer, int offset, int count)
     {
         lock (_gate)

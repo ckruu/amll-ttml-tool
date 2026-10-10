@@ -53,6 +53,11 @@ namespace AmllTtmlTool.WinUI.Views
             // LayoutUpdated fires for pure-reposition passes. The handler is
             // read-only plus a layout-neutral transform set, so it cannot loop.
             RootGrid.LayoutUpdated += (_, _) => UpdateCenterOffset();
+            // Per-frame position display (throttled to hidden windows) and
+            // activation tracking for the same throttle.
+            CompositionTarget.Rendering += OnRendering;
+            window.Activated += (_, args) =>
+                _windowActive = args.WindowActivationState != WindowActivationState.Deactivated;
             // Drag-and-drop is registered with handledEventsToo: child
             // controls (TextBox, ribbon cards, list views) mark drag events
             // handled, which would otherwise stop them before RootGrid.
@@ -276,6 +281,38 @@ namespace AmllTtmlTool.WinUI.Views
                         await Services.SeekTestCheck.RunHoldAsync(win, _audio, seekHoldFile);
                     });
                 }
+                // Clock-test harness: --clock-test <file> [reportPath].
+                // Volume-0 playback while sampling the UI position clock on
+                // every rendered frame. Self-closes. DEBUG-only.
+                var clockIdx = Array.IndexOf(audioArgs, "--clock-test");
+                if (clockIdx >= 0)
+                {
+                    var clockFile = clockIdx + 1 < audioArgs.Length ? audioArgs[clockIdx + 1] : "";
+                    var clockReport = clockIdx + 2 < audioArgs.Length ? audioArgs[clockIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.ClockTestCheck.RunAsync(win, _audio, clockFile, clockReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.ClockTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
 #endif
             };
         }
@@ -497,19 +534,52 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void RefreshAudioChrome()
         {
-            PositionText.Text = Stamp(_audio.Position);
+            // PositionText and the slider thumb move on every rendered frame
+            // (OnRendering, same clock); everything else here changes rarely.
             DurationText.Text = Stamp(_audio.Duration);
             PlayButton.Icon = new SymbolIcon(_audio.IsPlaying ? Symbol.Pause : Symbol.Play);
             PlayButton.IsEnabled = _audio.HasAudio;
             SeekSlider.IsEnabled = _audio.HasAudio;
-            if (_audio.HasAudio && _audio.Duration > TimeSpan.Zero && !_scrubbing)
-            {
-                _syncingSlider = true;
+            if (_audio.HasAudio && _audio.Duration > TimeSpan.Zero)
                 SeekSlider.Maximum = _audio.Duration.TotalSeconds;
-                SeekSlider.Value = Math.Max(0, Math.Min(_audio.Position.TotalSeconds, _audio.Duration.TotalSeconds));
+            UpdateSmtc();
+        }
+
+        private long _lastShownMs = -1;
+        private long _lastSliderMs = -1;
+        private bool _windowActive = true;
+
+        // Per-frame position display: extrapolate the published snapshot,
+        // repaint only when the millisecond text actually changes. The thumb
+        // follows at most every 100ms (it needs no ms precision, and every
+        // thumb write costs layout). Gated work only; allocations happen on
+        // actual change, never per frame.
+        private void OnRendering(object? sender, object? e)
+        {
+            if (!_windowActive || !_audio.HasAudio) return;
+            var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            Services.RenderStats.Frames++;
+            var pos = Services.PositionClock.ExtrapolateNow();
+            var ms = (long)Math.Round(pos.TotalMilliseconds);
+            // Strictly monotonic display: a rebase that corrects QPC-vs-hardware
+            // skew can land a hair behind the last shown millisecond. The
+            // snapshot underneath stays truthful (stamping reads it raw);
+            // only the painted text never steps back.
+            if (ms < _lastShownMs) ms = _lastShownMs;
+            if (ms != _lastShownMs)
+            {
+                _lastShownMs = ms;
+                PositionText.Text = Stamp(pos);
+                Services.RenderStats.TextUpdates++;
+            }
+            if (ms - _lastSliderMs >= 100 && !_scrubbing && _audio.Duration > TimeSpan.Zero)
+            {
+                _lastSliderMs = ms;
+                _syncingSlider = true;
+                SeekSlider.Value = Math.Max(0, Math.Min(pos.TotalSeconds, _audio.Duration.TotalSeconds));
                 _syncingSlider = false;
             }
-            UpdateSmtc();
+            Services.RenderStats.HandlerTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
         }
 
         private bool _closeConfirmed;
