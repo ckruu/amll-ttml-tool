@@ -67,6 +67,11 @@
                 <ColumnDefinition x:Name="RightInsetCol" Width="140" />
             </Grid.ColumnDefinitions>
             <Grid Grid.Column="1" ColumnSpacing="4" MinWidth="0">
+                <Grid.Transitions>
+                    <TransitionCollection>
+                        <RepositionThemeTransition />
+                    </TransitionCollection>
+                </Grid.Transitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -309,6 +314,11 @@
                 VerticalAlignment="Center"
                 Orientation="Horizontal"
                 Spacing="4">
+                <StackPanel.Transitions>
+                    <TransitionCollection>
+                        <RepositionThemeTransition />
+                    </TransitionCollection>
+                </StackPanel.Transitions>
                 <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
                         <ToggleButton
                             x:Name="RomanToggle"
@@ -393,6 +403,11 @@
                 Orientation="Horizontal"
                 Spacing="4"
                 VerticalAlignment="Center">
+                <StackPanel.Transitions>
+                    <TransitionCollection>
+                        <RepositionThemeTransition />
+                    </TransitionCollection>
+                </StackPanel.Transitions>
                 <Button x:Uid="ShellPage_History" Click="OnStubClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="History">
                     <FontIcon FontSize="14" Glyph="&#xE81C;" />
                 </Button>
@@ -430,6 +445,11 @@
                 Click="OnCopySplitClick"
                 Style="{StaticResource SubtleSplitButtonStyle}"
                 ToolTipService.ToolTip="Copy">
+                <SplitButton.Transitions>
+                    <TransitionCollection>
+                        <RepositionThemeTransition />
+                    </TransitionCollection>
+                </SplitButton.Transitions>
                 <FontIcon FontSize="14" Glyph="&#xE8C8;" />
                 <SplitButton.Flyout>
                     <MenuFlyout>
