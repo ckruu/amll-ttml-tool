@@ -289,6 +289,17 @@ namespace AmllTtmlTool.WinUI.Views
                         await Services.SeekTestCheck.RunHoldAsync(win, _audio, seekHoldFile);
                     });
                 }
+                var minHoldIdx = Array.IndexOf(audioArgs, "--minimize-ui-hold");
+                if (minHoldIdx >= 0)
+                {
+                    var minHoldFile = minHoldIdx + 1 < audioArgs.Length ? audioArgs[minHoldIdx + 1] : "";
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(800);
+                        var win = ((App)Application.Current).MainWindow;
+                        await Services.MinimizeTestCheck.RunHoldAsync(win, _audio, minHoldFile);
+                    });
+                }
                 // Clock-test harness: --clock-test <file> [reportPath].
                 // Volume-0 playback while sampling the UI position clock on
                 // every rendered frame. Self-closes. DEBUG-only.

@@ -33,6 +33,16 @@ internal static class MinimizeTestCheck
 
     private static int _ran;
 
+    // Test file for the 1b leg. Env override first (launchers are not trusted
+    // to forward args), then D:\Audio\alac.m4a, the project's standard probe.
+    private static string ProbeFile()
+    {
+        var envFile = Environment.GetEnvironmentVariable("AMLL_MINIMIZE_FILE");
+        if (!string.IsNullOrWhiteSpace(envFile) && File.Exists(envFile)) return envFile;
+        var preferred = @"D:\Audio\alac.m4a";
+        return File.Exists(preferred) ? preferred : "D:\\Audio\\alac.m4a";
+    }
+
     public static async Task RunAsync(Window window, AudioEngine audio, string? reportPath)
     {
         var report = string.IsNullOrWhiteSpace(reportPath) ? DefaultReportFile : reportPath!;
@@ -81,7 +91,7 @@ internal static class MinimizeTestCheck
             var scale = init.Value.Scale;
             Write(report, $"hwnd=0x{hwnd:X} scale={scale:F3}");
 
-            const string file = "D:\\Audio\\alac.m4a";
+            var file = ProbeFile();
             if (!File.Exists(file))
             {
                 Write(report, $"FILE-ERROR: not found: {file}");
@@ -98,6 +108,15 @@ internal static class MinimizeTestCheck
             await audio.LoadAsync(file);
             var dur = audio.Duration.TotalSeconds;
             Write(report, $"loaded duration={dur:F3}s");
+
+            await MinRestoreLegAsync(window, audio, report, hwnd, appWindow);
+            await OnUiAsync(window, () =>
+            {
+                audio.Pause();
+                audio.SetPlaybackRate(1.0);
+                appWindow.Resize(new Windows.Graphics.SizeInt32(
+                    (int)Math.Round(1200 * scale), appWindow.Size.Height));
+            });
 
             var paths = new[] { "presenter", "showwindow", "syscommand" };
             var widths = new[] { 500, 750, 900, 1200 };
@@ -139,7 +158,7 @@ internal static class MinimizeTestCheck
                 audio.Pause();
                 audio.SetPlaybackRate(1.0);
             });
-            Write(report, $"minimize | {(fails == 0 ? "OK" : "FAIL")} fails={fails}");
+            Write(report, fails == 0 ? "minimize | OK" : $"minimize | FAIL fails={fails}");
         }
         finally
         {
@@ -189,6 +208,186 @@ internal static class MinimizeTestCheck
     private static bool PollSync(Func<bool> cond)
     {
         try { return cond(); } catch { return false; }
+    }
+
+    // --- 1b: the reported crash. Five OverlappedPresenter.Minimize()
+    // Restore() rounds, 2s apart, through all three states (playing at
+    // volume 0, paused, narrow width with the center-toggle overflow leg
+    // active), each round asserting: iconic state took, the UI dispatcher
+    // round-trips while minimized (the process is alive and pumping),
+    // playback state survived, and the crash log did not grow. A failing
+    // round returns its failure count; the process being DEAD is visible as
+    // an empty report tail plus a non-zero exit, which the runner reports.
+    private static async Task<int> MinRestoreLegAsync(Window window, AudioEngine audio,
+        string report, nint hwnd, AppWindow appWindow)
+    {
+        Write(report, "=== 1B LEG: minimize/restore x5, playing | paused | narrow-overflow ===");
+        var fails = 0;
+        var crashBase = CrashLog.LineCount();
+        Write(report, $"crashlog base-lines={crashBase}");
+
+        foreach (var (state, width) in new[]
+        {
+            ("playing", 1200),
+            ("paused", 1200),
+            ("narrow-overflow-playing", 500),
+        })
+        {
+            // Narrow leg proves the overflow foot is really out: the tier code
+            // only shows CenterToggleOverflowButton at level >= 3.
+            string overflow = "?";
+            await OnUiAsync(window, () =>
+            {
+                overflow = DescribeOverflow(window);
+                appWindow.Resize(new Windows.Graphics.SizeInt32(
+                    (int)Math.Round(width * WindowSizing.GetScale(window)), appWindow.Size.Height));
+            });
+            await Task.Delay(400);
+            overflow = (await OnUiAsync(window, () => DescribeOverflow(window))).Value;
+            var playing = state.StartsWith("playing", StringComparison.OrdinalIgnoreCase)
+                || state.StartsWith("narrow", StringComparison.OrdinalIgnoreCase);
+            await OnUiAsync(window, () =>
+            {
+                audio.SetVolume(0);
+                if (playing) audio.Play(); else audio.Pause();
+            });
+            Write(report, $"  leg state={state} width={width} overflow={overflow} playing={playing}");
+            if (width == 500 && overflow != "Visible")
+                Write(report, $"  WARN: expected the overflow leg visible at {width}px, got {overflow}");
+
+            for (var i = 1; i <= 5; i++)
+            {
+                var tag = $"leg={state} round={i}";
+                var pre = (await OnUiAsync(window, () =>
+                    (IsPlaying: audio.IsPlaying, Pos: audio.Position.TotalSeconds))).Value;
+                var minOk = await OnUiAsync(window, () =>
+                {
+                    if (appWindow.Presenter is OverlappedPresenter p) p.Minimize();
+                    else throw new InvalidOperationException("no OverlappedPresenter");
+                });
+                if (!minOk) { Write(report, $"  {tag} minimize-FAIL"); fails++; continue; }
+                if (!await PollAsync(() => IsIconic(hwnd), 2000))
+                {
+                    Write(report, $"  {tag} not-iconic-FAIL"); fails++; continue;
+                }
+                // 2s minimized, exactly the reported crash window: the window
+                // measures 0x0 here while the clock/SMTC/layout keep running.
+                await Task.Delay(2000);
+                if (!await RoundTripAsync(window, audio, 3000))
+                {
+                    Write(report, $"  {tag} minimized-roundtrip-FAIL"); fails++; continue;
+                }
+                var crashNow = CrashLog.LineCount();
+                if (crashNow != crashBase)
+                {
+                    Write(report, $"  {tag} crash-log-grew base={crashBase} now={crashNow} FAIL");
+                    fails++;
+                }
+                // Restore through Win32: a minimized window does not pump the
+                // XAML queue, so an enqueued restore can never run.
+                ShowWindow(hwnd, SW_RESTORE);
+                if (appWindow.Presenter is OverlappedPresenter op)
+                {
+                    try { op.Restore(); } catch { }
+                }
+                if (!await PollAsync(() => !IsIconic(hwnd), 2000))
+                {
+                    Write(report, $"  {tag} still-iconic-FAIL"); fails++; continue;
+                }
+                await Task.Delay(2000);
+                if (!await RoundTripAsync(window, audio, 3000))
+                {
+                    Write(report, $"  {tag} restored-roundtrip-FAIL"); fails++; continue;
+                }
+                var post = (await OnUiAsync(window, () =>
+                    (IsPlaying: audio.IsPlaying, Pos: audio.Position.TotalSeconds))).Value;
+                if (playing && !post.IsPlaying)
+                {
+                    Write(report, $"  {tag} playing-lost-FAIL pos={post.Pos:F3}s"); fails++; continue;
+                }
+                // Playing must actually advance across the round trip; a
+                // frozen-at-the-old-position clock is a silent failure.
+                if (playing && post.Pos <= pre.Pos + 0.05)
+                {
+                    Write(report, $"  {tag} position-frozen-FAIL pre={pre.Pos:F3}s post={post.Pos:F3}s");
+                    fails++; continue;
+                }
+                Write(report, $"  {tag} OK playing={post.IsPlaying} pos={post.Pos:F3}s (pre={pre.Pos:F3}s)");
+            }
+        }
+        var end = CrashLog.LineCount();
+        Write(report, $"crashlog lines base={crashBase} now={end} {(end == crashBase ? "OK" : "FAIL")}");
+        if (end != crashBase) fails++;
+        // HarnessHost.Finish() reads the LAST line and requires it to end with
+        // "OK"/"FAIL", so any trailing "fails=N" suffix turns a passing run
+        // into a reported FAIL. Keep the convention: verdict word last.
+        Write(report, fails == 0 ? "1b-leg | OK" : $"1b-leg | FAIL fails={fails}");
+        return fails;
+    }
+
+    // Reports the visibility of the narrow-tier overflow button, i.e. whether
+    // the window is actually in the state that used to break under minimize.
+    private static string DescribeOverflow(Window window)
+    {
+        try
+        {
+            var page = window.Content as DependencyObject;
+            var queue = new Queue<DependencyObject>();
+            if (page is not null) queue.Enqueue(page);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                if (current is AmllTtmlTool.WinUI.Views.ShellPage shell
+                    && TryOverflowVisibility(shell, out var vis)) return vis;
+                var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(current);
+                for (var i = 0; i < count; i++)
+                    queue.Enqueue(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(current, i));
+                if (current is AmllTtmlTool.WinUI.Views.ShellPage sp && TryOverflowVisibility(sp, out var d)) return d;
+            }
+        }
+        catch { }
+        return "unknown";
+    }
+
+    private static bool TryOverflowVisibility(
+        AmllTtmlTool.WinUI.Views.ShellPage page, out string visibility)
+    {
+        visibility = "absent";
+        var field = typeof(AmllTtmlTool.WinUI.Views.ShellPage)
+            .GetField("CenterToggleOverflowButton",
+                System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Public);
+        if (field?.GetValue(page) is not FrameworkElement fe) return false;
+        visibility = fe.Visibility.ToString();
+        return true;
+    }
+
+    // Passive hold for the EXTERNAL winapp-ui driver: loads one file, plays
+    // it at volume 0, and sits still until the 10-minute watchdog closes it
+    // or the driver is done. The real caption Minimize button, real restore,
+    // and real clocks all stay in play, so a crash from the OS path is
+    // caught where the user actually saw it.
+    public static async Task RunHoldAsync(Window window, AudioEngine audio, string file)
+    {
+        using var watchdogCts = new CancellationTokenSource();
+        _ = Task.Delay(TimeSpan.FromMinutes(10), watchdogCts.Token).ContinueWith(t =>
+        {
+            if (!t.IsCanceled) Environment.Exit(3);
+        });
+        try
+        {
+            if (!File.Exists(file)) return;
+            await OnUiAsync(window, () => audio.SetVolume(0));
+            await audio.LoadAsync(file);
+            await OnUiAsync(window, () => audio.Play());
+            System.Diagnostics.Debug.WriteLine($"MINIMIZE-HOLD READY file={file}");
+            await Task.Delay(TimeSpan.FromMinutes(9));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("MINIMIZE-HOLD-ERROR " + ex);
+        }
     }
 
     private static async Task<int> MinRestoreCycleAsync(Window window, AudioEngine audio,
