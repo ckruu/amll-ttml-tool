@@ -56,6 +56,23 @@ namespace AmllTtmlTool.WinUI.Views
             // LayoutUpdated fires for pure-reposition passes. The handler is
             // read-only plus a layout-neutral transform set, so it cannot loop.
             RootGrid.LayoutUpdated += (_, _) => UpdateCenterOffset();
+            // Slider input must survive the capture boundary. Pressing the
+            // thumb captures the pointer; releasing OUTSIDE the slider (or the
+            // OS canceling the capture) never raises the Slider's
+            // PointerReleased, which used to leave _scrubbing true forever —
+            // the clock then stopped moving the thumb and the final seek was
+            // dropped, so dragging to the beginning moved the thumb while play
+            // did not start from the beginning. All four events end in the same
+            // commit. Registered with handledEventsToo because the Slider marks
+            // these handled itself.
+            SeekSlider.AddHandler(UIElement.PointerPressedEvent,
+                new PointerEventHandler(OnSeekPointerPressed), true);
+            SeekSlider.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnSeekPointerReleased), true);
+            SeekSlider.AddHandler(UIElement.PointerCaptureLostEvent,
+                new PointerEventHandler(OnSeekPointerCaptureLost), true);
+            SeekSlider.AddHandler(UIElement.PointerCanceledEvent,
+                new PointerEventHandler(OnSeekPointerCanceled), true);
             // Per-frame position display (throttled to hidden windows) and
             // activation tracking for the same throttle.
             CompositionTarget.Rendering += OnRendering;
@@ -713,17 +730,32 @@ namespace AmllTtmlTool.WinUI.Views
             Services.RenderStats.Frames++;
             var pos = Services.PositionClock.ExtrapolateNow();
             var ms = (long)Math.Round(pos.TotalMilliseconds);
-            // Strictly monotonic display: a rebase that corrects QPC-vs-hardware
-            // skew can land a hair behind the last shown millisecond. The
-            // snapshot underneath stays truthful (stamping reads it raw);
-            // only the painted text never steps back.
-            if (ms < _lastShownMs) ms = _lastShownMs;
-            if (ms != _lastShownMs)
+            // The display may only be held flat against clock WOBBLE, never
+            // against a real backward seek. A rebase that corrects
+            // QPC-vs-hardware skew can land a few milliseconds behind the last
+            // painted value, but a user seek to the beginning is a jump of
+            // minutes backwards — clamping that away froze the position text at
+            // the pre-seek value, so dragging the slider to the start moved the
+            // thumb while the clock (and playback) appeared to stay near the
+            // end. Anything past the wobble window is a genuine seek: repaint
+            // it and re-anchor immediately.
+            const long wobbleMs = 200;
+            var steppedBack = _lastShownMs >= 0 && ms < _lastShownMs;
+            if (steppedBack && _lastShownMs - ms <= wobbleMs)
+            {
+                ms = _lastShownMs;
+                steppedBack = false;
+            }
+            if (_lastShownMs < 0 || ms != _lastShownMs)
             {
                 _lastShownMs = ms;
                 PositionText.Text = Stamp(pos);
                 Services.RenderStats.TextUpdates++;
             }
+            // A real seek backwards also re-anchors the thumb gate, or the
+            // 100ms interval check below stays negative and the thumb keeps
+            // showing the pre-seek position for as long as the seek was long.
+            if (steppedBack) _lastSliderMs = ms - 100;
             if (ms - _lastSliderMs >= 100 && !_scrubbing && _audio.Duration > TimeSpan.Zero)
             {
                 _lastSliderMs = ms;
@@ -875,12 +907,29 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnSeekPointerPressed(object sender, PointerRoutedEventArgs e) => BeginScrub();
 
-        private void OnSeekPointerReleased(object sender, PointerRoutedEventArgs e)
+        // The single place a drag/scrub is committed: it always issues the
+        // slider's CURRENT value. The throttled live seek during a drag can
+        // only ever drop intermediate values, never the final one, and the
+        // capture-lost/canceled paths below funnel here for exactly that
+        // reason.
+        private void CommitScrub()
         {
+            if (!_scrubbing) return;
             EndScrub();
             _audio.SeekTo(SeekSlider.Value);
             RefreshAudioChrome();
         }
+
+        private void OnSeekPointerReleased(object sender, PointerRoutedEventArgs e) => CommitScrub();
+
+        // Release outside the slider / OS capture cancel: no PointerReleased
+        // arrives, but the thumb already shows the user's intent, so commit it
+        // rather than abandoning the gesture.
+        private void OnSeekPointerCaptureLost(object sender, PointerRoutedEventArgs e) =>
+            CommitScrub();
+
+        private void OnSeekPointerCanceled(object sender, PointerRoutedEventArgs e) =>
+            CommitScrub();
 
         internal void BeginScrub() => _scrubbing = true;
 

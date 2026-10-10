@@ -699,8 +699,6 @@
                     IsEnabled="False"
                     Maximum="100"
                     Minimum="0"
-                    PointerPressed="OnSeekPointerPressed"
-                    PointerReleased="OnSeekPointerReleased"
                     Value="0"
                     ValueChanged="OnSeekValueChanged" />
                 <TextBlock
