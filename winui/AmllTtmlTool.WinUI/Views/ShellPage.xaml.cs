@@ -34,7 +34,7 @@ namespace AmllTtmlTool.WinUI.Views
             SetupWindow();
             WireStores();
             ModeNavView.SelectedItem = EditNavItem;
-            SidePane.SelectedItem = OutlineNavItem;
+            SidePane.SelectedItem = SidePane.MenuItems[0];
             _ = HandleStartupFileAsync();
         }
 
@@ -71,7 +71,7 @@ namespace AmllTtmlTool.WinUI.Views
                 if (ModeNavView.SelectedItem is null)
                     ModeNavView.SelectedItem = EditNavItem;
                 if (SidePane.SelectedItem is null)
-                    SidePane.SelectedItem = OutlineNavItem;
+                    SidePane.SelectedItem = SidePane.MenuItems[0];
                 ApplyTitleState(TitleStates.CurrentState);
                 BindRibbonWidthScopes();
             };
@@ -133,7 +133,7 @@ namespace AmllTtmlTool.WinUI.Views
         // A Button/SplitButton/ToggleButton/MenuBar child is interactive; a
         // Border or plain layout panel is inert and stays draggable.
         private static bool IsInteractive(FrameworkElement element) =>
-            element is ButtonBase or MenuBar or SelectorBar or TextBox or NumberBox;
+            element is ButtonBase or MenuBar or NavigationView or TextBox or NumberBox;
 
         private static Windows.Graphics.RectInt32 ToPhysical(FrameworkElement element, double scale, FrameworkElement host)
         {
@@ -419,9 +419,9 @@ namespace AmllTtmlTool.WinUI.Views
             catch { }
         }
 
-        private void OnModeNavSelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+        private void OnModeNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
-            if (sender.SelectedItem is SelectorBarItem item && item.Tag is string tag &&
+            if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag &&
                 int.TryParse(tag, out var index) && index >= 0 && index < _pages.Length)
             {
                 SwitchMode(index);
@@ -552,7 +552,7 @@ namespace AmllTtmlTool.WinUI.Views
             }
         }
 
-        private readonly Dictionary<SelectorBarItem, object?> _modeLabels = new();
+        private readonly Dictionary<NavigationViewItem, object?> _modeLabels = new();
 
         private void OnTitleStateChanged(object sender, VisualStateChangedEventArgs e) =>
             ApplyTitleState(e.NewState);
@@ -598,34 +598,33 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (EditNavItem is null || ModeNavView is null) return;
             var items = new[] { EditNavItem, SyncNavItem, PreviewNavItem };
-            foreach (var item in items)
+            if (compact)
             {
-                if (item is null) continue;
-                if (compact)
+                foreach (var item in items)
                 {
+                    if (item is null) continue;
                     if (!_modeLabels.ContainsKey(item))
-                        _modeLabels[item] = item.Text;
-                    // Icons only. The SelectorBar item template sizes the label
-                    // away when Text is empty, so there is no width to compute.
-                    item.Text = string.Empty;
-                    item.Icon ??= new FontIcon { FontSize = 16, Glyph = ModeGlyph(item) };
+                        _modeLabels[item] = item.Content;
+                    item.Content = null;
+                    // Direct width beats the Top-pane presenter style, which
+                    // stomps MenuItemContainerStyle (labels hid, width didn't).
+                    item.Width = 48;
                 }
-                else
+                if (Resources.TryGetValue("ModeNavCompactItemStyle", out var style) && style is Style compactStyle)
+                    ModeNavView.MenuItemContainerStyle = compactStyle;
+            }
+            else
+            {
+                foreach (var item in items)
                 {
-                    if (_modeLabels.TryGetValue(item, out var label) && label is string text)
-                        item.Text = text;
-                    item.Icon = null;
+                    if (item is null) continue;
+                    if (_modeLabels.TryGetValue(item, out var label))
+                        item.Content = label;
+                    item.ClearValue(FrameworkElement.WidthProperty);
                 }
+                ModeNavView.ClearValue(NavigationView.MenuItemContainerStyleProperty);
             }
         }
-
-        // Segoe Fluent icon code points chosen to match the original glyphs.
-        private static string ModeGlyph(SelectorBarItem item) => item.Tag switch
-        {
-            "0" => "\uE70F", // edit
-            "1" => "\uE895", // sync
-            _ => "\uE8FF",   // preview
-        };
 
         private static Border? FindTogglePill(ToggleButton button)
         {
@@ -722,9 +721,9 @@ namespace AmllTtmlTool.WinUI.Views
             visual.StartAnimation("Opacity", fade);
         }
 
-        private void OnSideTabChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+        private void OnSideTabChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
-            if (sender.SelectedItem is SelectorBarItem item && item.Tag is string tag)
+            if (args.SelectedItem is NavigationViewItem item && item.Tag is string tag)
             {
                 SideContent.Text = tag switch
                 {

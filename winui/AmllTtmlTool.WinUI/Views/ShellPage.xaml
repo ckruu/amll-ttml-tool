@@ -8,6 +8,11 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <Page.Resources>
+        <!-- Compact NavigationViewItem style: hug icon when labels are hidden. -->
+        <Style x:Key="ModeNavCompactItemStyle" TargetType="NavigationViewItem">
+            <Setter Property="MinWidth" Value="40" />
+            <Setter Property="Padding" Value="8,0" />
+        </Style>
     </Page.Resources>
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnOpenAccelerator" />
@@ -342,27 +347,44 @@
                             <FontIcon FontSize="16" Glyph="&#xE8E9;" />
                         </ToggleButton>
                     </StackPanel>
-                <SelectorBar x:Name="ModeNavView"
+                <NavigationView x:Name="ModeNavView"
                     VerticalAlignment="Center"
                     MinHeight="40"
                     Background="Transparent"
+                    BorderThickness="0"
+                    CompactModeThresholdWidth="0"
+                    ExpandedModeThresholdWidth="0"
+                    IsBackButtonVisible="Collapsed"
+                    IsSettingsVisible="False"
+                    IsPaneToggleButtonVisible="False"
+                    IsTabStop="False"
+                    PaneDisplayMode="Top"
+                    SelectionFollowsFocus="Enabled"
                     SelectionChanged="OnModeNavSelectionChanged">
-                    <SelectorBarItem x:Name="EditNavItem" x:Uid="ShellPage_EditMode" IsSelected="True" Text="Edit" Tag="0">
-                        <SelectorBarItem.Icon>
-                            <FontIcon FontSize="16" Glyph="&#xE70F;" />
-                        </SelectorBarItem.Icon>
-                    </SelectorBarItem>
-                    <SelectorBarItem x:Name="SyncNavItem" x:Uid="ShellPage_SyncMode" Text="Sync" Tag="1">
-                        <SelectorBarItem.Icon>
-                            <FontIcon FontSize="16" Glyph="&#xE895;" />
-                        </SelectorBarItem.Icon>
-                    </SelectorBarItem>
-                    <SelectorBarItem x:Name="PreviewNavItem" x:Uid="ShellPage_PreviewMode" Text="Preview" Tag="2">
-                        <SelectorBarItem.Icon>
-                            <FontIcon FontSize="16" Glyph="&#xE8FF;" />
-                        </SelectorBarItem.Icon>
-                    </SelectorBarItem>
-                </SelectorBar>
+                    <NavigationView.Resources>
+                        <!-- Title-bar nav sets no custom content and needs no
+                             outer margin: reclaim the dead Top-pane columns. -->
+                        <x:Double x:Key="TopNavigationViewPaneCustomContentMinWidth">0</x:Double>
+                        <Thickness x:Key="TopNavigationViewTopNavGridMargin">0</Thickness>
+                    </NavigationView.Resources>
+                    <NavigationView.MenuItems>
+                        <NavigationViewItem x:Name="EditNavItem" x:Uid="ShellPage_EditMode" Content="Edit" Tag="0" ToolTipService.ToolTip="Edit">
+                            <NavigationViewItem.Icon>
+                                <FontIcon FontSize="16" Glyph="&#xE70F;" />
+                            </NavigationViewItem.Icon>
+                        </NavigationViewItem>
+                        <NavigationViewItem x:Name="SyncNavItem" x:Uid="ShellPage_SyncMode" Content="Sync" Tag="1" ToolTipService.ToolTip="Sync">
+                            <NavigationViewItem.Icon>
+                                <FontIcon FontSize="16" Glyph="&#xE895;" />
+                            </NavigationViewItem.Icon>
+                        </NavigationViewItem>
+                        <NavigationViewItem x:Name="PreviewNavItem" x:Uid="ShellPage_PreviewMode" Content="Preview" Tag="2" ToolTipService.ToolTip="Preview">
+                            <NavigationViewItem.Icon>
+                                <FontIcon FontSize="16" Glyph="&#xE8FF;" />
+                            </NavigationViewItem.Icon>
+                        </NavigationViewItem>
+                    </NavigationView.MenuItems>
+                </NavigationView>
             </StackPanel>
             <StackPanel
                 x:Name="RightFullPanel"
@@ -400,6 +422,7 @@
             </StackPanel>
             <SplitButton
                 x:Name="RightCompactSplit"
+                x:Uid="ShellPage_CopySplit"
                 Grid.Column="3"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Center"
@@ -454,40 +477,40 @@
                 <ColumnDefinition Width="300" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <Grid Grid.Column="0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <SelectorBar
-                    x:Name="SidePane"
-                    VerticalAlignment="Top"
-                    Background="Transparent"
-                    SelectionChanged="OnSideTabChanged">
-                    <SelectorBarItem x:Name="OutlineNavItem" x:Uid="ShellPage_OutlineTab" IsSelected="True" Text="Outline" Tag="Outline">
-                        <SelectorBarItem.Icon>
+            <NavigationView
+                x:Name="SidePane"
+                IsBackButtonVisible="Collapsed"
+                IsSettingsVisible="False"
+                IsPaneToggleButtonVisible="False"
+                IsTabStop="False"
+                PaneDisplayMode="Top"
+                SelectionFollowsFocus="Enabled"
+                Background="Transparent"
+                SelectionChanged="OnSideTabChanged">
+                <NavigationView.MenuItems>
+                    <NavigationViewItem x:Name="OutlineNavItem" x:Uid="ShellPage_OutlineTab" Content="Outline" Tag="Outline">
+                        <NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE8FD;" />
-                        </SelectorBarItem.Icon>
-                    </SelectorBarItem>
-                    <SelectorBarItem x:Name="BpmNavItem" x:Uid="ShellPage_BpmTab" Text="BPM" Tag="BPM">
-                        <SelectorBarItem.Icon>
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="BpmNavItem" x:Uid="ShellPage_BpmTab" Content="BPM" Tag="BPM">
+                        <NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE917;" />
-                        </SelectorBarItem.Icon>
-                    </SelectorBarItem>
-                    <SelectorBarItem x:Name="SidePreviewNavItem" x:Uid="ShellPage_SidePreviewTab" Text="Preview" Tag="SidePreview">
-                        <SelectorBarItem.Icon>
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem x:Name="SidePreviewNavItem" x:Uid="ShellPage_SidePreviewTab" Content="Preview" Tag="SidePreview">
+                        <NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE786;" />
-                        </SelectorBarItem.Icon>
-                    </SelectorBarItem>
-                </SelectorBar>
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                </NavigationView.MenuItems>
                 <TextBlock
                     x:Name="SideContent"
-                    Grid.Row="1"
                     Margin="12"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     Text="Outline lands here in Phase 1."
                     TextWrapping="Wrap" />
-            </Grid>
+            </NavigationView>
             <Frame x:Name="ContentFrame" Grid.Column="1" IsNavigationStackEnabled="False" Navigated="ContentFrame_Navigated">
                 <Frame.ContentTransitions>
                     <TransitionCollection>
