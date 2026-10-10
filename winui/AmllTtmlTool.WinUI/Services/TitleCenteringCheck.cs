@@ -121,10 +121,36 @@ internal static class TitleCenteringCheck
             sb.AppendLine($"  insets L={leftInset:F1} R={rightInset:F1}");
             sb.AppendLine($"  leftClusterRight={leftRight:F1} rightClusterLeft={rightRect.Left:F1} rightClusterRight={rightRect.Right:F1}");
             sb.AppendLine($"  unit L={unitRect.Left:F1} W={unitRect.Width:F1} center={unitCenter:F1}");
+            var navCtrl = p.Nav as Microsoft.UI.Xaml.Controls.NavigationView;
+            var navWidthProp = navCtrl is not null
+                ? (double.IsNaN(navCtrl.Width) ? "NaN" : navCtrl.Width.ToString("F0"))
+                : "?";
+            sb.AppendLine($"  navWidthProp={navWidthProp}");
             sb.AppendLine($"  nav  L={navRect.Left:F1} W={navRect.Width:F1} center={navCenter:F1}");
             sb.AppendLine($"  pillsW={pillsW:F1} itemsHost={PartWidth("TopNavMenuItemsHost"):F1} overflowBtn={PartWidth("TopNavOverflowButton"):F1} customContent={PartWidth("PaneCustomContentOnTopPane"):F1}");
             sb.AppendLine($"  offWindow={unitCenter - windowCenter:+0.0;-0.0} offGap={unitCenter - gapCenter:+0.0;-0.0} offNavVsUnit={navCenter - unitCenter:+0.0;-0.0}");
             sb.AppendLine($"  clearL={unitRect.Left - leftRight:F1} clearR={rightRect.Left - unitRect.Right:F1} clearCaption={areaW - rightInset - rightRect.Right:F1}");
+            if (w == 1400 || w == 750)
+            {
+                sb.AppendLine("  nav subtree (name/type=W/vis):");
+                var queue = new Queue<DependencyObject>();
+                queue.Enqueue(p.Nav);
+                int seen = 0;
+                while (queue.Count > 0 && seen < 120)
+                {
+                    var current = queue.Dequeue();
+                    seen++;
+                    if (current is FrameworkElement fe && (fe.ActualWidth > 1 || !string.IsNullOrEmpty(fe.Name)))
+                    {
+                        var extra = "";
+                        if (fe.MinWidth > 0.5) extra += $" minW={fe.MinWidth:F0}";
+                        if (!double.IsNaN(fe.Width)) extra += $" W={fe.Width:F0}";
+                        sb.AppendLine($"    {fe.Name}/{fe.GetType().Name}={fe.ActualWidth:F1}/{fe.Visibility.ToString()[0]}{extra}");
+                    }
+                    var count = VisualTreeHelper.GetChildrenCount(current);
+                    for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+                }
+            }
         }
         catch (Exception ex)
         {
