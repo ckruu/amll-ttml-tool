@@ -24,8 +24,22 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$Exe = Join-Path $Repo 'winui\AmllTtmlTool.WinUI\bin\Debug\net8.0-windows10.0.19041.0\win-x64\AmllTtmlTool.WinUI.exe'
 $ProcName = 'AmllTtmlTool.WinUI'
+# Resolve the FRESHEST real build output. A plain `dotnet build -c Debug` on
+# this project writes to bin\Debug\<tfm>\ (no RID subdir); an explicit
+# -r/-arch build writes the ...\win-x64\ sibling. Whichever is newer is the
+# one that must be launched and timestamp-checked (rule 7).
+$BuildRoot = Join-Path $Repo 'winui\AmllTtmlTool.WinUI\bin\Debug\net8.0-windows10.0.19041.0'
+$Candidates = @(
+    (Join-Path $BuildRoot 'win-x64\AmllTtmlTool.WinUI.exe'),
+    (Join-Path $BuildRoot 'AmllTtmlTool.WinUI.exe')
+) | Where-Object { Test-Path -LiteralPath $_ }
+if (-not $Candidates) {
+    Write-Host "NOT-WIRED: no built app exe under $BuildRoot (build first)"
+    exit 2
+}
+$Exe = $Candidates | Sort-Object { (Get-Item -LiteralPath $_).LastWriteTimeUtc } | Select-Object -Last 1
+Write-Host "EXE-RESOLVED: $Exe (newest of $($Candidates.Count) candidate output(s))"
 $GraceSec = 5
 
 if (-not (Test-Path -LiteralPath $Exe)) {
