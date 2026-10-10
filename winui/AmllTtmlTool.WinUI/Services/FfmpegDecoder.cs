@@ -10,7 +10,8 @@ public sealed record FfmpegProbeResult(
     Dictionary<string, string> Tags,
     string? CodecName,
     int SampleRate,
-    int Channels);
+    int Channels,
+    int BitsPerSample);
 
 public sealed record FfmpegBins(string Ffmpeg, string Ffprobe)
 {
@@ -50,7 +51,9 @@ public static class FfmpegDecoder
         var args = $"-v quiet -print_format json -show_format -show_streams \"{path}\"";
         var (exit, stdout, stderr) = await RunAsync(bins.Ffprobe, args, null, ct);
         if (exit != 0)
-            throw new InvalidOperationException($"Probe failed ({Path.GetExtension(path).TrimStart('.').ToLowerInvariant()}): {FirstLine(stderr)}");
+            throw new FfmpegProcessException(
+                $"Probe failed ({Path.GetExtension(path).TrimStart('.').ToLowerInvariant()}): {FirstLine(stderr)}",
+                bins.Ffprobe, args, exit, stderr);
         using var doc = JsonDocument.Parse(stdout);
         var root = doc.RootElement;
         var format = root.TryGetProperty("format", out var f) ? f : (JsonElement?)null;
@@ -73,6 +76,7 @@ public static class FfmpegDecoder
         string? codec = null;
         var rate = 0;
         var channels = 0;
+        var bits = 0;
         if (root.TryGetProperty("streams", out var streams))
         {
             foreach (var s in streams.EnumerateArray())
@@ -83,6 +87,8 @@ public static class FfmpegDecoder
                     if (s.TryGetProperty("sample_rate", out var sr) &&
                         int.TryParse(sr.GetString(), out var r)) rate = r;
                     if (s.TryGetProperty("channels", out var ch)) channels = ch.GetInt32();
+                    if (s.TryGetProperty("bits_per_sample", out var bps)) bits = bps.GetInt32();
+                    else if (s.TryGetProperty("bits_per_raw_sample", out var bprs)) bits = bprs.GetInt32();
                     if (s.TryGetProperty("tags", out var st))
                     {
                         foreach (var prop in st.EnumerateObject())
@@ -92,7 +98,7 @@ public static class FfmpegDecoder
                 }
             }
         }
-        return new FfmpegProbeResult(duration, tags, codec, rate, channels);
+        return new FfmpegProbeResult(duration, tags, codec, rate, channels, bits);
     }
 
     public static async Task<(float[] Samples, TimeSpan Duration)> DecodeAsync(
@@ -117,18 +123,21 @@ public static class FfmpegDecoder
         await process.WaitForExitAsync(ct);
         if (process.ExitCode != 0)
         {
-            throw new InvalidOperationException(
-                $"Decode failed ({Path.GetExtension(path).TrimStart('.').ToLowerInvariant()}): {FirstLine(stderr)}");
+            throw new FfmpegProcessException(
+                $"Decode failed ({Path.GetExtension(path).TrimStart('.').ToLowerInvariant()}): {FirstLine(stderr)}",
+                bins.Ffmpeg, args, process.ExitCode, stderr);
         }
-        var bytes = pcm.ToArray();
-        if (bytes.Length == 0)
+        var length = (int)pcm.Length;
+        if (length == 0)
             throw new InvalidOperationException("Decode produced no audio (no audio stream?).");
-        if (bytes.Length > MaxPcmBytes)
+        if (length > MaxPcmBytes)
             throw new InvalidOperationException("Decoded audio exceeds 500 MB; file too long.");
-        if (bytes.Length % 4 != 0)
+        if (length % 4 != 0)
             throw new InvalidOperationException("Decoded audio has incomplete samples.");
-        var samples = new float[bytes.Length / 4];
-        Buffer.BlockCopy(bytes, 0, samples, 0, bytes.Length);
+        // Copy straight out of the stream buffer: ToArray() would hold a
+        // second full-size copy next to the float array (2x transient peak).
+        var samples = new float[length / 4];
+        Buffer.BlockCopy(pcm.GetBuffer(), 0, samples, 0, length);
         var frames = samples.Length / OutChannels;
         progress?.Report(1.0);
         return (samples, TimeSpan.FromSeconds((double)frames / OutSampleRate));

@@ -63,8 +63,8 @@ public sealed class FileIntake(
         {
             audio.Cover = null;
             await FileDialogs.ShowErrorAsync(anchor, "Audio failed",
-                $"Could not open {file.Name}.",
-                ex.Message);
+                $"Could not open {file.Name}. {AudioErrorText.MessageOf(ex)}",
+                AudioErrorText.FullReport(ex));
         }
     }
 

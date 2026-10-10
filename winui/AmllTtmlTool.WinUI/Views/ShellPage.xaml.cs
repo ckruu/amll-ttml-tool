@@ -116,6 +116,39 @@ namespace AmllTtmlTool.WinUI.Views
                         }
                     });
                 }
+                // Audio-test harness: --audio-test <folder> [reportPath].
+                // Drives the real AudioEngine path per file (silent volume-0
+                // playback, seeks), writes a report, self-closes. DEBUG-only.
+                var audioArgs = Environment.GetCommandLineArgs();
+                var audioIdx = Array.IndexOf(audioArgs, "--audio-test");
+                if (audioIdx >= 0)
+                {
+                    var audioFolder = audioIdx + 1 < audioArgs.Length ? audioArgs[audioIdx + 1] : "";
+                    var audioReport = audioIdx + 2 < audioArgs.Length ? audioArgs[audioIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.AudioTestCheck.RunAsync(win, _audio, audioFolder, audioReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.AudioTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
 #endif
             };
         }

@@ -20,8 +20,8 @@ public static class FileDialogs
         var picker = new FileOpenPicker();
         InitPicker(picker, window);
         picker.ViewMode = PickerViewMode.List;
-        picker.FileTypeFilter.Add(".ttml");
-        picker.FileTypeFilter.Add(".lrc");
+        foreach (var ext in LyricStore.LyricExtensions)
+            picker.FileTypeFilter.Add("." + ext);
         return await picker.PickSingleFileAsync();
     }
 
@@ -75,15 +75,44 @@ public static class FileDialogs
 
     public static async Task ShowErrorAsync(UIElement anchor, string title, string message, string? details = null)
     {
-        var text = message + (string.IsNullOrEmpty(details) ? string.Empty : "\n\n" + details);
+        UIElement content;
+        if (string.IsNullOrWhiteSpace(details))
+        {
+            content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
+        }
+        else
+        {
+            // Readable sentence up front, full technical cause one click away.
+            content = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+                    new Expander
+                    {
+                        Header = "Details",
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        HorizontalContentAlignment = HorizontalAlignment.Left,
+                        Content = new ScrollViewer
+                        {
+                            Content = new TextBlock
+                            {
+                                Text = details,
+                                TextWrapping = TextWrapping.Wrap,
+                                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                                FontSize = 12,
+                            },
+                            MaxHeight = 320,
+                        },
+                    },
+                },
+            };
+        }
         var dialog = new ContentDialog
         {
             Title = title,
-            Content = new ScrollViewer
-            {
-                Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap },
-                MaxHeight = 320,
-            },
+            Content = content,
             CloseButtonText = "OK",
             XamlRoot = anchor.XamlRoot,
         };

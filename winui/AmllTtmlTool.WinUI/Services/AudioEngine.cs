@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Dispatching;
+using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
@@ -44,10 +46,14 @@ public partial class AudioEngine : ObservableObject, IDisposable
     private IWavePlayer? _output;
     private ISampleProvider? _source;
     private FfmpegPcmProvider? _pcm;
-    private MediaFoundationReader? _reader;
     private readonly DispatcherQueueTimer _clock;
+    private readonly DispatcherQueue _dispatcher;
     private double _pauseAtSeconds = double.NaN;
     private bool _disposed;
+    private int _buildGen;
+    private string _lastRenderDeviceId = "";
+    private readonly MMDeviceEnumerator _devices;
+    private readonly RenderDeviceWatcher _watcher;
 
     [ObservableProperty]
     private bool _isPlaying;
@@ -75,115 +81,133 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     public string DecodeBackend { get; private set; } = "none";
 
+    // Introspection for the --audio-test harness (and future diagnostics):
+    // the device mix format seen at init, and the exact sample-provider
+    // format handed to the output. "?" until the first BuildOutput.
+    public string DeviceMixFormatDescription { get; private set; } = "?";
+    public string LastOutputDescription { get; private set; } = "?";
+
+    // Last device/output error that did not throw (background rebuilds).
+    // Plain property on purpose: read any time, never blocks.
+    public string LastOutputError { get; private set; } = "";
+
     public event Action? PositionChanged;
     public event Action? TrackEnded;
 
     public AudioEngine()
     {
-        _clock = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _dispatcher = DispatcherQueue.GetForCurrentThread();
+        _clock = _dispatcher.CreateTimer();
         _clock.Interval = TimeSpan.FromMilliseconds(250);
         _clock.Tick += (_, _) => OnTick();
+        _devices = new MMDeviceEnumerator();
+        _watcher = new RenderDeviceWatcher(this);
+        try
+        {
+            _lastRenderDeviceId = CurrentDefaultRenderId();
+            _devices.RegisterEndpointNotificationCallback(_watcher);
+        }
+        catch { }
+    }
+
+    // Every public mutating call below runs its UI-touching body on the UI
+    // thread (directly when already there). NAudio output calls are
+    // thread-safe; XAML-bound observables and the DispatcherQueueTimer are
+    // not. Touching them from a pool thread failed every audio open with an
+    // empty-message RPC_E_WRONG_THREAD.
+    private void RunOnUi(Action action)
+    {
+        if (_disposed) return;
+        if (_dispatcher.HasThreadAccess) action();
+        else _ = _dispatcher.TryEnqueue(() => { try { action(); } catch { } });
+    }
+
+    private Task RunOnUiAsync(Action action)
+    {
+        var tcs = new TaskCompletionSource();
+        if (_disposed) { tcs.TrySetResult(); return tcs.Task; }
+        if (_dispatcher.HasThreadAccess)
+        {
+            try { action(); tcs.TrySetResult(); }
+            catch (Exception ex) { tcs.TrySetException(ex); }
+            return tcs.Task;
+        }
+        if (!_dispatcher.TryEnqueue(() =>
+        {
+            try { action(); tcs.TrySetResult(); }
+            catch (Exception ex) { tcs.TrySetException(ex); }
+        }))
+        {
+            tcs.TrySetException(new InvalidOperationException("UI queue unavailable"));
+        }
+        return tcs.Task;
     }
 
     public bool IsAuditioning => !double.IsNaN(_pauseAtSeconds);
 
     public async Task LoadAsync(string path, CancellationToken ct = default)
     {
+        var ext = System.IO.Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
+        float[]? samples = null;
+        TimeSpan duration = TimeSpan.Zero;
+        Dictionary<string, string>? tags = null;
         await Task.Run(async () =>
         {
             StopInternal();
-            var ext = System.IO.Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
             var bins = FfmpegBins.Locate();
-            Exception? ffmpegError = null;
-            if (bins is not null)
+            if (bins is null)
+                throw new InvalidOperationException(
+                    $"Decode failed ({ext}): bundled FFmpeg is missing (expected ffmpeg.exe and " +
+                    "ffprobe.exe in ffmpeg\\x64 or ffmpeg\\arm64 next to the app). " +
+                    "No fallback decoder is available.");
+            try
             {
-                try
-                {
-                    await LoadViaFfmpegAsync(bins, path, ct);
-                    return;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    ffmpegError = ex;
-                }
+                float[] decoded;
+                (decoded, duration) = await FfmpegDecoder.DecodeAsync(bins, path, null, ct);
+                samples = decoded;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new InvalidOperationException(
+                    $"Decode failed ({ext}): {AudioErrorText.MessageOf(ex)}", ex);
             }
             try
             {
-                LoadViaMediaFoundation(path);
+                var probe = await FfmpegDecoder.ProbeAsync(bins, path, ct);
+                tags = new Dictionary<string, string>(probe.Tags, StringComparer.OrdinalIgnoreCase);
             }
-            catch (Exception mfEx)
+            catch { }
+            _pcm = new FfmpegPcmProvider(samples);
+            _source = _pcm;
+            try
             {
-                var detail = bins is null
-                    ? "Bundled FFmpeg is missing and Media Foundation also failed. "
-                    : $"FFmpeg failed ({ffmpegError?.Message}). Media Foundation fallback also failed. ";
+                BuildOutput(0);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
                 throw new InvalidOperationException(
-                    $"Decode failed ({ext}): {detail}{mfEx.Message}", mfEx);
+                    $"Output failed ({ext}): {AudioErrorText.MessageOf(ex)} " +
+                    $"Device mix: {DeviceMixFormatDescription}. Tried: {LastOutputDescription}.", ex);
             }
         }, ct);
-    }
-
-    private async Task LoadViaFfmpegAsync(FfmpegBins bins, string path, CancellationToken ct)
-    {
-        var ext = System.IO.Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
-        float[] samples;
-        TimeSpan duration;
-        try
+        // Observable state always lands on the UI thread (see RunOnUi).
+        await RunOnUiAsync(() =>
         {
-            (samples, duration) = await FfmpegDecoder.DecodeAsync(bins, path, null, ct);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Decode failed ({ext}): {ex.Message}", ex);
-        }
-        try
-        {
-            var probe = await FfmpegDecoder.ProbeAsync(bins, path, ct);
-            ProbeTags.Clear();
-            foreach (var (k, v) in probe.Tags) ProbeTags[k] = v;
-        }
-        catch { }
-        _pcm = new FfmpegPcmProvider(samples);
-        _source = _pcm;
-        DecodeBackend = "ffmpeg";
-        BuildOutput(0);
-        Duration = duration;
-        Position = TimeSpan.Zero;
-        HasAudio = true;
-    }
-
-    private void LoadViaMediaFoundation(string path)
-    {
-        var ext = System.IO.Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
-        MediaFoundationReader reader;
-        try
-        {
-            reader = new MediaFoundationReader(path);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"Decode failed ({ext}): Media Foundation cannot decode this file " +
-                $"(missing codec or Media Feature Pack). {ex.Message}", ex);
-        }
-        _reader = reader;
-        _source = _reader.ToSampleProvider();
-        DecodeBackend = "mediafoundation";
-        try
-        {
-            BuildOutput(0);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"Output failed ({ext}): audio device rejected the format. {ex.Message}", ex);
-        }
-        Duration = reader.TotalTime;
-        Position = TimeSpan.Zero;
-        HasAudio = true;
+            DecodeBackend = "ffmpeg";
+            if (tags is not null)
+            {
+                ProbeTags.Clear();
+                foreach (var (k, v) in tags) ProbeTags[k] = v;
+            }
+            Duration = duration;
+            Position = TimeSpan.Zero;
+            HasAudio = true;
+        });
     }
 
     public void Play()
     {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(Play); return; }
         if (_output is null || _source is null || _disposed) return;
         ClearAudition();
         _output.Play();
@@ -193,6 +217,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     public void Pause()
     {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(Pause); return; }
         if (_output is null || _disposed) return;
         _output.Pause();
         IsPlaying = false;
@@ -203,6 +228,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     public void Seek(double seconds)
     {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => Seek(seconds)); return; }
         if (_source is null || _disposed) return;
         ClearAudition();
         SeekWithoutClearing(seconds);
@@ -210,27 +236,41 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     public void SetVolume(double volume)
     {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => SetVolume(volume)); return; }
         Volume = Math.Max(0, Math.Min(1, volume));
         if (_output is not null) _output.Volume = (float)Volume;
     }
 
     public void SetPlaybackRate(double rate)
     {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => SetPlaybackRate(rate)); return; }
         rate = Math.Max(0.1, Math.Min(4, rate));
         if (Math.Abs(rate - PlaybackRate) < 0.001) return;
+        PlaybackRate = rate;
+        // Device re-init can block (busy device), so rebuild off the UI
+        // thread. Stale rebuilds lose the generation race. (Item 3 replaces
+        // this whole path with a live time-stretch provider.)
         var resume = IsPlaying;
         var pos = Position.TotalSeconds;
-        _output?.Stop();
-        PlaybackRate = rate;
-        if (_source is not null)
+        var gen = ++_buildGen;
+        _ = Task.Run(() =>
         {
-            BuildOutput(pos);
-            if (resume) Play();
-        }
+            try
+            {
+                BuildOutput(pos);
+                if (gen != _buildGen || _disposed) return;
+                if (resume) RunOnUi(Play);
+            }
+            catch (Exception ex)
+            {
+                LastOutputError = AudioErrorText.MessageOf(ex);
+            }
+        });
     }
 
     public void AuditionRange(double startSeconds, double endSeconds)
     {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => AuditionRange(startSeconds, endSeconds)); return; }
         if (_source is null || !HasAudio) return;
         if (endSeconds - startSeconds <= 0) return;
         _pauseAtSeconds = endSeconds;
@@ -241,6 +281,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     public void StopAndUnload()
     {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(StopAndUnload); return; }
         StopInternal();
         HasAudio = false;
         IsPlaying = false;
@@ -258,7 +299,6 @@ public partial class AudioEngine : ObservableObject, IDisposable
         try
         {
             if (_pcm is not null) _pcm.CurrentTime = TimeSpan.FromSeconds(clamped);
-            else if (_reader is not null) _reader.CurrentTime = TimeSpan.FromSeconds(clamped);
         }
         catch { }
         RefreshPosition();
@@ -266,16 +306,76 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     private void ClearAudition() => _pauseAtSeconds = double.NaN;
 
+    private sealed record MixTarget(int Rate, int Channels, int BitsPerSample, string Desc);
+
     private void BuildOutput(double positionSeconds)
     {
         if (_source is null) return;
-        _output?.Dispose();
-        ISampleProvider source = _source;
+        if (_output is not null)
+        {
+            _output.PlaybackStopped -= OnPlaybackStopped;
+            _output.Dispose();
+            _output = null;
+        }
+        var mix = QueryMixTarget();
+        DeviceMixFormatDescription = mix.Desc;
+        // Source (always stereo float from the FFmpeg path) is mapped to the
+        // device channel count first (fewer channels to resample), then to
+        // the device rate. The device never sees our internal format.
+        // (PlaybackRate resampling below is interim pitch-shifting behavior;
+        // item 3 replaces it with a pitch-preserving time-stretch provider.)
+        ISampleProvider chain = _source;
         if (Math.Abs(PlaybackRate - 1.0) > 0.001)
         {
-            var targetRate = Math.Max(8000, (int)(source.WaveFormat.SampleRate * PlaybackRate));
-            source = new WdlResamplingSampleProvider(source, targetRate);
+            var targetRate = Math.Max(8000, (int)(chain.WaveFormat.SampleRate * PlaybackRate));
+            chain = new WdlResamplingSampleProvider(chain, targetRate);
         }
+        if (chain.WaveFormat.Channels != mix.Channels)
+            chain = new ChannelMapSampleProvider(chain, mix.Channels);
+        if (chain.WaveFormat.SampleRate != mix.Rate)
+            chain = new WdlResamplingSampleProvider(chain, mix.Rate);
+        var attempts = new List<string>();
+        WasapiOut? output = null;
+        if (mix.BitsPerSample == 32)
+        {
+            var target = WaveFormat.CreateIeeeFloatWaveFormat(mix.Rate, mix.Channels);
+            try
+            {
+                output = InitOutput(new SampleToWaveProvider(chain), target);
+                attempts.Add($"{DescribeWaveFormat(target)} OK");
+            }
+            catch (Exception ex)
+            {
+                attempts.Add($"{DescribeWaveFormat(target)} FAILED: {AudioErrorText.MessageOf(ex)}");
+            }
+        }
+        if (output is null && mix.BitsPerSample >= 16)
+        {
+            var target = new WaveFormat(mix.Rate, mix.Channels);
+            try
+            {
+                output = InitOutput(new SampleToWaveProvider16(chain), target);
+                attempts.Add($"{DescribeWaveFormat(target)} OK");
+            }
+            catch (Exception ex)
+            {
+                attempts.Add($"{DescribeWaveFormat(target)} FAILED: {AudioErrorText.MessageOf(ex)}");
+            }
+        }
+        if (output is null)
+            throw new InvalidOperationException(
+                $"audio device rejected every candidate format. Device mix: {mix.Desc}. " +
+                $"Attempts: {string.Join(" | ", attempts)}");
+        _output = output;
+        _output.Volume = (float)Volume;
+        _output.PlaybackStopped += OnPlaybackStopped;
+        LastOutputDescription =
+            $"in={DescribeSampleFormat(_source)} chain={DescribeSampleFormat(chain)} tried=[{string.Join(" | ", attempts)}]";
+        SeekWithoutClearing(positionSeconds);
+    }
+
+    private static WasapiOut InitOutput(IWaveProvider provider, WaveFormat _)
+    {
         WasapiOut output;
         try
         {
@@ -284,22 +384,73 @@ public partial class AudioEngine : ObservableObject, IDisposable
         catch (Exception ex)
         {
             throw new InvalidOperationException(
-                "Output failed: no usable audio device (default render device missing or busy). " + ex.Message, ex);
+                "Output failed: no usable audio device (default render device missing or busy). " +
+                AudioErrorText.MessageOf(ex), ex);
         }
-        _output = output;
-        _output.Volume = (float)Volume;
-        _output.PlaybackStopped += OnPlaybackStopped;
-        _output.Init(new SampleToWaveProvider(source));
-        SeekWithoutClearing(positionSeconds);
+        try
+        {
+            output.Init(provider);
+            return output;
+        }
+        catch
+        {
+            output.Dispose();
+            throw;
+        }
     }
+
+    private static MixTarget QueryMixTarget()
+    {
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            var mix = device.AudioClient.MixFormat;
+            return new MixTarget(
+                mix.SampleRate, mix.Channels, mix.BitsPerSample,
+                $"\"{device.FriendlyName}\" {DescribeWaveFormat(mix)}");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"could not read the default render device mix format: {AudioErrorText.MessageOf(ex)}", ex);
+        }
+    }
+
+    private static string DescribeDefaultMixFormat()
+    {
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            return $"\"{device.FriendlyName}\" {DescribeWaveFormat(device.AudioClient.MixFormat)}";
+        }
+        catch (Exception ex)
+        {
+            return $"unreadable ({AudioErrorText.MessageOf(ex)})";
+        }
+    }
+
+    private static string DescribeSampleFormat(ISampleProvider source) =>
+        source is null ? "null" : DescribeWaveFormat(source.WaveFormat);
+
+    private static string DescribeWaveFormat(NAudio.Wave.WaveFormat format) =>
+        format is null
+            ? "null"
+            : $"{format.SampleRate}Hz/{format.Channels}ch/{format.Encoding}/{format.BitsPerSample}bit";
 
     private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
     {
-        if (_disposed) return;
-        IsPlaying = false;
-        _clock.Stop();
-        ClearAudition();
-        RefreshPosition();
+        // NAudio raises this on its own callback thread: never touch UI
+        // state here directly.
+        RunOnUi(() =>
+        {
+            if (_disposed) return;
+            IsPlaying = false;
+            _clock.Stop();
+            ClearAudition();
+            RefreshPosition();
+        });
     }
 
     private void OnTick()
@@ -323,19 +474,34 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     private void RefreshPosition()
     {
+        TimeSpan pos;
         try
         {
-            if (_pcm is not null) Position = _pcm.CurrentTime;
-            else if (_reader is not null) Position = _reader.CurrentTime;
+            pos = _pcm is not null ? _pcm.CurrentTime : Position;
         }
-        catch { }
-        PositionChanged?.Invoke();
+        catch
+        {
+            pos = Position;
+        }
+        // The read is thread-safe; the observable write and event are not.
+        if (_dispatcher.HasThreadAccess)
+        {
+            Position = pos;
+            PositionChanged?.Invoke();
+        }
+        else
+        {
+            RunOnUi(() =>
+            {
+                Position = pos;
+                PositionChanged?.Invoke();
+            });
+        }
     }
 
     private void StopInternal()
     {
-        _clock.Stop();
-        IsPlaying = false;
+        // Output teardown is pool-safe; the clock and observable stay on UI.
         if (_output is not null)
         {
             _output.PlaybackStopped -= OnPlaybackStopped;
@@ -343,17 +509,82 @@ public partial class AudioEngine : ObservableObject, IDisposable
             _output.Dispose();
             _output = null;
         }
-        _reader?.Dispose();
-        _reader = null;
         _pcm = null;
         _source = null;
         ClearAudition();
+        RunOnUi(() =>
+        {
+            _clock.Stop();
+            IsPlaying = false;
+        });
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        try { _devices.UnregisterEndpointNotificationCallback(_watcher); } catch { }
+        try { _devices.Dispose(); } catch { }
         StopInternal();
+    }
+
+    private string CurrentDefaultRenderId()
+    {
+        using var device = _devices.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        return device.ID;
+    }
+
+    // Default-device switches and unplug/replug arrive here (Bluetooth,
+    // USB DACs). Rebuild the output against the NEW default at the current
+    // position; never throw back into the OS callback.
+    private void OnRenderDeviceMaybeChanged()
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                if (_disposed || !HasAudio || _source is null) return;
+                string id;
+                try { id = CurrentDefaultRenderId(); }
+                catch (Exception ex)
+                {
+                    LastOutputError = $"default render device unreadable: {AudioErrorText.MessageOf(ex)}";
+                    return;
+                }
+                if (id == _lastRenderDeviceId) return;
+                var gen = ++_buildGen;
+                var resume = IsPlaying;
+                var pos = Position.TotalSeconds;
+                BuildOutput(pos);
+                if (gen != _buildGen || _disposed) return;
+                _lastRenderDeviceId = id;
+                if (resume) RunOnUi(Play);
+            }
+            catch (Exception ex)
+            {
+                LastOutputError = AudioErrorText.MessageOf(ex);
+            }
+        });
+    }
+
+    private sealed class RenderDeviceWatcher : IMMNotificationClient
+    {
+        private readonly AudioEngine _owner;
+
+        public RenderDeviceWatcher(AudioEngine owner) => _owner = owner;
+
+        public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
+        {
+            if (flow == DataFlow.Render) _owner.OnRenderDeviceMaybeChanged();
+        }
+
+        public void OnDeviceStateChanged(string deviceId, DeviceState newState) =>
+            _owner.OnRenderDeviceMaybeChanged();
+
+        public void OnDeviceAdded(string deviceId) { }
+
+        public void OnDeviceRemoved(string deviceId) => _owner.OnRenderDeviceMaybeChanged();
+
+        public void OnPropertyValueChanged(string deviceId, PropertyKey key) { }
     }
 }

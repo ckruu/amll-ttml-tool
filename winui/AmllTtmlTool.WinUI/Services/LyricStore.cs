@@ -7,11 +7,13 @@ public sealed record LyricFileResult(bool Success, string? ErrorKind = null, str
 
 public partial class LyricStore : ObservableObject
 {
+    // Single source of truth for supported audio extensions: the audio file
+    // picker, drag-and-drop accept, and drop dispatch all read this set.
     public static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         "flac", "wav", "m4a", "alac", "ape", "mac", "wv", "tta", "tak",
         "aiff", "aif", "aifc", "mp3", "aac", "mp4", "ogg", "oga", "opus",
-        "wma", "asf", "mpc", "mpp", "mp+", "dsf", "ac3", "eac3", "dts",
+        "wma", "asf", "mpc", "mpp", "mp+", "dsf", "ac3", "ec3", "eac3", "dts",
         "dtshd", "thd", "mlp", "mka", "amr", "rm", "ra", "au", "snd",
         "caf", "w64", "iff", "8svx",
     };
