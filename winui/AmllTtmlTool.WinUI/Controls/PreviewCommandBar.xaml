@@ -7,6 +7,10 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
+    <!-- No ScrollViewer here on purpose: a scrollable wrapper silently
+         disables the VisualStateManager tiers (verified by bisect on the
+         Edit bar). The tiers cover every reachable width, so no fallback
+         scroller is needed. -->
     <Grid x:Name="RootGrid" ColumnSpacing="4">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
@@ -20,16 +24,17 @@
         </Grid.ColumnDefinitions>
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="WidthTiers">
-                <!-- Thresholds come from the widths the self-check measured:
-                     252 + 88 + 284 + 834 + 678 content plus separators. -->
+                <!-- Window-width triggers; bar measures exactly 42px under the
+                     client width (see EditCommandBar). Bar widths: 2200 + 1700
+                     + 1180 + 700. -->
                 <VisualState x:Name="Wide">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierWide" MinWidth="2200" />
+                        <AdaptiveTrigger MinWindowWidth="2242" />
                     </VisualState.StateTriggers>
                 </VisualState>
                 <VisualState x:Name="Medium">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierMedium" MinWidth="1700" />
+                        <AdaptiveTrigger MinWindowWidth="1742" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="BgGroup.Visibility" Value="Collapsed" />
@@ -38,7 +43,7 @@
                 </VisualState>
                 <VisualState x:Name="Narrow">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierNarrow" MinWidth="1180" />
+                        <AdaptiveTrigger MinWindowWidth="1222" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="BgGroup.Visibility" Value="Collapsed" />
@@ -49,7 +54,7 @@
                 </VisualState>
                 <VisualState x:Name="Tight">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierTight" MinWidth="700" />
+                        <AdaptiveTrigger MinWindowWidth="742" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="BgGroup.Visibility" Value="Collapsed" />
@@ -57,11 +62,12 @@
                         <Setter Target="StyleGroup.Visibility" Value="Collapsed" />
                         <Setter Target="StyleOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="ViewOverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="Tiny">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierTiny" MinWidth="1" />
+                        <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="BgGroup.Visibility" Value="Collapsed" />
@@ -69,7 +75,9 @@
                         <Setter Target="StyleGroup.Visibility" Value="Collapsed" />
                         <Setter Target="StyleOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="ViewOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="WordGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="WordOverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
@@ -95,15 +103,54 @@
                 <NumberBox x:Name="FadeBox" x:Uid="Ribbon_FadeWidth" Header="Fade width" Minimum="0" Value="0.5" Width="88" MinHeight="28" />
             </StackPanel>
         </Grid>
+        <Button x:Name="WordOverflowButton"
+                Grid.Column="2"
+                Visibility="Collapsed"
+                MinWidth="44"
+                MinHeight="36"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                AutomationProperties.AutomationId="PreviewWordOverflow"
+                Style="{StaticResource SubtleTitleBarButtonStyle}"
+                ToolTipService.ToolTip="Fade width">
+            <Button.Flyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="200">
+                        <NumberBox Header="Fade width" Minimum="0" Width="140" MinHeight="28" AutomationProperties.Name="Fade width" Value="{x:Bind FadeBox.Value, Mode=TwoWay}" />
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+            <FontIcon FontSize="16" Glyph="&#xE8E9;" />
+        </Button>
         <Border Grid.Column="3" Style="{StaticResource RibbonSeparator}" />
 
         <Grid x:Name="ViewGroup" Grid.Column="4" Margin="6,6,6,6" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <NumberBox x:Name="FontBox" x:Uid="Ribbon_PrevFont" Header="Font (px)" Minimum="1" Value="16" Width="80" MinHeight="28" />
-                <CheckBox x:Uid="Ribbon_Vsync" Content="VSync" VerticalAlignment="Center" />
+                <CheckBox x:Name="VsyncCheck" x:Uid="Ribbon_Vsync" Content="VSync" VerticalAlignment="Center" />
                 <AppBarButton x:Uid="Ribbon_Fullscreen" Icon="FullScreen" Label="Fullscreen" IsCompact="True" ToolTipService.ToolTip="Fullscreen" />
             </StackPanel>
         </Grid>
+        <Button x:Name="ViewOverflowButton"
+                Grid.Column="4"
+                Visibility="Collapsed"
+                MinWidth="44"
+                MinHeight="36"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                AutomationProperties.AutomationId="PreviewViewOverflow"
+                Style="{StaticResource SubtleTitleBarButtonStyle}"
+                ToolTipService.ToolTip="View options">
+            <Button.Flyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="200">
+                        <NumberBox Header="Font (px)" Minimum="1" Width="140" MinHeight="28" AutomationProperties.Name="Font (px)" Value="{x:Bind FontBox.Value, Mode=TwoWay}" />
+                        <CheckBox Content="VSync" IsChecked="{x:Bind VsyncCheck.IsChecked, Mode=TwoWay}" />
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+            <FontIcon FontSize="16" Glyph="&#xE8E9;" />
+        </Button>
         <Border Grid.Column="5" Style="{StaticResource RibbonSeparator}" />
 
         <Grid x:Name="StyleGroup" Grid.Column="6" Margin="6,6,6,6" VerticalAlignment="Top">
@@ -116,8 +163,8 @@
                 <Slider x:Name="CascadeSlider" x:Uid="Ribbon_Cascade" Header="Cascade" Maximum="200" Minimum="0" Value="100" Width="96" />
                 <Slider x:Name="BlurSlider" x:Uid="Ribbon_BlurStrength" Header="Blur" Maximum="200" Minimum="0" Value="100" Width="96" />
                 <StackPanel Spacing="2" VerticalAlignment="Center">
-                    <CheckBox x:Uid="Ribbon_InactiveBlur" Content="Inactive blur" IsChecked="True" />
-                    <CheckBox x:Uid="Ribbon_PlusLighter" Content="Plus lighter" IsChecked="True" />
+                    <CheckBox x:Name="InactiveBlurCheck" x:Uid="Ribbon_InactiveBlur" Content="Inactive blur" IsChecked="True" />
+                    <CheckBox x:Name="PlusLighterCheck" x:Uid="Ribbon_PlusLighter" Content="Plus lighter" IsChecked="True" />
                 </StackPanel>
             </StackPanel>
         </Grid>
@@ -128,20 +175,25 @@
                 MinHeight="36"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Center"
+                AutomationProperties.AutomationId="PreviewStyleOverflow"
                 Style="{StaticResource SubtleTitleBarButtonStyle}"
                 ToolTipService.ToolTip="Style">
             <Button.Flyout>
-                <MenuFlyout>
-                    <MenuFlyoutItem x:Uid="Ribbon_Emphasis" Text="Emphasis" />
-                    <MenuFlyoutItem x:Uid="Ribbon_Glow" Text="Glow" />
-                    <MenuFlyoutItem x:Uid="Ribbon_Lift" Text="Lift" />
-                    <MenuFlyoutItem x:Uid="Ribbon_AnimSpeed" Text="Anim speed" />
-                    <MenuFlyoutItem x:Uid="Ribbon_InactiveScale" Text="Inactive scale" />
-                    <MenuFlyoutItem x:Uid="Ribbon_Cascade" Text="Cascade" />
-                    <MenuFlyoutItem x:Uid="Ribbon_BlurStrength" Text="Blur" />
-                    <MenuFlyoutItem x:Uid="Ribbon_InactiveBlur" Text="Inactive blur" />
-                    <MenuFlyoutItem x:Uid="Ribbon_PlusLighter" Text="Plus lighter" />
-                </MenuFlyout>
+                <Flyout>
+                    <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="8" MinWidth="220">
+                            <Slider Header="Emphasis" Maximum="200" Minimum="0" Width="200" Value="{x:Bind EmphasisSlider.Value, Mode=TwoWay}" />
+                            <Slider Header="Glow" Maximum="200" Minimum="0" Width="200" Value="{x:Bind GlowSlider.Value, Mode=TwoWay}" />
+                            <Slider Header="Lift" Maximum="200" Minimum="0" Width="200" Value="{x:Bind LiftSlider.Value, Mode=TwoWay}" />
+                            <Slider Header="Anim speed" Maximum="200" Minimum="20" Width="200" Value="{x:Bind AnimSpeedSlider.Value, Mode=TwoWay}" />
+                            <Slider Header="Inactive scale" Maximum="100" Minimum="50" Width="200" Value="{x:Bind InactiveScaleSlider.Value, Mode=TwoWay}" />
+                            <Slider Header="Cascade" Maximum="200" Minimum="0" Width="200" Value="{x:Bind CascadeSlider.Value, Mode=TwoWay}" />
+                            <Slider Header="Blur" Maximum="200" Minimum="0" Width="200" Value="{x:Bind BlurSlider.Value, Mode=TwoWay}" />
+                            <CheckBox Content="Inactive blur" IsChecked="{x:Bind InactiveBlurCheck.IsChecked, Mode=TwoWay}" />
+                            <CheckBox Content="Plus lighter" IsChecked="{x:Bind PlusLighterCheck.IsChecked, Mode=TwoWay}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Flyout>
             </Button.Flyout>
             <FontIcon FontSize="16" Glyph="&#xE790;" />
         </Button>
@@ -152,9 +204,9 @@
                 <Slider x:Name="BrightnessSlider" x:Uid="Ribbon_Brightness" Header="Brightness" Maximum="150" Minimum="20" Value="100" Width="96" />
                 <Slider x:Name="ContrastSlider" x:Uid="Ribbon_Contrast" Header="Contrast" Maximum="150" Minimum="50" Value="100" Width="96" />
                 <Slider x:Name="SaturationSlider" x:Uid="Ribbon_Saturation" Header="Saturation" Maximum="200" Minimum="0" Value="100" Width="96" />
-                <CheckBox x:Uid="Ribbon_BgEnabled" Content="Shader BG" IsChecked="True" VerticalAlignment="Center" Margin="0,0,0,4" />
-                <CheckBox x:Uid="Ribbon_BgStatic" Content="Static" VerticalAlignment="Center" Margin="0,0,0,4" />
-                <CheckBox x:Uid="Ribbon_AutoContrast" Content="Auto contrast" IsChecked="True" VerticalAlignment="Center" Margin="0,0,0,4" />
+                <CheckBox x:Name="BgEnabledCheck" x:Uid="Ribbon_BgEnabled" Content="Shader BG" IsChecked="True" VerticalAlignment="Center" Margin="0,0,0,4" />
+                <CheckBox x:Name="BgStaticCheck" x:Uid="Ribbon_BgStatic" Content="Static" VerticalAlignment="Center" Margin="0,0,0,4" />
+                <CheckBox x:Name="AutoContrastCheck" x:Uid="Ribbon_AutoContrast" Content="Auto contrast" IsChecked="True" VerticalAlignment="Center" Margin="0,0,0,4" />
             </StackPanel>
         </Grid>
         <Button x:Name="BgOverflowButton"
@@ -164,17 +216,20 @@
                 MinHeight="36"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Center"
+                AutomationProperties.AutomationId="PreviewBgOverflow"
                 Style="{StaticResource SubtleTitleBarButtonStyle}"
                 ToolTipService.ToolTip="Background">
             <Button.Flyout>
-                <MenuFlyout>
-                    <MenuFlyoutItem x:Uid="Ribbon_Brightness" Text="Brightness" />
-                    <MenuFlyoutItem x:Uid="Ribbon_Contrast" Text="Contrast" />
-                    <MenuFlyoutItem x:Uid="Ribbon_Saturation" Text="Saturation" />
-                    <MenuFlyoutItem x:Uid="Ribbon_BgEnabled" Text="Shader BG" />
-                    <MenuFlyoutItem x:Uid="Ribbon_BgStatic" Text="Static" />
-                    <MenuFlyoutItem x:Uid="Ribbon_AutoContrast" Text="Auto contrast" />
-                </MenuFlyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="220">
+                        <Slider Header="Brightness" Maximum="150" Minimum="20" Width="200" Value="{x:Bind BrightnessSlider.Value, Mode=TwoWay}" />
+                        <Slider Header="Contrast" Maximum="150" Minimum="50" Width="200" Value="{x:Bind ContrastSlider.Value, Mode=TwoWay}" />
+                        <Slider Header="Saturation" Maximum="200" Minimum="0" Width="200" Value="{x:Bind SaturationSlider.Value, Mode=TwoWay}" />
+                        <CheckBox Content="Shader BG" IsChecked="{x:Bind BgEnabledCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="Static" IsChecked="{x:Bind BgStaticCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="Auto contrast" IsChecked="{x:Bind AutoContrastCheck.IsChecked, Mode=TwoWay}" />
+                    </StackPanel>
+                </Flyout>
             </Button.Flyout>
             <FontIcon FontSize="16" Glyph="&#xE790;" />
         </Button>

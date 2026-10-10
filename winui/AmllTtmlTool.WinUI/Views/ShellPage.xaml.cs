@@ -73,21 +73,7 @@ namespace AmllTtmlTool.WinUI.Views
                 if (SidePane.SelectedItem is null)
                     SidePane.SelectedItem = SidePane.MenuItems[0];
                 ApplyTitleState(TitleStates.CurrentState);
-                BindRibbonWidthScopes();
             };
-        }
-
-        /// <summary>
-        /// The ribbon's width triggers must watch the space the ribbon is actually
-        /// given, not its own content width: a content-sized element's ActualWidth
-        /// only ever grows, so every threshold would fire at once. The card Border
-        /// is the real constraint, so it is wired in once the page is laid out.
-        /// </summary>
-        private void BindRibbonWidthScopes()
-        {
-            EditBar.BindWidthScope(RibbonCard);
-            SyncBar.BindWidthScope(RibbonCard);
-            PreviewBar.BindWidthScope(RibbonCard);
         }
 
         private void UpdateCaptionInsets()

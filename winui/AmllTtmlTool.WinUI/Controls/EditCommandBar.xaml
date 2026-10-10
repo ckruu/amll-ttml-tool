@@ -7,6 +7,12 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
+    <!-- No ScrollViewer here on purpose: a scrollable wrapper silently
+         disables the VisualStateManager tiers below (verified by bisect:
+         with a ScrollViewer the group stays stuck with no state applied and
+         content clips; without it every tier engages). The tiers already
+         cover every reachable width down to the 600px minimum, so a
+         scrollbar fallback would only protect an unreachable state. -->
     <Grid x:Name="RootGrid" ColumnSpacing="4">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
@@ -23,40 +29,48 @@
         </Grid.RowDefinitions>
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="WidthTiers">
-                <!-- Thresholds are grounded in the group widths the self-check
-                     measured: 88 + 247 + 309 + 211 + 207 content plus ~80px of
-                     separators and padding. Each tier drops the least-used group
-                     and folds it into an overflow flyout, so nothing is hidden
-                     without a route and nothing is ever clipped. -->
+                <!-- Window-width triggers. The bar always measures exactly
+                     42px under the client width (16 page margin + 8 card
+                     padding + card chrome, verified constant across all
+                     widths), so window thresholds are bar thresholds + 42.
+                     AdaptiveTrigger is used instead of a custom
+                     container-width trigger because it is the proven
+                     mechanism in this app (the title-bar states already
+                     run on it). Re-measure the offset if the card chrome
+                     ever changes. Bar widths behind these numbers:
+                     1110 + 900 + 720 + 470. -->
                 <VisualState x:Name="Wide">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierWide" MinWidth="1110" />
+                        <AdaptiveTrigger MinWindowWidth="1152" />
                     </VisualState.StateTriggers>
                 </VisualState>
                 <VisualState x:Name="Medium">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierMedium" MinWidth="900" />
+                        <AdaptiveTrigger MinWindowWidth="942" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="Narrow">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierNarrow" MinWidth="720" />
+                        <AdaptiveTrigger MinWindowWidth="762" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
                         <Setter Target="OverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="Tight">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierTight" MinWidth="470" />
+                        <AdaptiveTrigger MinWindowWidth="512" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
                         <Setter Target="OverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ManageGroup.Visibility" Value="Collapsed" />
@@ -76,15 +90,17 @@
                 </VisualState>
                 <VisualState x:Name="Tiny">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierTiny" MinWidth="1" />
+                        <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
                         <Setter Target="OverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ManageGroup.Visibility" Value="Collapsed" />
                         <Setter Target="ManageOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="WordGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="WordOverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
@@ -114,13 +130,26 @@
                 Visibility="Collapsed"
                 MinWidth="44"
                 MinHeight="36"
+                AutomationProperties.AutomationId="EditManageOverflow"
                 Style="{StaticResource SubtleTitleBarButtonStyle}"
                 ToolTipService.ToolTip="Import and add line">
             <Button.Flyout>
-                <MenuFlyout>
-                    <MenuFlyoutItem x:Uid="Ribbon_Import" Click="OnStubClick" Text="Import" />
-                    <MenuFlyoutItem x:Uid="Ribbon_AddLine" Click="OnNewLineClick" Text="Line" />
-                </MenuFlyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="180">
+                        <Button Click="OnStubClick" MinHeight="28" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon FontSize="14" Glyph="&#xE8B7;" />
+                                <TextBlock Text="Import" />
+                            </StackPanel>
+                        </Button>
+                        <Button Click="OnNewLineClick" MinHeight="28" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon FontSize="14" Glyph="&#xE710;" />
+                                <TextBlock Text="Line" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Flyout>
             </Button.Flyout>
             <FontIcon FontSize="16" Glyph="&#xE712;" />
         </Button>
@@ -169,6 +198,42 @@
             <TextBlock x:Name="ObsceneLabel" x:Uid="Ribbon_ObsceneLabel" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" ToolTipService.ToolTip="Obscene" />
             <ToggleButton x:Name="ObsceneToggle" Grid.Row="1" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="28" MinWidth="120" />
         </Grid>
+        <Button x:Name="WordOverflowButton"
+                Grid.Column="4"
+                Visibility="Collapsed"
+                MinWidth="44"
+                MinHeight="36"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                AutomationProperties.AutomationId="EditWordOverflow"
+                Style="{StaticResource SubtleTitleBarButtonStyle}"
+                ToolTipService.ToolTip="Word fields">
+            <Button.Flyout>
+                <Flyout>
+                    <Grid ColumnSpacing="6" RowSpacing="4">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource RibbonFieldLabel}" Text="Start" />
+                        <NumberBox Grid.Column="1" Minimum="0" Width="88" MinHeight="28" AutomationProperties.Name="Start" Value="{x:Bind WordStartBox.Value, Mode=TwoWay}" />
+                        <TextBlock Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Content" />
+                        <TextBox Grid.Column="3" Width="120" MinHeight="28" AutomationProperties.Name="Content" Text="{x:Bind WordContentBox.Text, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" />
+                        <NumberBox Grid.Row="1" Grid.Column="1" Minimum="0" Width="88" MinHeight="28" AutomationProperties.Name="End" Value="{x:Bind WordEndBox.Value, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" />
+                        <ToggleButton Grid.Row="1" Grid.Column="3" MinHeight="28" MinWidth="120" IsChecked="{x:Bind ObsceneToggle.IsChecked, Mode=TwoWay}" Content="{x:Bind ObsceneToggle.Content, Mode=OneWay}" Click="OnObsceneClick" />
+                    </Grid>
+                </Flyout>
+            </Button.Flyout>
+            <FontIcon FontSize="16" Glyph="&#xE8E9;" />
+        </Button>
 
         <Border Grid.Column="5" Grid.RowSpan="1" Style="{StaticResource RibbonSeparator}" />
 
@@ -194,6 +259,36 @@
                 <TextBox x:Name="RomanBox" Grid.Column="1" Width="120" MinHeight="28" AutomationProperties.Name="Romanization" />
             </Grid>
         </Grid>
+        <Button x:Name="SecondaryOverflowButton"
+                Grid.Column="6"
+                Visibility="Collapsed"
+                MinWidth="44"
+                MinHeight="36"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                AutomationProperties.AutomationId="EditSecondaryOverflow"
+                Style="{StaticResource SubtleTitleBarButtonStyle}"
+                ToolTipService.ToolTip="Translation and romanization">
+            <Button.Flyout>
+                <Flyout>
+                    <Grid ColumnSpacing="6" RowSpacing="8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource RibbonFieldLabel}" Text="Translation" />
+                        <TextBox Grid.Column="1" Width="140" MinHeight="28" AutomationProperties.Name="Translation" Text="{x:Bind TransBox.Text, Mode=TwoWay}" />
+                        <TextBlock Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Width="140" MinHeight="28" AutomationProperties.Name="Romanization" Text="{x:Bind RomanBox.Text, Mode=TwoWay}" />
+                    </Grid>
+                </Flyout>
+            </Button.Flyout>
+            <FontIcon FontSize="16" Glyph="&#xE775;" />
+        </Button>
 
         <Border Grid.Column="7" Grid.RowSpan="1" Style="{StaticResource RibbonSeparator}" />
 
@@ -222,8 +317,19 @@
                 Visibility="Collapsed"
                 MinWidth="44"
                 MinHeight="36"
+                AutomationProperties.AutomationId="EditViewOverflow"
                 Style="{StaticResource SubtleTitleBarButtonStyle}"
                 ToolTipService.ToolTip="View options">
+            <Button.Flyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="180">
+                        <ToggleButton Content="Outline" MinHeight="28" HorizontalAlignment="Stretch" IsChecked="{x:Bind OutlineToggle.IsChecked, Mode=TwoWay}" Click="OnViewToggleClick" />
+                        <ToggleButton Content="BPM" MinHeight="28" HorizontalAlignment="Stretch" IsChecked="{x:Bind BpmToggle.IsChecked, Mode=TwoWay}" Click="OnViewToggleClick" />
+                        <ToggleButton Content="Preview" MinHeight="28" HorizontalAlignment="Stretch" IsChecked="{x:Bind PreviewToggle.IsChecked, Mode=TwoWay}" Click="OnViewToggleClick" />
+                        <ToggleButton Content="Follow Playback" MinHeight="28" HorizontalAlignment="Stretch" IsChecked="{x:Bind FollowToggle.IsChecked, Mode=TwoWay}" Click="OnViewToggleClick" />
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
             <Grid Width="20" HorizontalAlignment="Center">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -232,13 +338,6 @@
                 <FontIcon FontSize="16" Glyph="&#xE8FD;" />
                 <FontIcon Grid.Column="1" FontSize="16" Glyph="&#xE70D;" />
             </Grid>
-            <Button.Flyout>
-                <MenuFlyout>
-                    <ToggleMenuFlyoutItem x:Uid="Ribbon_View" Text="Outline" Tag="Outline" />
-                    <ToggleMenuFlyoutItem x:Uid="Ribbon_DeskBpm" Text="BPM" Tag="BPM" />
-                    <ToggleMenuFlyoutItem x:Uid="Ribbon_DeskPreview" Text="Preview" Tag="SidePreview" />
-                </MenuFlyout>
-            </Button.Flyout>
         </Button>
     </Grid>
 </UserControl>

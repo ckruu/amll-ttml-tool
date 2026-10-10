@@ -7,6 +7,10 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
+    <!-- No ScrollViewer here on purpose: a scrollable wrapper silently
+         disables the VisualStateManager tiers (verified by bisect on the
+         Edit bar). The tiers cover every reachable width, so no fallback
+         scroller is needed. -->
     <Grid x:Name="RootGrid" ColumnSpacing="4">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
@@ -23,16 +27,17 @@
         </Grid.ColumnDefinitions>
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="WidthTiers">
-                <!-- Thresholds come from the widths the self-check measured:
-                     157 + 110 + 313 + 273 + 259 + 276 content plus separators. -->
+                <!-- Window-width triggers; bar measures exactly 42px under the
+                     client width (see EditCommandBar). Bar widths: 1480 + 1180
+                     + 960 + 740. -->
                 <VisualState x:Name="Wide">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierWide" MinWidth="1480" />
+                        <AdaptiveTrigger MinWindowWidth="1522" />
                     </VisualState.StateTriggers>
                 </VisualState>
                 <VisualState x:Name="Medium">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierMedium" MinWidth="1180" />
+                        <AdaptiveTrigger MinWindowWidth="1222" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="KeysGroup.Visibility" Value="Collapsed" />
@@ -41,7 +46,7 @@
                 </VisualState>
                 <VisualState x:Name="Narrow">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierNarrow" MinWidth="960" />
+                        <AdaptiveTrigger MinWindowWidth="1002" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="KeysGroup.Visibility" Value="Collapsed" />
@@ -52,7 +57,7 @@
                 </VisualState>
                 <VisualState x:Name="Tight">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierTight" MinWidth="740" />
+                        <AdaptiveTrigger MinWindowWidth="782" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="KeysGroup.Visibility" Value="Collapsed" />
@@ -60,11 +65,12 @@
                         <Setter Target="ViewsGroup.Visibility" Value="Collapsed" />
                         <Setter Target="ViewsOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="Tiny">
                     <VisualState.StateTriggers>
-                        <controls:ContainerWidthTrigger x:Name="TierTiny" MinWidth="1" />
+                        <AdaptiveTrigger MinWindowWidth="0" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="KeysGroup.Visibility" Value="Collapsed" />
@@ -72,7 +78,9 @@
                         <Setter Target="ViewsGroup.Visibility" Value="Collapsed" />
                         <Setter Target="ViewsOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="WordGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="WordOverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
@@ -103,10 +111,31 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <CheckBox x:Uid="Ribbon_TimestampUpdate" Content="Timestamp preview" VerticalAlignment="Center" />
-            <CheckBox x:Uid="Ribbon_TouchPanel" Grid.Row="1" Content="Touch panel" VerticalAlignment="Center" />
-            <CheckBox x:Uid="Ribbon_BgIgnore" Grid.Column="1" Grid.RowSpan="2" Content="BG lines ignore sync" VerticalAlignment="Center" />
+            <CheckBox x:Name="TimestampUpdateCheck" x:Uid="Ribbon_TimestampUpdate" Content="Timestamp preview" VerticalAlignment="Center" />
+            <CheckBox x:Name="TouchPanelCheck" x:Uid="Ribbon_TouchPanel" Grid.Row="1" Content="Touch panel" VerticalAlignment="Center" />
+            <CheckBox x:Name="BgIgnoreCheck" x:Uid="Ribbon_BgIgnore" Grid.Column="1" Grid.RowSpan="2" Content="BG lines ignore sync" VerticalAlignment="Center" />
         </Grid>
+        <Button x:Name="WordOverflowButton"
+                Grid.Column="4"
+                Visibility="Collapsed"
+                MinWidth="44"
+                MinHeight="36"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                AutomationProperties.AutomationId="SyncWordOverflow"
+                Style="{StaticResource SubtleTitleBarButtonStyle}"
+                ToolTipService.ToolTip="Assist options">
+            <Button.Flyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="200">
+                        <CheckBox Content="Timestamp preview" IsChecked="{x:Bind TimestampUpdateCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="Touch panel" IsChecked="{x:Bind TouchPanelCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="BG lines ignore sync" IsChecked="{x:Bind BgIgnoreCheck.IsChecked, Mode=TwoWay}" />
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+            <FontIcon FontSize="16" Glyph="&#xE8E9;" />
+        </Button>
         <Border Grid.Column="5" Grid.RowSpan="1" Style="{StaticResource RibbonSeparator}" />
 
         <Grid x:Name="SecondaryGroup" Grid.Column="6" Margin="6,6,6,6" ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Top">
@@ -118,11 +147,33 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <CheckBox x:Uid="Ribbon_ShowStamps" Content="Timestamps" IsChecked="True" />
-            <CheckBox x:Uid="Ribbon_HighlightWord" Grid.Column="1" Content="Highlight syllable" IsChecked="True" />
-            <CheckBox x:Uid="Ribbon_HighlightErr" Grid.Row="1" Content="Highlight errors" IsChecked="True" />
-            <CheckBox x:Uid="Ribbon_Wrap" Grid.Row="1" Grid.Column="1" Content="Wrap words" IsChecked="True" />
+            <CheckBox x:Name="ShowStampsCheck" x:Uid="Ribbon_ShowStamps" Content="Timestamps" IsChecked="True" />
+            <CheckBox x:Name="HighlightWordCheck" x:Uid="Ribbon_HighlightWord" Grid.Column="1" Content="Highlight syllable" IsChecked="True" />
+            <CheckBox x:Name="HighlightErrCheck" x:Uid="Ribbon_HighlightErr" Grid.Row="1" Content="Highlight errors" IsChecked="True" />
+            <CheckBox x:Name="WrapCheck" x:Uid="Ribbon_Wrap" Grid.Row="1" Grid.Column="1" Content="Wrap words" IsChecked="True" />
         </Grid>
+        <Button x:Name="SecondaryOverflowButton"
+                Grid.Column="6"
+                Visibility="Collapsed"
+                MinWidth="44"
+                MinHeight="36"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                AutomationProperties.AutomationId="SyncDisplayOverflow"
+                Style="{StaticResource SubtleTitleBarButtonStyle}"
+                ToolTipService.ToolTip="Display options">
+            <Button.Flyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="200">
+                        <CheckBox Content="Timestamps" IsChecked="{x:Bind ShowStampsCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="Highlight syllable" IsChecked="{x:Bind HighlightWordCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="Highlight errors" IsChecked="{x:Bind HighlightErrCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="Wrap words" IsChecked="{x:Bind WrapCheck.IsChecked, Mode=TwoWay}" />
+                    </StackPanel>
+                </Flyout>
+            </Button.Flyout>
+            <FontIcon FontSize="16" Glyph="&#xE8E9;" />
+        </Button>
         <Border Grid.Column="7" Grid.RowSpan="1" Style="{StaticResource RibbonSeparator}" />
 
         <Grid x:Name="ViewsGroup" Grid.Column="8" Margin="6,6,6,6" ColumnSpacing="12" RowSpacing="2" VerticalAlignment="Top">
@@ -134,10 +185,10 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <CheckBox x:Uid="Ribbon_SyncOutline" Content="Outline" />
-            <CheckBox x:Uid="Ribbon_SyncBpm" Grid.Column="1" Content="BPM" />
-            <CheckBox x:Uid="Ribbon_SyncPreview" Grid.Row="1" Content="Preview" />
-            <CheckBox x:Uid="Ribbon_SyncFollow" Grid.Row="1" Grid.Column="1" Content="Follow playback" />
+            <CheckBox x:Name="SyncOutlineCheck" x:Uid="Ribbon_SyncOutline" Content="Outline" />
+            <CheckBox x:Name="SyncBpmCheck" x:Uid="Ribbon_SyncBpm" Grid.Column="1" Content="BPM" />
+            <CheckBox x:Name="SyncPreviewCheck" x:Uid="Ribbon_SyncPreview" Grid.Row="1" Content="Preview" />
+            <CheckBox x:Name="SyncFollowCheck" x:Uid="Ribbon_SyncFollow" Grid.Row="1" Grid.Column="1" Content="Follow playback" />
         </Grid>
         <Button x:Name="ViewsOverflowButton"
                 Grid.Column="8"
@@ -146,14 +197,18 @@
                 MinHeight="36"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Center"
+                AutomationProperties.AutomationId="SyncViewsOverflow"
                 Style="{StaticResource SubtleTitleBarButtonStyle}"
                 ToolTipService.ToolTip="Views">
             <Button.Flyout>
-                <MenuFlyout>
-                    <ToggleMenuFlyoutItem x:Uid="Ribbon_View" Text="Outline" Tag="ViewsOutline" />
-                    <ToggleMenuFlyoutItem x:Uid="Ribbon_DeskBpm" Text="BPM" Tag="ViewsBpm" />
-                    <ToggleMenuFlyoutItem x:Uid="Ribbon_DeskPreview" Text="Preview" Tag="ViewsPreview" />
-                </MenuFlyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="200">
+                        <CheckBox Content="Outline" IsChecked="{x:Bind SyncOutlineCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="BPM" IsChecked="{x:Bind SyncBpmCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="Preview" IsChecked="{x:Bind SyncPreviewCheck.IsChecked, Mode=TwoWay}" />
+                        <CheckBox Content="Follow playback" IsChecked="{x:Bind SyncFollowCheck.IsChecked, Mode=TwoWay}" />
+                    </StackPanel>
+                </Flyout>
             </Button.Flyout>
             <FontIcon FontSize="16" Glyph="&#xE8FD;" />
         </Button>
@@ -173,14 +228,17 @@
                 MinHeight="36"
                 HorizontalAlignment="Right"
                 VerticalAlignment="Center"
+                AutomationProperties.AutomationId="SyncKeysOverflow"
                 Style="{StaticResource SubtleTitleBarButtonStyle}"
                 ToolTipService.ToolTip="Sync keys">
             <Button.Flyout>
-                <MenuFlyout>
-                    <MenuFlyoutItem x:Uid="Ribbon_StartSync" Text="Start: Space" />
-                    <MenuFlyoutItem x:Uid="Ribbon_NextSync" Text="Next: Tab" />
-                    <MenuFlyoutItem x:Uid="Ribbon_EndSync" Text="End: Enter" />
-                </MenuFlyout>
+                <Flyout>
+                    <StackPanel Spacing="8" MinWidth="180">
+                        <Button Content="Start: Space" MinHeight="28" HorizontalAlignment="Stretch" />
+                        <Button Content="Next: Tab" Style="{StaticResource AccentButtonStyle}" MinHeight="28" HorizontalAlignment="Stretch" />
+                        <Button Content="End: Enter" MinHeight="28" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                </Flyout>
             </Button.Flyout>
             <FontIcon FontSize="16" Glyph="&#xE765;" />
         </Button>
