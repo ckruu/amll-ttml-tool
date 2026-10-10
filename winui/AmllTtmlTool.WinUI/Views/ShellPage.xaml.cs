@@ -73,6 +73,41 @@ namespace AmllTtmlTool.WinUI.Views
                 if (SidePane.SelectedItem is null)
                     SidePane.SelectedItem = SidePane.MenuItems[0];
                 ApplyTitleState(TitleStates.CurrentState);
+#if DEBUG
+                // Layout-test harness (kept for ribbon/separator/animation items).
+                // Env var or --layout-test arg; either avoids startup-file handling.
+                if (string.Equals(Environment.GetEnvironmentVariable("AMLL_SELF_CHECK"), "1",
+                        StringComparison.OrdinalIgnoreCase)
+                    || Environment.GetCommandLineArgs().Contains("--layout-test"))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            string? State() => VisualStateManager.GetVisualStateGroups(RootGrid)
+                                .OfType<VisualStateGroup>().FirstOrDefault(g => g.Name == "TitleStates")?.CurrentState?.Name;
+                            await Services.TitleCenteringCheck.RunAsync(win,
+                                new Services.TitleProbe(TitleBarArea, CenterTitleBlock, ModeNavView, RightFullPanel, RightCompactSplit, State));
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.TitleCenteringCheck.ReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
+#endif
             };
         }
 
