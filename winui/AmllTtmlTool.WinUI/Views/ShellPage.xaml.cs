@@ -137,7 +137,9 @@ namespace AmllTtmlTool.WinUI.Views
             UpdatePassthroughRegions(appWindow, scale);
         }
 
-        // Centers the pill+tabs unit on the window. Cheap by design: only reads
+        // Centers the pill+tabs unit in the visible gap between the left and
+        // right clusters (gap center, not window center: unequal clusters
+        // would otherwise leave unequal gaps). Cheap by design: only reads
         // measured widths and sets a layout-neutral RenderTransform. No layout
         // writes, no timers, no Task.Delay, so there is no feedback loop.
         private string? _centerTier;
@@ -177,7 +179,10 @@ namespace AmllTtmlTool.WinUI.Views
                 if (unitW <= 0) return;
                 // All rects below include any previously applied shift, so the new
                 // absolute shift is computed relative to the unshifted layout.
-                var target = areaW / 2 - (unitLeft + unitW / 2) + _centerAppliedShift;
+                // Target is the gap center between the clusters, so the left
+                // and right gaps come out equal wherever the unit fits.
+                var gapCenter = (leftRight + rightLeft) / 2;
+                var target = gapCenter - (unitLeft + unitW / 2) + _centerAppliedShift;
                 var lo = -(unitLeft - leftRight - 2) + _centerAppliedShift;
                 var hi = +(rightLeft - (unitLeft + unitW) - 2) + _centerAppliedShift;
                 var shift = lo > hi ? 0 : Math.Clamp(target, lo, hi);

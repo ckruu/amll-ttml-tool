@@ -105,6 +105,8 @@ internal static class TitleCenteringCheck
                 }
             }
             await RunRoundTripAsync(window, probe, leftCluster, appWindow, scale);
+            await RunGapTableAsync(window, probe, leftCluster, appWindow, scale);
+            await RunFileNameDriftAsync(window, probe, leftCluster, appWindow, scale);
         }
         catch (Exception ex)
         {
@@ -164,12 +166,16 @@ internal static class TitleCenteringCheck
         if (snap.NovState == "ACTIVE") failures.Add("internal-overflow-engaged");
         if (snap.OvActive != snap.PillsHidden) failures.Add($"overflow-iff-mismatch ov={snap.OvActive} pillsHidden={snap.PillsHidden}");
         if (snap.OvGeom.StartsWith("BAD")) failures.Add(snap.OvGeom);
-        // Off-center is only a defect when room is wasted: an honest clamp
-        // pins one clearance near 2px. But ANY off at settle also starts a
-        // convergence trajectory: frozen, drifting, or late-converged.
-        if (Math.Abs(snap.Off) > 2 && Math.Min(snap.ClearL, snap.ClearR) > 3)
-            failures.Add($"off-wastes-room[{snap.Off:F0} clearL={snap.ClearL:F0} clearR={snap.ClearR:F0}]");
-        if (Math.Abs(snap.Off) > 2 && Math.Min(snap.ClearL, snap.ClearR) > 3)
+        // Gap-centering verdict: within 2px of the gap center, or an honest
+        // clamp pinning one clearance near 2px (reported with limiting side).
+        // Offsets with room to spare start a convergence trajectory instead.
+        var notes = new List<string>();
+        var minClear = Math.Min(snap.ClearL, snap.ClearR);
+        if (Math.Abs(snap.Off) > 2 && minClear > 3)
+            failures.Add($"gap-wastes-room[{snap.Off:F0} clearL={snap.ClearL:F0} clearR={snap.ClearR:F0}]");
+        if (Math.Abs(snap.Off) > 2 && minClear <= 3)
+            notes.Add($"clamped-by-{Math.Abs(snap.Off):F0}px-limiting-{(snap.ClearL <= snap.ClearR ? "left" : "right")}");
+        if (Math.Abs(snap.Off) > 2 && minClear > 3)
         {
             var traj = new List<string> { snap.Off.ToString("F0") };
             var last = snap;
@@ -199,8 +205,8 @@ internal static class TitleCenteringCheck
             legs[snap.AreaKey] = leg;
         }
         return failures.Count == 0
-            ? $"sweep {leg} req={reqW} {snap.Detail} SIG-OK"
-            : $"sweep {leg} req={reqW} {snap.Detail} VERIFY-FAIL[{string.Join("; ", failures)}]";
+            ? $"sweep {leg} req={reqW} {snap.Detail}{(notes.Count > 0 ? " " + string.Join(" ", notes) : "")} SIG-OK"
+            : $"sweep {leg} req={reqW} {snap.Detail}{(notes.Count > 0 ? " " + string.Join(" ", notes) : "")} VERIFY-FAIL[{string.Join("; ", failures)}]";
     }
 
     private static (int AreaKey, string Sig, string Detail, string OvActive, string PillsHidden, string NovState, string Tabs, string OvGeom, double Off, double Nudge, double Want, double ClearL, double ClearR) SweepSnapshot(Window window, TitleProbe probe, FrameworkElement leftCluster, AppWindow appWindow, double scale)
@@ -257,23 +263,136 @@ internal static class TitleCenteringCheck
         var rightPanel = probe.RightFull.Visibility == Visibility.Visible ? probe.RightFull : probe.RightCompact;
         var rightRect = RectOf(rightPanel, area);
         var unitRect = RectOf(probe.CenterBlock, area);
-        var off = unitRect.Left + unitRect.Width / 2 - areaW / 2;
-        var sig = $"state={state} unitW={unitRect.Width:F0} navProp={navProp} pills={pillsHidden} ov={ovActive} tabs={tabs} nov={novState} off={off:F0}";
+        // Checked value: offset of the unit center from the GAP center
+        // (midpoint of the visible cluster edges). Window offset is
+        // information only and stays out of the signature and verdicts.
+        var gapCenter = (leftRight + rightRect.Left) / 2;
+        var unitCenter = unitRect.Left + unitRect.Width / 2;
+        var off = unitCenter - gapCenter;
+        var offWin = unitCenter - areaW / 2;
+        var sig = $"state={state} unitW={unitRect.Width:F0} navProp={navProp} pills={pillsHidden} ov={ovActive} tabs={tabs} nov={novState} offGap={((int)Math.Round(off))}";
         var clearL = unitRect.Left - leftRight;
         var clearR = rightRect.Left - (unitRect.Left + unitRect.Width);
-        var detail = $"area={areaW:F0} {sig}";
+        var detail = $"area={areaW:F0} {sig} offWin={offWin:F1}";
         double nudgeX = double.NaN;
         if (probe.CenterBlock.RenderTransform is TranslateTransform nudge) nudgeX = nudge.X;
         var want = double.NaN;
         if (!double.IsNaN(nudgeX))
         {
-            var target = areaW / 2 - (unitRect.Left + unitRect.Width / 2) + nudgeX;
+            var target = gapCenter - (unitRect.Left + unitRect.Width / 2) + nudgeX;
             var lo = -(unitRect.Left - leftRight - 2) + nudgeX;
             var hi = (rightRect.Left - (unitRect.Left + unitRect.Width) - 2) + nudgeX;
             want = lo > hi ? nudgeX : Math.Clamp(target, lo, hi);
         }
         detail += $" nudge={nudgeX:F0} want={want:F0} clearL={clearL:F0} clearR={clearR:F0}";
         return ((int)Math.Round(areaW), sig, detail, ovActive, pillsHidden, novState, tabs, ovGeom, off, nudgeX, want, clearL, clearR);
+    }
+
+    // Fixed-width gap table: left gap vs right gap plus the unit-vs-gap
+    // offset. After the retarget, the two gaps must be equal (within 2px)
+    // wherever the verdict says within-2px.
+    private static async Task RunGapTableAsync(Window window, TitleProbe probe, FrameworkElement leftCluster, AppWindow appWindow, double scale)
+    {
+        WriteLine("=== GAP TABLE (left gap vs right gap, unit-vs-gap offset) ===");
+        foreach (var w in new[] { 1745, 1400, 1116, 900, 800, 720, 700, 640, 600 })
+        {
+            var line = "";
+            try
+            {
+                await OnUiAsync(window, () =>
+                    appWindow.Resize(new SizeInt32(
+                        (int)Math.Round(w * scale),
+                        (int)Math.Round(700 * scale))));
+                await Task.Delay(700);
+                await OnUiAsync(window, () => { });
+                await OnUiAsync(window, () => { });
+                await OnUiAsync(window, () => { line = GapTableLine(probe, leftCluster, w, "table"); });
+            }
+            catch (Exception ex)
+            {
+                line = $"table req={w}: TABLE-ERROR {ex.GetType().Name}: {ex.Message}";
+            }
+            WriteLine(line);
+        }
+    }
+
+    private static string GapTableLine(TitleProbe probe, FrameworkElement leftCluster, int reqW, string tag)
+    {
+        var area = probe.TitleBarArea;
+        var areaW = area.ActualWidth;
+        var state = probe.CurrentState() ?? "?";
+        var leftRight = RectOf(leftCluster, area).Right;
+        var rightPanel = probe.RightFull.Visibility == Visibility.Visible ? probe.RightFull : probe.RightCompact;
+        var rightRect = RectOf(rightPanel, area);
+        var unitRect = RectOf(probe.CenterBlock, area);
+        var clearL = unitRect.Left - leftRight;
+        var clearR = rightRect.Left - (unitRect.Left + unitRect.Width);
+        var offGap = unitRect.Left + unitRect.Width / 2 - (leftRight + rightRect.Left) / 2;
+        string verdict;
+        if (Math.Abs(offGap) <= 2) verdict = "within-2px";
+        else if (Math.Min(clearL, clearR) <= 3)
+            verdict = $"clamped-by-{Math.Abs(offGap):F0}px-limiting-{(clearL <= clearR ? "left" : "right")}";
+        else verdict = "VERIFY-FAIL-room-wasted";
+        return $"{tag} req={reqW} area={areaW:F0} state={state} leftGap={clearL:F1} rightGap={clearR:F1} offGap={offGap:+0.0;-0.0} {verdict}";
+    }
+
+    // Filename drift: changing the file-name label changes the left
+    // cluster's width. Gap-centering must not drift afterwards. Restores the
+    // original text when done.
+    private static async Task RunFileNameDriftAsync(Window window, TitleProbe probe, FrameworkElement leftCluster, AppWindow appWindow, double scale)
+    {
+        WriteLine("=== FILENAME DRIFT (gap-centering after cluster width change) ===");
+        FrameworkElement? nameText = null;
+        var orig = "";
+        await OnUiAsync(window, () =>
+        {
+            if (window.Content is DependencyObject content)
+                nameText = FindByName(content, "FileNameText") as FrameworkElement;
+            if (nameText is TextBlock tb) orig = tb.Text;
+        });
+        if (nameText is not TextBlock nameBox)
+        {
+            WriteLine("filename: skipped (FileNameText not found)");
+            return;
+        }
+        try
+        {
+            foreach (var (label, text) in new[] {
+                ("short", "a.ttml"),
+                ("long", "a-very-long-lyrics-file-name-for-drift-testing.ttml") })
+            {
+                foreach (var w in new[] { 1400, 900 })
+                {
+                    var line = "";
+                    try
+                    {
+                        await OnUiAsync(window, () =>
+                            appWindow.Resize(new SizeInt32(
+                                (int)Math.Round(w * scale),
+                                (int)Math.Round(700 * scale))));
+                        await Task.Delay(700);
+                        await OnUiAsync(window, () => { nameBox.Text = text; });
+                        await Task.Delay(250);
+                        await OnUiAsync(window, () => { });
+                        await OnUiAsync(window, () => { });
+                        await OnUiAsync(window, () => { line = GapTableLine(probe, leftCluster, w, $"filename-{label}"); });
+                    }
+                    catch (Exception ex)
+                    {
+                        line = $"filename-{label} req={w}: TABLE-ERROR {ex.GetType().Name}: {ex.Message}";
+                    }
+                    WriteLine(line);
+                }
+            }
+        }
+        finally
+        {
+            await OnUiAsync(window, () =>
+            {
+                try { nameBox.Text = orig; } catch { }
+            });
+            await Task.Delay(250);
+        }
     }
 
     private static void WriteLine(string text)
