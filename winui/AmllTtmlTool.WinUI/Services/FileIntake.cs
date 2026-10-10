@@ -11,7 +11,8 @@ public sealed class FileIntake(
     AudioEngine audio,
     Window window,
     UIElement anchor,
-    Action<string> notify)
+    Action<string> notify,
+    SmtcService? smtc = null)
 {
     public async Task OpenLyricFileAsync(StorageFile file)
     {
@@ -58,6 +59,15 @@ public sealed class FileIntake(
             audio.Cover = cover ?? await ReadCoverAsync(file);
             await audio.LoadAsync(file.Path);
             store.MergeAudioMetadata(AudioMetadata.ToTtmlMetadata(meta));
+            // OS transport surface: title/artist/album (+ cover) for the
+            // volume OSD and media keys. Best-effort, never blocks the open.
+            if (smtc is not null)
+            {
+                var (smtcTitle, smtcArtist, smtcAlbum) =
+                    AmllTtmlTool.Core.Audio.SmtcDisplay.ForTrack(meta);
+                _ = smtc.RefreshMetadataAsync(smtcTitle, smtcArtist, smtcAlbum,
+                    audio.Cover?.Bytes);
+            }
         }
         catch (Exception ex)
         {

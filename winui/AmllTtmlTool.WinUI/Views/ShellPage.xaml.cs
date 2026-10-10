@@ -13,7 +13,6 @@ using Microsoft.UI.Xaml.Navigation;
 using System.Numerics;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
-using Windows.Media;
 using Windows.Storage;
 
 namespace AmllTtmlTool.WinUI.Views
@@ -26,7 +25,7 @@ namespace AmllTtmlTool.WinUI.Views
         private FileIntake? _intake;
         private bool _scrubbing;
         private bool _syncingSlider;
-        private SystemMediaTransportControls? _smtc;
+        private readonly SmtcService _smtcSvc = new();
 
         public ShellPage()
         {
@@ -313,6 +312,39 @@ namespace AmllTtmlTool.WinUI.Views
                         }
                     });
                 }
+                // SMTC-test harness: --smtc-test <file> [reportPath].
+                // End-to-end OS transport surface verification via the
+                // system session manager (metadata, status, timeline).
+                // Self-closes. DEBUG-only.
+                var smtcIdx = Array.IndexOf(audioArgs, "--smtc-test");
+                if (smtcIdx >= 0)
+                {
+                    var smtcFile = smtcIdx + 1 < audioArgs.Length ? audioArgs[smtcIdx + 1] : "";
+                    var smtcReport = smtcIdx + 2 < audioArgs.Length ? audioArgs[smtcIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.SmtcTestCheck.RunAsync(win, _audio, _smtcSvc, smtcFile, smtcReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.SmtcTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
 #endif
             };
         }
@@ -495,7 +527,8 @@ namespace AmllTtmlTool.WinUI.Views
         private void WireStores()
         {
             var window = ((App)Application.Current).MainWindow;
-            _intake = new FileIntake(_store, _audio, window, this, Notify);
+            SetupSmtc();
+            _intake = new FileIntake(_store, _audio, window, this, Notify, _smtcSvc);
             _store.Changed += RefreshChrome;
             _store.Notice += Notify;
             _audio.PositionChanged += RefreshAudioChrome;
@@ -508,7 +541,6 @@ namespace AmllTtmlTool.WinUI.Views
             RefreshChrome();
             RefreshAudioChrome();
             LoadMasterToggles();
-            SetupSmtc();
         }
 
         private void Notify(string message)
@@ -836,40 +868,19 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void SetupSmtc()
         {
-            try
-            {
-                _smtc = SystemMediaTransportControls.GetForCurrentView();
-                _smtc.IsPlayEnabled = true;
-                _smtc.IsPauseEnabled = true;
-                _smtc.ButtonPressed += (_, args) =>
-                {
-                    if (args.Button == SystemMediaTransportControlsButton.Play) _audio.Play();
-                    else if (args.Button == SystemMediaTransportControlsButton.Pause) _audio.Pause();
-                    DispatcherQueue.TryEnqueue(RefreshAudioChrome);
-                };
-            }
-            catch { }
+            var window = ((App)Application.Current).MainWindow;
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
+            _smtcSvc.Attach(window.DispatcherQueue, hwnd, () => _audio.Play(), () => _audio.Pause(), RefreshAudioChrome);
         }
 
         private void UpdateSmtc()
         {
-            if (_smtc is null) return;
-            try
-            {
-                _smtc.PlaybackStatus = !_audio.HasAudio
-                    ? MediaPlaybackStatus.Closed
-                    : _audio.IsPlaying ? MediaPlaybackStatus.Playing : MediaPlaybackStatus.Paused;
-                if (_audio.HasAudio && _audio.Duration > TimeSpan.Zero)
-                {
-                    _smtc.UpdateTimelineProperties(new SystemMediaTransportControlsTimelineProperties
-                    {
-                        StartTime = TimeSpan.Zero,
-                        EndTime = _audio.Duration,
-                        Position = _audio.Position,
-                    });
-                }
-            }
-            catch { }
+            // Called on every audio chrome refresh (including each engine
+            // tick via PositionChanged): the service pushes status on
+            // change and throttles the timeline itself. Position comes from
+            // the millisecond clock so the OS surface agrees with in-app.
+            _smtcSvc.RefreshPlayback(_audio.HasAudio, _audio.IsPlaying,
+                Services.PositionClock.ExtrapolateNow(), _audio.Duration);
         }
 
         private void OnModeNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
