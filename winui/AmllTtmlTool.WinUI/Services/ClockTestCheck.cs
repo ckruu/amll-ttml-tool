@@ -50,6 +50,7 @@ internal static class ClockTestCheck
             Write(report, await SnapshotWatchAsync(window, audio));
             foreach (var rate in new[] { 1.0, 0.5, 1.5 })
                 Write(report, await SampleRateAsync(window, audio, rate, TimeSpan.FromSeconds(10)));
+            Write(report, await VarispeedToggleAsync(window, audio));
             Write(report, await DriftAsync(window, audio));
         }
         finally
@@ -233,6 +234,72 @@ internal static class ClockTestCheck
         return sb.ToString();
     }
 
+    // Varispeed live-toggle leg: 2s keep-pitch @1.5x, toggle to varispeed
+    // mid-play, 2s, toggle back, 2s. Proves the mode switch needs no
+    // rebuild (playback continues: fed advances throughout) and the only
+    // discontinuity is the documented priming re-budget AT the toggle
+    // instant (bounded <300ms: worst case max prime ~100ms x max rate 2x
+    // plus dispatch slack; the display clamp absorbs it): no other step.
+    private static async Task<string> VarispeedToggleAsync(Window window, AudioEngine audio)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("---- varispeed-toggle @1.5x (2s keep, 2s vari, 2s keep) ----");
+        var positions = new List<(double Pos, long Ms)> (1024);
+        void Handler(object? sender, object? e) =>
+            positions.Add((PositionClock.ExtrapolateNow().TotalSeconds,
+                System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency));
+        await OnUiAsync(window, () =>
+        {
+            audio.SetKeepPitch(true);
+            audio.SetPlaybackRate(1.5);
+            audio.SeekTo(0);
+            audio.Play();
+            CompositionTarget.Rendering += Handler;
+        });
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        var fed0 = await OnUiAsync(window, () => audio.DecodedFramePosition);
+        await OnUiAsync(window, () => audio.SetKeepPitch(false));
+        // Stamp AFTER dispatch completes: the re-budget transient appears
+        // in the frames after the toggle executes, not after we asked.
+        var tgl1 = System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency;
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        var fed1 = await OnUiAsync(window, () => audio.DecodedFramePosition);
+        await OnUiAsync(window, () => audio.SetKeepPitch(true));
+        var tgl2 = System.Diagnostics.Stopwatch.GetTimestamp() * 1000 / System.Diagnostics.Stopwatch.Frequency;
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        var fed2 = await OnUiAsync(window, () => audio.DecodedFramePosition);
+        await OnUiAsync(window, () =>
+        {
+            CompositionTarget.Rendering -= Handler;
+            audio.Pause();
+        });
+        var badBacks = 0;
+        var worstToggleBackMs = 0.0;
+        var worstBadBackMs = 0.0;
+        var worstBadAtMs = 0L;
+        var legStartMs = positions.Count > 0 ? positions[0].Ms : 0;
+        for (var i = 1; i < positions.Count; i++)
+        {
+            var backMs = (positions[i - 1].Pos - positions[i].Pos) * 1000.0;
+            if (backMs <= 2.0) continue;
+            var nearToggle = System.Math.Min(
+                System.Math.Abs(positions[i].Ms - tgl1),
+                System.Math.Abs(positions[i].Ms - tgl2)) <= 300;
+            if (nearToggle && backMs < 300.0)
+                worstToggleBackMs = System.Math.Max(worstToggleBackMs, backMs);
+            else
+            {
+                badBacks++;
+                if (backMs > worstBadBackMs) { worstBadBackMs = backMs; worstBadAtMs = positions[i].Ms - legStartMs; }
+            }
+        }
+        var keptPlaying = fed1 > fed0 && fed2 > fed1;
+        var ok = badBacks == 0 && keptPlaying;
+        sb.AppendLine($"  frames={positions.Count} bad-backs={badBacks} worst-bad={worstBadBackMs:F1}ms@+{(worstBadAtMs / 1000.0):F2}s(toggles@+{((tgl1 - legStartMs) / 1000.0):F2}s,+{((tgl2 - legStartMs) / 1000.0):F2}s) toggle-transient={worstToggleBackMs:F1}ms fed={fed0}->{fed1}->{fed2} advancing={keptPlaying}");
+        sb.Append($"varispeed-toggle | bad-backs={badBacks} | transient={worstToggleBackMs:F1}ms | advancing={keptPlaying} | {(ok ? "OK" : "FAIL")}");
+        return sb.ToString();
+    }
+
     private static async Task<string> DriftAsync(Window window, AudioEngine audio)
     {
         var sb = new System.Text.StringBuilder();
@@ -247,10 +314,9 @@ internal static class ClockTestCheck
         var c0 = PositionClock.PublishCount;
         var (e0, p0) = await OnUiAsync(window, () => (PositionClock.ExtrapolateNow().TotalSeconds, (double)audio.DecodedFramePosition / 48000.0));
         await Task.Delay(TimeSpan.FromSeconds(30));
-        var (e1, p1) = await OnUiAsync(window, () => (PositionClock.ExtrapolateNow().TotalSeconds, (double)audio.DecodedFramePosition / 48000.0));
+        var (e1, p1, skewPpm) = await OnUiAsync(window, () => (PositionClock.ExtrapolateNow().TotalSeconds, (double)audio.DecodedFramePosition / 48000.0, PositionClock.SkewPpm));
         await OnUiAsync(window, () => audio.StopAndUnload());
         var c1 = PositionClock.PublishCount;
-        var skewPpm = await OnUiAsync(window, () => PositionClock.SkewPpm);
         var drift = Math.Abs((e1 - e0) - (p1 - p0));
         sb.AppendLine($"  extrapolated-advance={e1 - e0:F3}s engine-advance={p1 - p0:F3}s drift={drift * 1000:F2}ms {(drift < 0.005 ? "OK" : "FAIL")}");
         sb.AppendLine($"  device-skew-estimate={skewPpm:F0}ppm");

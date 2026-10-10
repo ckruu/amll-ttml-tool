@@ -714,6 +714,13 @@ namespace AmllTtmlTool.WinUI.Views
                 RateSlider.Value = rate;
         }
 
+        private void OnKeepPitchChanged(object sender, RoutedEventArgs e)
+        {
+            var keep = KeepPitchCheck.IsChecked == true;
+            _audio.SetKeepPitch(keep);
+            RateSlider.Header = keep ? "Rate (pitch preserved)" : "Rate (varispeed: pitch follows rate)";
+        }
+
         private void OnSeekPointerPressed(object sender, PointerRoutedEventArgs e) => BeginScrub();
 
         private void OnSeekPointerReleased(object sender, PointerRoutedEventArgs e)

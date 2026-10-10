@@ -665,6 +665,12 @@
                                     Value="1"
                                     ValueChanged="OnRateChanged"
                                     Width="180" />
+                                <CheckBox
+                                    x:Name="KeepPitchCheck"
+                                    Content="Keep pitch"
+                                    IsChecked="True"
+                                    Checked="OnKeepPitchChanged"
+                                    Unchecked="OnKeepPitchChanged" />
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <Button Content="0.25x" Click="OnRatePresetClick" Tag="0.25" MinWidth="0" Padding="6,2" />
                                     <Button Content="0.5x" Click="OnRatePresetClick" Tag="0.5" MinWidth="0" Padding="6,2" />

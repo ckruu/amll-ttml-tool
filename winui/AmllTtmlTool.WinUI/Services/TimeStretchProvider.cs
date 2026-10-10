@@ -6,7 +6,10 @@ namespace AmllTtmlTool.WinUI.Services;
 // Wraps the SoundTouch tempo engine (managed SoundTouch.Net port): changing
 // Tempo stretches time without touching pitch, live, with no rebuild and
 // no gap. At 1x the processor is bypassed (bit-exact, zero latency).
-//
+// With PreservePitch = false the provider instead resamples varispeed
+// (tape-style: faster = higher pitch, shorter; linear interpolation,
+// exact source-time accounting, zero priming latency), also live with no
+// rebuild: the mode switch only drops already-buffered audio.
 // Source-time accounting for lyric sync: the engine buffers internally
 // (~100ms), so the reported position is (fed - still-buffered) source
 // frames, i.e. the source time of the last sample handed downstream.
@@ -21,6 +24,7 @@ internal sealed class TimeStretchProvider : ISampleProvider
     private readonly object _gate = new();
     private double _tempo = 1.0;
     private bool _bypass = true;
+    private bool _preservePitch = true;
     private long _fedFrames;
     // Source-time clock: every received output frame is integrated back
     // through the processor's own input/output ratio
@@ -33,6 +37,16 @@ internal sealed class TimeStretchProvider : ISampleProvider
     private float[] _recv = new float[8192 * 2];
     private int _recvCount;
     private int _recvOffset;
+    // Varispeed (tape-style) cursor: _vsBuf holds pulled-but-unconsumed
+    // source frames, _vsPos/_vsFrac is the fractional read position in it.
+    // All accounting stays in absolute source frames (_sourceClockFrames)
+    // so the clock is exact at every tempo.
+    private float[] _vsBuf = new float[4096 * 2];
+    private int _vsBuffered;
+    private int _vsPos;
+    private double _vsFrac;
+    private bool _vsSourceEnded;
+    private bool _vsLastHeld;
 
     public WaveFormat WaveFormat => _source.WaveFormat;
 
@@ -70,6 +84,31 @@ internal sealed class TimeStretchProvider : ISampleProvider
         get { lock (_gate) return _fedFrames; }
     }
 
+    // Tape-style varispeed on/off. Live: only buffered audio is dropped,
+    // the source-time clock is preserved. Tempo changes need no handling
+    // here (the resample ratio reads _tempo live); the engine re-anchors
+    // its snapshot for the changed priming latency.
+    public bool PreservePitch
+    {
+        get { lock (_gate) return _preservePitch; }
+        set
+        {
+            lock (_gate)
+            {
+                if (value == _preservePitch) return;
+                _preservePitch = value;
+                _st.Clear();
+                _recvCount = 0;
+                _recvOffset = 0;
+                _vsBuffered = 0;
+                _vsPos = 0;
+                _vsFrac = 0;
+                _vsSourceEnded = false;
+                _vsLastHeld = false;
+            }
+        }
+    }
+
     public double ReportedSourceSeconds
     {
         get
@@ -89,16 +128,22 @@ internal sealed class TimeStretchProvider : ISampleProvider
             _sourceEnded = false;
             _recvCount = 0;
             _recvOffset = 0;
+            _vsBuffered = 0;
+            _vsPos = 0;
+            _vsFrac = 0;
+            _vsSourceEnded = false;
+            _vsLastHeld = false;
         }
     }
 
-    // Stretcher priming latency in frames (0 in bypass, where nothing is
-    // buffered). -1 when unreadable; callers must ignore it then.
+    // Stretcher priming latency in frames (0 in bypass and in varispeed
+    // mode, where nothing is buffered). -1 when unreadable; callers must
+    // ignore it then.
     public int GetPrimeLatencyFrames()
     {
         lock (_gate)
         {
-            if (_bypass) return 0;
+            if (_bypass || !_preservePitch) return 0;
             try { return Math.Max(0, _st.GetSetting(SoundTouch.SettingId.InitialLatency)); }
             catch { return -1; }
         }
@@ -116,6 +161,7 @@ internal sealed class TimeStretchProvider : ISampleProvider
                 _sourceClockFrames += frames; // ratio is 1.0 in bypass
                 return read;
             }
+            if (!_preservePitch) return ReadVarispeedLocked(buffer, offset, count);
             var channels = _source.WaveFormat.Channels;
             var got = 0;
             var ratio = _st.GetInputOutputSampleRatio();
@@ -170,4 +216,93 @@ internal sealed class TimeStretchProvider : ISampleProvider
     }
 
     private float[] _feed = new float[2048 * 2];
+
+    // Tape-style varispeed: output advances the fractional source cursor
+    // by Tempo source frames per output frame, linear-interpolated.
+    // Faster reads more source per output (shorter, higher pitch) and vice
+    // versa. Caller holds _gate. Exact clock: every consumed integer source
+    // frame advances _sourceClockFrames by exactly one.
+    private int ReadVarispeedLocked(float[] buffer, int offset, int count)
+    {
+        var channels = _source.WaveFormat.Channels;
+        var rate = _tempo;
+        if (!(rate > 0)) rate = 1.0;
+        if (_vsBuf.Length < 4096 * channels) _vsBuf = new float[4096 * channels];
+        var outFrames = count / channels;
+        var got = 0;
+        for (var i = 0; i < outFrames; i++)
+        {
+            while (!_vsSourceEnded && _vsPos + 1 >= _vsBuffered && !FillVarispeedLocked())
+            {
+                // Source drained below the interpolation pair: emit what we
+                // have; the cursor is past the last full frame.
+                break;
+            }
+            if (_vsPos + 1 >= _vsBuffered)
+            {
+                if (_vsBuffered == 0 || _vsPos >= _vsBuffered || _vsLastHeld) break;
+                // Last frame with no successor: hold it once (no pitch
+                // artifact, EOF is one frame away), then report EOF.
+                _vsLastHeld = true;
+                for (var c = 0; c < channels; c++)
+                    buffer[offset + got + c] = _vsBuf[_vsPos * channels + c];
+            }
+            else
+            {
+                var f = (float)_vsFrac;
+                for (var c = 0; c < channels; c++)
+                {
+                    var a = _vsBuf[_vsPos * channels + c];
+                    var b = _vsBuf[(_vsPos + 1) * channels + c];
+                    buffer[offset + got + c] = a + (b - a) * f;
+                }
+            }
+            got += channels;
+            _vsFrac += rate;
+            var step = (int)_vsFrac;
+            if (step > 0)
+            {
+                _vsFrac -= step;
+                _vsPos += step;
+                _fedFrames += step;
+                _sourceClockFrames += step;
+            }
+        }
+        // Compact consumed frames so the pair invariant (_vsPos+1 <
+        // _vsBuffered) holds with bounded memory.
+        if (_vsPos > 0)
+        {
+            var remain = _vsBuffered - _vsPos;
+            if (remain > 0)
+                Array.Copy(_vsBuf, _vsPos * channels, _vsBuf, 0, remain * channels);
+            _vsBuffered = Math.Max(0, remain);
+            _vsPos = 0;
+        }
+        return got;
+    }
+
+    // Pulls source frames into _vsBuf. Returns false at true EOF.
+    private bool FillVarispeedLocked()
+    {
+        var channels = _source.WaveFormat.Channels;
+        if (_vsSourceEnded) return false;
+        if (_vsBuffered >= _vsBuf.Length / channels)
+        {
+            var remain = _vsBuffered - _vsPos;
+            if (remain > 0)
+                Array.Copy(_vsBuf, _vsPos * channels, _vsBuf, 0, remain * channels);
+            _vsBuffered = Math.Max(0, remain);
+            _vsPos = 0;
+            if (_vsBuffered >= _vsBuf.Length / channels) return true;
+        }
+        var read = _source.Read(_vsBuf, _vsBuffered * channels, (_vsBuf.Length / channels - _vsBuffered) * channels);
+        if (read <= 0)
+        {
+            _vsSourceEnded = true;
+            return false;
+        }
+        _vsBuffered += read / channels;
+        _vsLastHeld = false;
+        return true;
+    }
 }

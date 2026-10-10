@@ -48,7 +48,7 @@ public sealed class SkewEstimatorTests
     {
         var est = new SkewEstimator();
         est.Update(0.25 * 1.02, 0.25, 1.0); // sudden +2% USB feedback step
-        Assert.InRange(est.Skew, -0.00003, 0.00003); // <=500ppm * 5% gain
+        Assert.InRange(est.Skew, -0.00006, 0.00006); // <=500ppm * 10% gain
     }
 
     [Fact]

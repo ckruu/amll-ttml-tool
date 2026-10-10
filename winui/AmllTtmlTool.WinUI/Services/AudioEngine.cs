@@ -96,6 +96,11 @@ public partial class AudioEngine : ObservableObject, IDisposable
     [ObservableProperty]
     private double _playbackRate = 1.0;
 
+    // Tape-style varispeed (pitch follows rate) when false; SoundTouch
+    // pitch-preserving stretch when true. Live toggle, no rebuild.
+    [ObservableProperty]
+    private bool _keepPitch = true;
+
     [ObservableProperty]
     private AudioCover? _cover;
 
@@ -112,8 +117,11 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     // Total output latency in wall seconds at the last BuildOutput:
     // measured stream latency + endpoint buffer + stretcher priming (0 at
-    // 1x bypass). The displayed/recorded time subtracts this.
+    // 1x bypass, 0 in varispeed). The displayed/recorded time subtracts
+    // this. The stream+buffer base is kept separately so a live KeepPitch
+    // toggle can re-budget the priming without rebuilding the output.
     public double OutputLatencySeconds { get; private set; }
+    private double _outputBaseLatencyMs;
 
     // Last device/output error that did not throw (background rebuilds).
     // Plain property on purpose: read any time, never blocks.
@@ -356,6 +364,30 @@ public partial class AudioEngine : ObservableObject, IDisposable
         PublishClock(IsPlaying ? PlaybackClockState.Playing : PlaybackClockState.Paused);
     }
 
+    public void SetKeepPitch(bool keep)
+    {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => SetKeepPitch(keep)); return; }
+        if (keep == KeepPitch) return;
+        KeepPitch = keep;
+        // Live mode switch inside the provider (buffers drop, clock is
+        // preserved): no rebuild, no gap. Priming changes (0 in varispeed),
+        // so re-budget latency and re-anchor the snapshot.
+        _stretch?.PreservePitch = keep;
+        RebudgetPrime();
+        PublishClock(IsPlaying ? PlaybackClockState.Playing : PlaybackClockState.Paused);
+    }
+
+    private void RebudgetPrime()
+    {
+        var primeMs = 0.0;
+        if (Math.Abs(PlaybackRate - 1.0) > 0.001 && _stretch is not null)
+        {
+            var prime = _stretch.GetPrimeLatencyFrames();
+            if (prime >= 0) primeMs = prime * 1000.0 / FfmpegDecoder.OutSampleRate;
+        }
+        OutputLatencySeconds = (_outputBaseLatencyMs + primeMs) / 1000.0;
+    }
+
     public void AuditionRange(double startSeconds, double endSeconds)
     {
         if (!_dispatcher.HasThreadAccess) { RunOnUi(() => AuditionRange(startSeconds, endSeconds)); return; }
@@ -421,6 +453,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         ISampleProvider chain = _source;
         var stretch = new TimeStretchProvider(chain);
         stretch.Tempo = PlaybackRate;
+        stretch.PreservePitch = KeepPitch;
         _stretch = stretch;
         chain = stretch;
         if (chain.WaveFormat.Channels != mix.Channels)
@@ -480,7 +513,8 @@ public partial class AudioEngine : ObservableObject, IDisposable
             var prime = stretch.GetPrimeLatencyFrames();
             if (prime >= 0) primeMs = prime * 1000.0 / FfmpegDecoder.OutSampleRate;
         }
-        OutputLatencySeconds = (streamMs + bufferMs + primeMs) / 1000.0;
+        _outputBaseLatencyMs = streamMs + bufferMs;
+        OutputLatencySeconds = (_outputBaseLatencyMs + primeMs) / 1000.0;
         SeekWithoutClearing(positionSeconds);
     }
 

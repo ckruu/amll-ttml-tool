@@ -1,9 +1,11 @@
-// --stretch-test [reportPath] harness: offline time-stretch verification,
-// no audio device needed. Processes a 440 Hz sine through the same
-// TimeStretchProvider the playback graph uses: output length must match
-// the rate within 2%, the dominant frequency must stay 440 Hz within 2%,
-// and the reported source position must equal the processed source
-// samples. Plus a 60-second CPU benchmark per rate. Self-closing.
+// --stretch-test [reportPath] harness: offline stretch verification, no
+// audio device needed. Processes a 440 Hz sine through the same
+// TimeStretchProvider the playback graph uses, in both modes: pitch
+// preserved (output length must match the rate within 2%, dominant
+// frequency must stay 440 Hz within 2%) and varispeed (pitch must follow
+// the rate: 440*rate within 3%, length 1/rate within 2%). Reported source
+// position must equal the processed source samples in both. Plus a
+// 60-second CPU benchmark per rate. Self-closing.
 using NAudio.Wave;
 
 namespace AmllTtmlTool.WinUI.Services;
@@ -48,13 +50,16 @@ internal static class StretchTestCheck
     {
         var sine3 = Sine(3);
         var table = new List<string>();
-        foreach (var rate in new[] { 0.5, 0.75, 1.5, 2.0 })
+        foreach (var keepPitch in new[] { true, false })
         {
-            string row;
-            try { row = CheckRate(sine3, rate); }
-            catch (Exception ex) { row = $"rate={rate} HARNESS-ERROR {AudioErrorText.MessageOf(ex)}"; }
-            Write(report, row);
-            table.Add(row.Split('\n').Last());
+            foreach (var rate in new[] { 0.5, 0.75, 1.5, 2.0 })
+            {
+                string row;
+                try { row = CheckRate(sine3, rate, keepPitch); }
+                catch (Exception ex) { row = $"keepPitch={keepPitch} rate={rate} HARNESS-ERROR {AudioErrorText.MessageOf(ex)}"; }
+                Write(report, row);
+                table.Add(row.Split('\n').Last());
+            }
         }
         try
         {
@@ -63,16 +68,17 @@ internal static class StretchTestCheck
                 Write(report, Benchmark(sine60, rate));
         }
         catch (Exception ex) { Write(report, $"benchmark HARNESS-ERROR {AudioErrorText.MessageOf(ex)}"); }
-        Write(report, "=== TABLE (rate | length | pitch | position) ===");
+        Write(report, "=== TABLE (mode | rate | length | pitch | position) ===");
         foreach (var r in table) Write(report, r);
     }
 
-    private static string CheckRate(float[] sine, double rate)
+    private static string CheckRate(float[] sine, double rate, bool keepPitch)
     {
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine($"---- rate={rate} ----");
+        sb.AppendLine($"---- keepPitch={keepPitch} rate={rate} ----");
         var frames = sine.Length / Channels;
         var provider = new TimeStretchProvider(new ArraySample(sine, Rate, Channels));
+        provider.PreservePitch = keepPitch;
         provider.Tempo = rate;
         var output = new List<float>(sine.Length);
         var chunk = new float[4096 * Channels];
@@ -85,15 +91,23 @@ internal static class StretchTestCheck
         var lenErr = Math.Abs(gotRatio / expectedRatio - 1.0);
         sb.AppendLine($"  length in={frames} out={outFrames} ratio-err={lenErr:P2} {(lenErr <= 0.02 ? "OK" : "FAIL")}");
         var peak = PeakFreq(output.ToArray(), outFrames);
-        var freqErr = Math.Abs(peak - ToneHz) / ToneHz;
-        sb.AppendLine($"  pitch peak={peak:F1}Hz err={freqErr:P2} {(freqErr <= 0.02 ? "OK" : "FAIL")}");
-        var fedOk = provider.SourceFramesFed == frames;
+        // Varispeed moves pitch with the rate (tape-style); the preserved
+        // path must hold 440 Hz. Varispeed gets a wider band (3%): linear
+        // interpolation + DFT bin width at low frequencies.
+        var wantHz = keepPitch ? ToneHz : ToneHz * rate;
+        var pitchTol = keepPitch ? 0.02 : 0.03;
+        var freqErr = Math.Abs(peak - wantHz) / wantHz;
+        sb.AppendLine($"  pitch peak={peak:F1}Hz want={wantHz:F1}Hz err={freqErr:P2} {(freqErr <= pitchTol ? "OK" : "FAIL")}");
+        var fedOk = keepPitch
+            ? provider.SourceFramesFed == frames
+            : Math.Abs(provider.SourceFramesFed - frames) <= 1; // fractional tail
         sb.AppendLine($"  fed={provider.SourceFramesFed} expected={frames} {(fedOk ? "OK" : "FAIL")}");
         var reported = provider.ReportedSourceSeconds;
         var posErr = Math.Abs(reported - (double)frames / Rate);
         sb.AppendLine($"  position reported={reported:F3}s expected={frames / (double)Rate:F3}s err={posErr * 1000:F1}ms {(posErr <= 0.001 ? "OK" : "FAIL")}");
         // Seek-reset: re-anchor mid-stream, position must follow exactly.
         var provider2 = new TimeStretchProvider(new ArraySample(sine, Rate, Channels));
+        provider2.PreservePitch = keepPitch;
         provider2.Tempo = rate;
         var tmp = new float[4096 * Channels];
         var want = frames / 2;
@@ -103,8 +117,8 @@ internal static class StretchTestCheck
         provider2.Reset(frames / 4);
         var resetOk = Math.Abs(provider2.ReportedSourceSeconds - (frames / 4.0) / Rate) <= 0.001;
         sb.AppendLine($"  seek-reset reported={provider2.ReportedSourceSeconds:F3}s {(resetOk ? "OK" : "FAIL")}");
-        var pass = lenErr <= 0.02 && freqErr <= 0.02 && fedOk && posErr <= 0.001 && resetOk;
-        sb.Append($"rate={rate} | length-err={lenErr:P2} | pitch-err={freqErr:P2} | position | {(pass ? "OK" : "FAIL")}");
+        var pass = lenErr <= 0.02 && freqErr <= pitchTol && fedOk && posErr <= 0.001 && resetOk;
+        sb.Append($"keepPitch={keepPitch} rate={rate} | length-err={lenErr:P2} | pitch-err={freqErr:P2} | position | {(pass ? "OK" : "FAIL")}");
         return sb.ToString();
     }
 
