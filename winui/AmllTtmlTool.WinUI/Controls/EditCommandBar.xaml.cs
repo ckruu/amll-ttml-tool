@@ -31,9 +31,27 @@ namespace AmllTtmlTool.WinUI.Controls
             var showRoman = AppSettings.ShowRomanization;
             TransRow.Visibility = showTrans ? Visibility.Visible : Visibility.Collapsed;
             RomanRow.Visibility = showRoman ? Visibility.Visible : Visibility.Collapsed;
+            // The flyout holds separate copies (same text via TwoWay binding),
+            // so mirror the same visibility here. This also runs while the
+            // flyout is open, since DisplayChanged fires on toggle change.
+            FlyoutTransLabel.Visibility = TransRow.Visibility;
+            FlyoutTransBox.Visibility = TransRow.Visibility;
+            FlyoutRomanLabel.Visibility = RomanRow.Visibility;
+            FlyoutRomanBox.Visibility = RomanRow.Visibility;
             var showSection = showTrans || showRoman;
-            SecondaryGroup.Visibility = showSection ? Visibility.Visible : Visibility.Collapsed;
+            // The tier setters collapse SecondaryGroup below Wide, but this
+            // handler re-runs on every toggle change and tier change, so the
+            // group is only ever shown in the Wide tier. The overflow button
+            // is the single owner of its own visibility: shown exactly when
+            // the section has content but lives in the flyout.
+            var wide = WidthTiers?.CurrentState?.Name is null or "Wide";
+            SecondaryGroup.Visibility = showSection && wide ? Visibility.Visible : Visibility.Collapsed;
+            SecondaryOverflowButton.Visibility =
+                showSection && !wide ? Visibility.Visible : Visibility.Collapsed;
         }
+
+        private void OnWidthTierChanged(object sender, VisualStateChangedEventArgs e) =>
+            ApplyMasterToggles();
 
         private void OnNewLineClick(object sender, RoutedEventArgs e) =>
             NewLineRequested?.Invoke();

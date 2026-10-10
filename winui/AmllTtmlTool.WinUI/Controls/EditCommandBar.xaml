@@ -29,7 +29,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <VisualStateManager.VisualStateGroups>
-            <VisualStateGroup x:Name="WidthTiers">
+            <VisualStateGroup x:Name="WidthTiers" CurrentStateChanged="OnWidthTierChanged">
                 <!-- Window-width triggers. The bar always measures exactly
                      42px under the client width (16 page margin + 8 card
                      padding + card chrome, verified constant across all
@@ -51,7 +51,6 @@
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
-                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="Narrow">
@@ -60,7 +59,6 @@
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
-                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
                         <Setter Target="OverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
@@ -71,7 +69,6 @@
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
-                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
                         <Setter Target="OverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ManageGroup.Visibility" Value="Collapsed" />
@@ -95,7 +92,6 @@
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
-                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
                         <Setter Target="OverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ManageGroup.Visibility" Value="Collapsed" />
@@ -308,10 +304,10 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Style="{StaticResource RibbonFieldLabel}" Text="Translation" />
-                        <TextBox Grid.Column="1" Width="140" MinHeight="28" AutomationProperties.Name="Translation" Text="{x:Bind TransBox.Text, Mode=TwoWay}" />
-                        <TextBlock Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" />
-                        <TextBox Grid.Row="1" Grid.Column="1" Width="140" MinHeight="28" AutomationProperties.Name="Romanization" Text="{x:Bind RomanBox.Text, Mode=TwoWay}" />
+                        <TextBlock x:Name="FlyoutTransLabel" Style="{StaticResource RibbonFieldLabel}" Text="Translation" />
+                        <TextBox x:Name="FlyoutTransBox" Grid.Column="1" Width="140" MinHeight="28" AutomationProperties.Name="Translation" Text="{x:Bind TransBox.Text, Mode=TwoWay}" />
+                        <TextBlock x:Name="FlyoutRomanLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" />
+                        <TextBox x:Name="FlyoutRomanBox" Grid.Row="1" Grid.Column="1" Width="140" MinHeight="28" AutomationProperties.Name="Romanization" Text="{x:Bind RomanBox.Text, Mode=TwoWay}" />
                     </Grid>
                 </Flyout>
             </Button.Flyout>

@@ -2,6 +2,7 @@
 // --layout-test / AMLL_SELF_CHECK for the ribbon/separator/animation items.
 // Writes %TEMP%\title-center-check.txt and closes the window itself.
 using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System.Text;
@@ -83,6 +84,15 @@ internal static class TitleCenteringCheck
                 catch (Exception ex)
                 {
                     WriteLine($"---- client width {w}: OVERFLOW-ERROR {ex.GetType().Name}: {ex.Message} ----");
+                }
+                try
+                {
+                    var secondaryLine = await VerifySecondaryFieldsAsync(window, w);
+                    if (!string.IsNullOrEmpty(secondaryLine)) WriteLine(secondaryLine);
+                }
+                catch (Exception ex)
+                {
+                    WriteLine($"---- client width {w}: SECONDARY-ERROR {ex.GetType().Name}: {ex.Message} ----");
                 }
             }
         }
@@ -343,6 +353,253 @@ internal static class TitleCenteringCheck
         });
         await Task.Delay(120);
         return result;
+    }
+
+    private static async Task<string> VerifySecondaryFieldsAsync(Window window, int w)
+    {
+        FrameworkElement? editBar = null;
+        var editBarActive = false;
+        await OnUiAsync(window, () =>
+        {
+            if (window.Content is DependencyObject content)
+                editBar = FindByName(content, "EditBar") as FrameworkElement;
+            editBarActive = editBar is not null && editBar.Visibility == Visibility.Visible;
+        });
+        if (!editBarActive)
+            return $"  secondary w={w}: skipped (EditBar not active)";
+        var sb = new StringBuilder();
+        var origTrans = false;
+        var origRoman = false;
+        await OnUiAsync(window, () =>
+        {
+            origTrans = AppSettings.ShowTranslation;
+            origRoman = AppSettings.ShowRomanization;
+        });
+        try
+        {
+            FrameworkElement bar = editBar!;
+            async Task PumpAsync()
+            {
+                await Task.Delay(150);
+                await OnUiAsync(window, () => { });
+            }
+            async Task SetTogglesAsync(bool trans, bool roman)
+            {
+                await OnUiAsync(window, () =>
+                {
+                    AppSettings.ShowTranslation = trans;
+                    AppSettings.ShowRomanization = roman;
+                    AppSettings.NotifyDisplayChanged();
+                });
+                await PumpAsync();
+            }
+            async Task<(string Group, string Btn, string TransRow, string RomanRow)> ReadStateAsync()
+            {
+                var snap = ("?", "?", "?", "?");
+                await OnUiAsync(window, () =>
+                {
+                    snap = (
+                        Vis(FindByName(bar, "SecondaryGroup") as FrameworkElement),
+                        Vis(FindByName(bar, "SecondaryOverflowButton") as FrameworkElement),
+                        Vis(FindByName(bar, "TransRow") as FrameworkElement),
+                        Vis(FindByName(bar, "RomanRow") as FrameworkElement));
+                });
+                return snap;
+            }
+            // Opens the secondary flyout when its button is up, reads the two
+            // fields, and closes it. Returns opened=false when hidden.
+            async Task<(bool Opened, string Trans, string Roman, bool SyncT, bool SyncR)> ReadFlyoutAsync()
+            {
+                (bool Opened, string Trans, string Roman, bool SyncT, bool SyncR) snap = (false, "?", "?", false, false);
+                await OnUiAsync(window, () =>
+                {
+                    var button = FindByName(bar, "SecondaryOverflowButton") as Button;
+                    if (button is null || button.Visibility != Visibility.Visible || button.ActualWidth <= 0.5)
+                        return;
+                    if (button.Flyout is Flyout flyout && flyout.Content is FrameworkElement)
+                    {
+                        try { flyout.ShowAt(button); snap = (true, "?", "?", false, false); }
+                        catch { snap = (false, "showfail", "?", false, false); }
+                    }
+                });
+                if (!snap.Opened) return snap;
+                await Task.Delay(250);
+                await OnUiAsync(window, () =>
+                {
+                    try
+                    {
+                        var button = FindByName(bar, "SecondaryOverflowButton") as Button;
+                        var root = (button?.Flyout as Flyout)?.Content as FrameworkElement;
+                        if (root is null) { snap = (true, "lost", "?", false, false); return; }
+                        var transBox = FindByAutomationName(root, "Translation");
+                        var romanBox = FindByAutomationName(root, "Romanization");
+                        var mainTrans = FindByName(bar, "TransBox") as TextBox;
+                        var mainRoman = FindByName(bar, "RomanBox") as TextBox;
+                        snap = (true, Field(transBox), Field(romanBox),
+                            TextEq(transBox, mainTrans), TextEq(romanBox, mainRoman));
+                    }
+                    finally
+                    {
+                        try { ((FindByName(bar, "SecondaryOverflowButton") as Button)?.Flyout as Flyout)?.Hide(); }
+                        catch { }
+                    }
+                });
+                await Task.Delay(120);
+                return snap;
+            }
+            // Same as ReadFlyoutAsync but leaves the flyout open for live
+            // toggle-while-open transitions; caller must CloseFlyoutAsync.
+            async Task<(bool Opened, string Trans, string Roman)> OpenHeldAsync()
+            {
+                (bool Opened, string Trans, string Roman) snap = (false, "?", "?");
+                await OnUiAsync(window, () =>
+                {
+                    var button = FindByName(bar, "SecondaryOverflowButton") as Button;
+                    if (button?.Flyout is Flyout flyout && button.Visibility == Visibility.Visible)
+                    {
+                        try { flyout.ShowAt(button); snap.Opened = true; }
+                        catch { }
+                    }
+                });
+                if (!snap.Opened) return snap;
+                await Task.Delay(250);
+                snap = (true, await HeldFieldAsync("Translation"), await HeldFieldAsync("Romanization"));
+                return snap;
+            }
+            async Task<string> HeldFieldAsync(string automationName)
+            {
+                var result = "?";
+                await OnUiAsync(window, () =>
+                {
+                    var button = FindByName(bar, "SecondaryOverflowButton") as Button;
+                    var root = (button?.Flyout as Flyout)?.Content as FrameworkElement;
+                    result = root is null ? "lost" : Field(FindByAutomationName(root, automationName));
+                });
+                return result;
+            }
+            async Task CloseFlyoutAsync()
+            {
+                await OnUiAsync(window, () =>
+                {
+                    try { ((FindByName(bar, "SecondaryOverflowButton") as Button)?.Flyout as Flyout)?.Hide(); }
+                    catch { }
+                });
+                await Task.Delay(120);
+            }
+
+            var wide = w >= 1152; // Edit ribbon Wide tier threshold (window px)
+            var failures = new List<string>();
+            void Expect(bool condition, string label)
+            {
+                if (!condition) failures.Add(label);
+            }
+
+            await SetTogglesAsync(false, false);
+            var s0 = await ReadStateAsync();
+            var f0 = await ReadFlyoutAsync();
+            Expect(s0.Group == "C", "both-off group not collapsed");
+            Expect(s0.Btn == "C", "both-off overflow button not hidden");
+            if (f0.Opened) Expect(false, "both-off flyout should not open");
+            sb.Append($"off/off group={s0.Group} btn={s0.Btn} flyout={(f0.Opened ? $"trans={f0.Trans} roman={f0.Roman}" : "hidden")}");
+
+            await SetTogglesAsync(true, false);
+            var s1 = await ReadStateAsync();
+            var f1 = await ReadFlyoutAsync();
+            Expect(s1.TransRow == "V" && s1.RomanRow == "C", "trans-only main rows wrong");
+            Expect(s1.Group == (wide ? "V" : "C") && s1.Btn == (wide ? "C" : "V"), "trans-only group/button wrong");
+            if (!wide)
+            {
+                Expect(f1.Opened && f1.Trans == "V" && f1.Roman != "V", "trans-only flyout wrong");
+                Expect(f1.SyncT, "trans-only flyout text out of sync");
+            }
+            sb.Append($" | trans-only group={s1.Group} btn={s1.Btn} flyout={(f1.Opened ? $"trans={f1.Trans} roman={f1.Roman} syncT={f1.SyncT}" : "hidden")}");
+
+            // Live transitions with the flyout held open.
+            var held = await OpenHeldAsync();
+            if (!wide)
+            {
+                Expect(held.Opened && held.Trans == "V" && held.Roman != "V", "held-open trans-only wrong");
+                await SetTogglesAsync(true, true);
+                var h2t = await HeldFieldAsync("Translation");
+                var h2r = await HeldFieldAsync("Romanization");
+                Expect(h2t == "V" && h2r == "V", "roman-on-while-open did not appear");
+                await SetTogglesAsync(false, false);
+                var h3t = await HeldFieldAsync("Translation");
+                var h3r = await HeldFieldAsync("Romanization");
+                Expect(h3t != "V" && h3r != "V", "off-while-open did not disappear");
+                await CloseFlyoutAsync();
+                sb.Append($" | held trans={held.Trans} both-on={h2t}/{h2r} both-off={h3t}/{h3r}");
+            }
+            else
+            {
+                if (held.Opened) await CloseFlyoutAsync();
+            }
+
+            await SetTogglesAsync(true, true);
+            var s4 = await ReadStateAsync();
+            var f4 = await ReadFlyoutAsync();
+            Expect(s4.TransRow == "V" && s4.RomanRow == "V", "both-on main rows wrong");
+            Expect(s4.Group == (wide ? "V" : "C") && s4.Btn == (wide ? "C" : "V"), "both-on group/button wrong");
+            if (!wide)
+            {
+                Expect(f4.Opened && f4.Trans == "V" && f4.Roman == "V", "both-on flyout wrong");
+                Expect(f4.SyncT && f4.SyncR, "both-on flyout text out of sync");
+            }
+            sb.Append($" | both-on group={s4.Group} btn={s4.Btn} flyout={(f4.Opened ? $"trans={f4.Trans} roman={f4.Roman} sync={f4.SyncT}&{f4.SyncR}" : "hidden")}");
+
+            sb.Insert(0, failures.Count == 0
+                ? $"  VERIFY-PASS secondary w={w}:"
+                : $"  VERIFY-FAIL secondary w={w} [{string.Join("; ", failures)}]:");
+        }
+        finally
+        {
+            await OnUiAsync(window, () =>
+            {
+                try
+                {
+                    AppSettings.ShowTranslation = origTrans;
+                    AppSettings.ShowRomanization = origRoman;
+                    AppSettings.NotifyDisplayChanged();
+                }
+                catch { }
+            });
+        }
+        return sb.ToString();
+    }
+
+    private static string Vis(FrameworkElement? fe) =>
+        fe is null ? "?" : fe.Visibility == Visibility.Visible && fe.ActualWidth > 0.5 ? "V" : "C";
+
+    private static string Field(FrameworkElement? fe)
+    {
+        if (fe is null) return "absent";
+        var current = fe as DependencyObject;
+        while (current is not null)
+        {
+            if (current is FrameworkElement ancestor && ancestor.Visibility != Visibility.Visible)
+                return "C";
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return (fe as Control)?.IsEnabled == false ? "V/disabled" : "V";
+    }
+
+    private static bool TextEq(FrameworkElement? fly, FrameworkElement? main) =>
+        (fly as TextBox)?.Text == (main as TextBox)?.Text;
+
+    private static FrameworkElement? FindByAutomationName(DependencyObject root, string name)
+    {
+        var queue = new Queue<DependencyObject>();
+        queue.Enqueue(root);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (current is FrameworkElement fe &&
+                string.Equals(AutomationProperties.GetName(fe), name, StringComparison.Ordinal))
+                return fe;
+            var count = VisualTreeHelper.GetChildrenCount(current);
+            for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+        }
+        return null;
     }
 
     private static bool IsEffectivelyVisible(FrameworkElement element, FrameworkElement root)
