@@ -220,6 +220,62 @@ namespace AmllTtmlTool.WinUI.Views
                         }
                     });
                 }
+                // Seek-test harness: --seek-test <folder> [reportPath] (engine
+                // seeks) and --seek-ui-target <file> (loads one file paused
+                // at 0 and stays open for the winapp-ui driver; watchdog
+                // closes it). Self-closing. DEBUG-only.
+                var seekIdx = Array.IndexOf(audioArgs, "--seek-test");
+                if (seekIdx >= 0)
+                {
+                    var seekFolder = seekIdx + 1 < audioArgs.Length ? audioArgs[seekIdx + 1] : "";
+                    var seekReport = seekIdx + 2 < audioArgs.Length ? audioArgs[seekIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.SeekTestCheck.RunAsync(win, _audio, seekFolder, seekReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.SeekTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
+                var seekTargetIdx = Array.IndexOf(audioArgs, "--seek-ui-target");
+                if (seekTargetIdx >= 0)
+                {
+                    var seekTargetFile = seekTargetIdx + 1 < audioArgs.Length ? audioArgs[seekTargetIdx + 1] : "";
+                    var seekTargetReport = seekTargetIdx + 2 < audioArgs.Length ? audioArgs[seekTargetIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(800);
+                        var win = ((App)Application.Current).MainWindow;
+                        await Services.SeekTestCheck.RunTargetAsync(win, _audio, seekTargetFile, seekTargetReport);
+                    });
+                }
+                var seekHoldIdx = Array.IndexOf(audioArgs, "--seek-ui-hold");
+                if (seekHoldIdx >= 0)
+                {
+                    var seekHoldFile = seekHoldIdx + 1 < audioArgs.Length ? audioArgs[seekHoldIdx + 1] : "";
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(800);
+                        var win = ((App)Application.Current).MainWindow;
+                        await Services.SeekTestCheck.RunHoldAsync(win, _audio, seekHoldFile);
+                    });
+                }
 #endif
             };
         }
@@ -588,19 +644,36 @@ namespace AmllTtmlTool.WinUI.Views
                 RateSlider.Value = rate;
         }
 
-        private void OnSeekPointerPressed(object sender, PointerRoutedEventArgs e) => _scrubbing = true;
+        private void OnSeekPointerPressed(object sender, PointerRoutedEventArgs e) => BeginScrub();
 
         private void OnSeekPointerReleased(object sender, PointerRoutedEventArgs e)
         {
-            _scrubbing = false;
-            _audio.Seek(SeekSlider.Value);
+            EndScrub();
+            _audio.SeekTo(SeekSlider.Value);
             RefreshAudioChrome();
         }
 
+        internal void BeginScrub() => _scrubbing = true;
+
+        internal void EndScrub() => _scrubbing = false;
+
+        private long _lastLiveSeekMs;
+
         private void OnSeekValueChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            if (_syncingSlider || !_scrubbing) return;
-            _audio.Seek(e.NewValue);
+            if (_syncingSlider) return;
+            // User intent comes from two paths: pointer drag (_scrubbing) or
+            // keyboard arrows on the focused slider. Programmatic clock
+            // writes are always bracketed by _syncingSlider above. (Arrow
+            // keys previously fell through here and did nothing.)
+            if (!_scrubbing && SeekSlider.FocusState == FocusState.Unfocused) return;
+            // Live seek while dragging, throttled: every ValueChanged would
+            // restart the output dozens of times per second. Release always
+            // seeks exactly (see above).
+            var now = Environment.TickCount64;
+            if (now - _lastLiveSeekMs < 100) return;
+            _lastLiveSeekMs = now;
+            _audio.SeekTo(e.NewValue);
         }
 
         private void OnLocateClick(object sender, RoutedEventArgs e) =>

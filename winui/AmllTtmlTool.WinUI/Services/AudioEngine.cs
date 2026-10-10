@@ -13,6 +13,7 @@ public sealed class FfmpegPcmProvider : ISampleProvider
 {
     private readonly float[] _samples;
     private int _framePosition;
+    private readonly object _posGate = new();
 
     public FfmpegPcmProvider(float[] interleavedStereo)
     {
@@ -28,17 +29,34 @@ public sealed class FfmpegPcmProvider : ISampleProvider
 
     public TimeSpan CurrentTime
     {
-        get => TimeSpan.FromSeconds((double)_framePosition / FfmpegDecoder.OutSampleRate);
-        set => _framePosition = (int)Math.Max(0, Math.Min(
-            value.TotalSeconds * FfmpegDecoder.OutSampleRate, TotalFrames));
+        get { lock (_posGate) return TimeSpan.FromSeconds((double)_framePosition / FfmpegDecoder.OutSampleRate); }
+        set { lock (_posGate) _framePosition = (int)Math.Max(0, Math.Min(value.TotalSeconds * FfmpegDecoder.OutSampleRate, TotalFrames)); }
     }
 
     public int Read(float[] buffer, int offset, int count)
     {
-        var available = Math.Max(0, _samples.Length - _framePosition * FfmpegDecoder.OutChannels);
-        var take = Math.Min(count, available);
-        Array.Copy(_samples, _framePosition * FfmpegDecoder.OutChannels, buffer, offset, take);
-        _framePosition += take / FfmpegDecoder.OutChannels;
+        // Position advance is locked: the device thread pulls here while the
+        // UI thread sets CurrentTime on seeks. The sample copy itself runs
+        // outside the lock (immutable array).
+        // NOTE: never Array.Copy here. NAudio's SampleToWaveProvider hands us
+        // a WaveBuffer-punned array: a byte[] laundered through overlapping
+        // reference fields and viewed as float[]. Indexing reinterprets the
+        // bytes correctly, and Buffer.BlockCopy (byte-level, primitive types
+        // only) works — but Array.Copy's strict type check throws
+        // ArrayTypeMismatchException on it. This only detonates when no
+        // resampler/channel-map sits between us and the converter (i.e.
+        // exactly when the device mix matches our format), which is why it
+        // hid behind passing tests on a 192 kHz device.
+        int start;
+        int take;
+        lock (_posGate)
+        {
+            var available = Math.Max(0, _samples.Length - _framePosition * FfmpegDecoder.OutChannels);
+            take = Math.Min(count, available);
+            start = _framePosition * FfmpegDecoder.OutChannels;
+            _framePosition += take / FfmpegDecoder.OutChannels;
+        }
+        Buffer.BlockCopy(_samples, start * 4, buffer, offset * 4, take * 4);
         return take;
     }
 }
@@ -54,6 +72,8 @@ public partial class AudioEngine : ObservableObject, IDisposable
     private double _pauseAtSeconds = double.NaN;
     private bool _disposed;
     private int _buildGen;
+    private long _seekGen;
+    private bool _userPaused;
     private string _lastRenderDeviceId = "";
     private readonly MMDeviceEnumerator _devices;
     private readonly RenderDeviceWatcher _watcher;
@@ -93,6 +113,17 @@ public partial class AudioEngine : ObservableObject, IDisposable
     // Last device/output error that did not throw (background rebuilds).
     // Plain property on purpose: read any time, never blocks.
     public string LastOutputError { get; private set; } = "";
+
+    // Test/diagnostic introspection: raw decoded-frame position. Frame
+    // advances prove the device is actually pulling.
+    public long DecodedFramePosition
+    {
+        get
+        {
+            try { return _pcm is not null ? _pcm.FramePosition : -1; }
+            catch { return -1; }
+        }
+    }
 
     public event Action? PositionChanged;
     public event Action? TrackEnded;
@@ -197,6 +228,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         await RunOnUiAsync(() =>
         {
             DecodeBackend = "ffmpeg";
+            _trackEndFired = false;
             if (tags is not null)
             {
                 ProbeTags.Clear();
@@ -213,6 +245,8 @@ public partial class AudioEngine : ObservableObject, IDisposable
         if (!_dispatcher.HasThreadAccess) { RunOnUi(Play); return; }
         if (_output is null || _source is null || _disposed) return;
         ClearAudition();
+        _trackEndFired = false;
+        _userPaused = false;
         _output.Play();
         IsPlaying = true;
         _clock.Start();
@@ -223,19 +257,47 @@ public partial class AudioEngine : ObservableObject, IDisposable
         if (!_dispatcher.HasThreadAccess) { RunOnUi(Pause); return; }
         if (_output is null || _disposed) return;
         _output.Pause();
+        _userPaused = true;
         IsPlaying = false;
         _clock.Stop();
         ClearAudition();
         RefreshPosition();
     }
 
-    public void Seek(double seconds)
+    // The one seek path. Atomically: bumps the generation (stale async
+    // work loses), flushes stretcher buffers, seeks the (already decoded,
+    // hence sample-exact) PCM and re-anchors its counter, and rebases the
+    // clock so the UI shows the target immediately. Seeking while paused
+    // never starts playback. Seeking while playing restarts the output so
+    // already-queued pre-seek audio cannot keep sounding (~200ms stale
+    // tail); the cost is a short gap instead.
+    public void SeekTo(double seconds)
     {
-        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => Seek(seconds)); return; }
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => SeekTo(seconds)); return; }
         if (_source is null || _disposed) return;
         ClearAudition();
+        var wasPlaying = IsPlaying;
+        var gen = ++_seekGen;
+        ++_buildGen;
+        _trackEndFired = false;
+        if (wasPlaying && _output is not null)
+        {
+            _output.PlaybackStopped -= OnPlaybackStopped;
+            try { _output.Stop(); } catch { }
+        }
         SeekWithoutClearing(seconds);
+        if (wasPlaying && _output is not null && gen == _seekGen && !_disposed)
+        {
+            try { _output.Play(); } catch (Exception ex) { LastOutputError = AudioErrorText.MessageOf(ex); }
+            finally { _output.PlaybackStopped += OnPlaybackStopped; }
+        }
+        else if (wasPlaying && _output is not null)
+        {
+            _output.PlaybackStopped += OnPlaybackStopped;
+        }
     }
+
+    public void Seek(double seconds) => SeekTo(seconds);
 
     public void SetVolume(double volume)
     {
@@ -438,11 +500,46 @@ public partial class AudioEngine : ObservableObject, IDisposable
         RunOnUi(() =>
         {
             if (_disposed) return;
+            // A user Pause() can surface here too: expected stop, sync the
+            // state, but never mistake it for track end and never log it.
+            if (_userPaused)
+            {
+                IsPlaying = false;
+                _clock.Stop();
+                ClearAudition();
+                RefreshPosition();
+                return;
+            }
+            var wasPlaying = IsPlaying;
             IsPlaying = false;
             _clock.Stop();
             ClearAudition();
             RefreshPosition();
+            // Natural stream exhaustion (provider returned 0 at EOF) lands
+            // here, often BEFORE the next 250ms tick can notice: this is the
+            // primary end-of-track path, not the tick. Anything else is an
+            // unexpected device stop worth recording.
+            if (Duration > TimeSpan.Zero && Position >= Duration - TimeSpan.FromMilliseconds(500))
+                FireTrackEndedOnce();
+            else
+                LastOutputError =
+                    $"device stopped at {Position}/{Duration} (wasPlaying={wasPlaying})" +
+                    (e.Exception is null
+                        ? " (no exception)"
+                        : ":\n" + AudioErrorText.FullReport(e.Exception));
         });
+    }
+
+    // TrackEnded fires exactly once per playthrough, from whichever path
+    // notices the end first (device callback or clock tick). Rearmed by
+    // Play, SeekTo, and Load.
+    private bool _trackEndFired;
+
+    private void FireTrackEndedOnce()
+    {
+        if (_trackEndFired) return;
+        _trackEndFired = true;
+        TrackEnded?.Invoke();
     }
 
     private void OnTick()
@@ -452,13 +549,13 @@ public partial class AudioEngine : ObservableObject, IDisposable
         if (!double.IsNaN(_pauseAtSeconds) && Position.TotalSeconds >= _pauseAtSeconds)
         {
             Pause();
-            TrackEnded?.Invoke();
+            FireTrackEndedOnce();
             return;
         }
         if (Duration > TimeSpan.Zero && Position >= Duration - TimeSpan.FromMilliseconds(200) && IsPlaying)
         {
             Pause();
-            TrackEnded?.Invoke();
+            FireTrackEndedOnce();
             return;
         }
         PositionChanged?.Invoke();
@@ -469,9 +566,10 @@ public partial class AudioEngine : ObservableObject, IDisposable
         TimeSpan pos;
         try
         {
-            // Source-audio time, stretch-buffer latency accounted for inside
-            // the provider (fed minus still-buffered frames). Falls back to
-            // the raw PCM clock when no stretch stage exists yet.
+            // Source-audio time from the stretch provider, which integrates
+            // received output back through its own input/output ratio
+            // (exact end-to-end, approximate mid-stream). Falls back to the
+            // raw PCM clock when no stretch stage exists yet.
             pos = _stretch is not null
                 ? TimeSpan.FromSeconds(_stretch.ReportedSourceSeconds)
                 : _pcm is not null ? _pcm.CurrentTime : Position;

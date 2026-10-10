@@ -22,6 +22,13 @@ internal sealed class TimeStretchProvider : ISampleProvider
     private double _tempo = 1.0;
     private bool _bypass = true;
     private long _fedFrames;
+    // Source-time clock: every received output frame is integrated back
+    // through the processor's own input/output ratio
+    // (SoundTouchProcessor.GetInputOutputSampleRatio). The ratio is exact
+    // end-to-end and approximate (±tens of ms) mid-stream, which beats
+    // (fed - buffered): the input-side pipeline latency is invisible to us
+    // and runs to hundreds of ms at extreme tempos.
+    private double _sourceClockFrames;
     private bool _sourceEnded;
     private float[] _recv = new float[8192 * 2];
     private int _recvCount;
@@ -67,21 +74,18 @@ internal sealed class TimeStretchProvider : ISampleProvider
     {
         get
         {
-            lock (_gate)
-            {
-                var buffered = _bypass ? 0 : _st.AvailableSamples;
-                return Math.Max(0, _fedFrames - buffered) / (double)_source.WaveFormat.SampleRate;
-            }
+            lock (_gate) return Math.Max(0, _sourceClockFrames) / (double)_source.WaveFormat.SampleRate;
         }
     }
 
-    // Drops buffered audio and re-anchors the counter (seek / load).
+    // Drops buffered audio and re-anchors the clock (seek / load).
     public void Reset(long sourceFrame)
     {
         lock (_gate)
         {
             _st.Clear();
             _fedFrames = sourceFrame;
+            _sourceClockFrames = sourceFrame;
             _sourceEnded = false;
             _recvCount = 0;
             _recvOffset = 0;
@@ -95,11 +99,15 @@ internal sealed class TimeStretchProvider : ISampleProvider
             if (_bypass)
             {
                 var read = _source.Read(buffer, offset, count);
-                _fedFrames += read / _source.WaveFormat.Channels;
+                var frames = read / _source.WaveFormat.Channels;
+                _fedFrames += frames;
+                _sourceClockFrames += frames; // ratio is 1.0 in bypass
                 return read;
             }
             var channels = _source.WaveFormat.Channels;
             var got = 0;
+            var ratio = _st.GetInputOutputSampleRatio();
+            if (!(ratio > 0)) ratio = 1.0;
             while (got < count)
             {
                 if (_recvOffset >= _recvCount)
@@ -107,9 +115,13 @@ internal sealed class TimeStretchProvider : ISampleProvider
                     if (!FillReceiveBuffer()) break;
                 }
                 var take = Math.Min(count - got, _recvCount - _recvOffset);
-                Array.Copy(_recv, _recvOffset, buffer, offset + got, take);
+                // BlockCopy, not Array.Copy: see the WaveBuffer note on
+                // FfmpegPcmProvider.Read — downstream may hand us a
+                // type-punned array.
+                Buffer.BlockCopy(_recv, _recvOffset * 4, buffer, (offset + got) * 4, take * 4);
                 _recvOffset += take;
                 got += take;
+                _sourceClockFrames += ((double)take / channels) / ratio;
             }
             return got;
         }

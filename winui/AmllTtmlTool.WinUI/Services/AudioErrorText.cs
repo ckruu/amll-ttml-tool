@@ -37,6 +37,13 @@ public static class AudioErrorText
             sb.AppendLine("ffmpeg stderr:");
             sb.AppendLine(string.IsNullOrWhiteSpace(proc.Stderr) ? "<stderr empty>" : proc.Stderr.Trim());
         }
+        if (!string.IsNullOrWhiteSpace(ex.StackTrace))
+        {
+            sb.AppendLine("stack (top 12):");
+            var lines = ex.StackTrace.Split('\n');
+            for (var i = 0; i < Math.Min(12, lines.Length); i++)
+                sb.AppendLine("  " + lines[i].Trim());
+        }
         return sb.ToString().TrimEnd();
     }
 
