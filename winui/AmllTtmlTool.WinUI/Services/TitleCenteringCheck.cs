@@ -401,16 +401,16 @@ internal static class TitleCenteringCheck
                     snap = (
                         Vis(FindByName(bar, "SecondaryGroup") as FrameworkElement),
                         Vis(FindByName(bar, "SecondaryOverflowButton") as FrameworkElement),
-                        Vis(FindByName(bar, "TransRow") as FrameworkElement),
-                        Vis(FindByName(bar, "RomanRow") as FrameworkElement));
+                        RowVis(FindByName(bar, "TransLabel") as FrameworkElement, FindByName(bar, "TransBox") as FrameworkElement),
+                        RowVis(FindByName(bar, "RomanLabel") as FrameworkElement, FindByName(bar, "RomanBox") as FrameworkElement));
                 });
                 return snap;
             }
             // Opens the secondary flyout when its button is up, reads the two
             // fields, and closes it. Returns opened=false when hidden.
-            async Task<(bool Opened, string Trans, string Roman, bool SyncT, bool SyncR)> ReadFlyoutAsync()
+            async Task<(bool Opened, string Trans, string Roman, bool SyncT, bool SyncR, string Edge)> ReadFlyoutAsync()
             {
-                (bool Opened, string Trans, string Roman, bool SyncT, bool SyncR) snap = (false, "?", "?", false, false);
+                (bool Opened, string Trans, string Roman, bool SyncT, bool SyncR, string Edge) snap = (false, "?", "?", false, false, "");
                 await OnUiAsync(window, () =>
                 {
                     var button = FindByName(bar, "SecondaryOverflowButton") as Button;
@@ -418,8 +418,8 @@ internal static class TitleCenteringCheck
                         return;
                     if (button.Flyout is Flyout flyout && flyout.Content is FrameworkElement)
                     {
-                        try { flyout.ShowAt(button); snap = (true, "?", "?", false, false); }
-                        catch { snap = (false, "showfail", "?", false, false); }
+                        try { flyout.ShowAt(button); snap = (true, "?", "?", false, false, ""); }
+                        catch { snap = (false, "showfail", "?", false, false, ""); }
                     }
                 });
                 if (!snap.Opened) return snap;
@@ -430,13 +430,15 @@ internal static class TitleCenteringCheck
                     {
                         var button = FindByName(bar, "SecondaryOverflowButton") as Button;
                         var root = (button?.Flyout as Flyout)?.Content as FrameworkElement;
-                        if (root is null) { snap = (true, "lost", "?", false, false); return; }
+                        if (root is null) { snap = (true, "lost", "?", false, false, ""); return; }
                         var transBox = FindByAutomationName(root, "Translation");
                         var romanBox = FindByAutomationName(root, "Romanization");
                         var mainTrans = FindByName(bar, "TransBox") as TextBox;
                         var mainRoman = FindByName(bar, "RomanBox") as TextBox;
+                        var edge = transBox is not null && romanBox is not null && Shown(transBox) && Shown(romanBox)
+                            ? Edges(transBox, romanBox, root) : "";
                         snap = (true, Field(transBox), Field(romanBox),
-                            TextEq(transBox, mainTrans), TextEq(romanBox, mainRoman));
+                            TextEq(transBox, mainTrans), TextEq(romanBox, mainRoman), edge);
                     }
                     finally
                     {
@@ -486,6 +488,19 @@ internal static class TitleCenteringCheck
                 });
                 await Task.Delay(120);
             }
+            async Task<string> ReadMainEdgesAsync()
+            {
+                var result = "mainedges=hidden";
+                await OnUiAsync(window, () =>
+                {
+                    var transBox = FindByName(bar, "TransBox") as FrameworkElement;
+                    var romanBox = FindByName(bar, "RomanBox") as FrameworkElement;
+                    result = transBox is not null && romanBox is not null && Shown(transBox) && Shown(romanBox)
+                        ? "mainedges " + Edges(transBox, romanBox, bar)
+                        : "mainedges=hidden";
+                });
+                return result;
+            }
 
             var wide = w >= 1152; // Edit ribbon Wide tier threshold (window px)
             var failures = new List<string>();
@@ -500,7 +515,7 @@ internal static class TitleCenteringCheck
             Expect(s0.Group == "C", "both-off group not collapsed");
             Expect(s0.Btn == "C", "both-off overflow button not hidden");
             if (f0.Opened) Expect(false, "both-off flyout should not open");
-            sb.Append($"off/off group={s0.Group} btn={s0.Btn} flyout={(f0.Opened ? $"trans={f0.Trans} roman={f0.Roman}" : "hidden")}");
+            sb.Append($"off/off group={s0.Group} btn={s0.Btn} flyout={(f0.Opened ? $"trans={f0.Trans} roman={f0.Roman} {f0.Edge}" : "hidden")}");
 
             await SetTogglesAsync(true, false);
             var s1 = await ReadStateAsync();
@@ -512,7 +527,7 @@ internal static class TitleCenteringCheck
                 Expect(f1.Opened && f1.Trans == "V" && f1.Roman != "V", "trans-only flyout wrong");
                 Expect(f1.SyncT, "trans-only flyout text out of sync");
             }
-            sb.Append($" | trans-only group={s1.Group} btn={s1.Btn} flyout={(f1.Opened ? $"trans={f1.Trans} roman={f1.Roman} syncT={f1.SyncT}" : "hidden")}");
+            sb.Append($" | trans-only group={s1.Group} btn={s1.Btn} flyout={(f1.Opened ? $"trans={f1.Trans} roman={f1.Roman} syncT={f1.SyncT} {f1.Edge}" : "hidden")}");
 
             // Live transitions with the flyout held open.
             var held = await OpenHeldAsync();
@@ -538,14 +553,17 @@ internal static class TitleCenteringCheck
             await SetTogglesAsync(true, true);
             var s4 = await ReadStateAsync();
             var f4 = await ReadFlyoutAsync();
+            var m4 = await ReadMainEdgesAsync();
             Expect(s4.TransRow == "V" && s4.RomanRow == "V", "both-on main rows wrong");
             Expect(s4.Group == (wide ? "V" : "C") && s4.Btn == (wide ? "C" : "V"), "both-on group/button wrong");
+            Expect(!m4.Contains("ALIGN-FAIL"), "main field edges misaligned");
+            Expect(!f4.Edge.Contains("ALIGN-FAIL"), "flyout field edges misaligned");
             if (!wide)
             {
                 Expect(f4.Opened && f4.Trans == "V" && f4.Roman == "V", "both-on flyout wrong");
                 Expect(f4.SyncT && f4.SyncR, "both-on flyout text out of sync");
             }
-            sb.Append($" | both-on group={s4.Group} btn={s4.Btn} flyout={(f4.Opened ? $"trans={f4.Trans} roman={f4.Roman} sync={f4.SyncT}&{f4.SyncR}" : "hidden")}");
+            sb.Append($" | both-on group={s4.Group} btn={s4.Btn} {m4} flyout={(f4.Opened ? $"trans={f4.Trans} roman={f4.Roman} sync={f4.SyncT}&{f4.SyncR} {f4.Edge}" : "hidden")}");
 
             sb.Insert(0, failures.Count == 0
                 ? $"  VERIFY-PASS secondary w={w}:"
@@ -570,17 +588,40 @@ internal static class TitleCenteringCheck
     private static string Vis(FrameworkElement? fe) =>
         fe is null ? "?" : fe.Visibility == Visibility.Visible && fe.ActualWidth > 0.5 ? "V" : "C";
 
+    private static string RowVis(FrameworkElement? label, FrameworkElement? box) =>
+        label is null || box is null ? "?"
+        : label.Visibility == Visibility.Visible && box.Visibility == Visibility.Visible &&
+            label.ActualWidth > 0.5 && box.ActualWidth > 0.5 ? "V" : "C";
+
     private static string Field(FrameworkElement? fe)
     {
         if (fe is null) return "absent";
+        if (!Shown(fe)) return "C";
+        return (fe as Control)?.IsEnabled == false ? "V/disabled" : "V";
+    }
+
+    private static bool Shown(FrameworkElement? fe)
+    {
+        if (fe is null || fe.ActualWidth <= 0.5) return false;
         var current = fe as DependencyObject;
         while (current is not null)
         {
             if (current is FrameworkElement ancestor && ancestor.Visibility != Visibility.Visible)
-                return "C";
+                return false;
             current = VisualTreeHelper.GetParent(current);
         }
-        return (fe as Control)?.IsEnabled == false ? "V/disabled" : "V";
+        return true;
+    }
+
+    private static string Edges(FrameworkElement a, FrameworkElement b, FrameworkElement host)
+    {
+        var pa = a.TransformToVisual(host).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var pb = b.TransformToVisual(host).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var dL = Math.Abs(pa.X - pb.X);
+        var dR = Math.Abs(pa.X + a.ActualWidth - pb.X - b.ActualWidth);
+        var dH = Math.Abs(a.ActualHeight - b.ActualHeight);
+        var verdict = dL > 1 || dR > 1 || dH > 1 ? "ALIGN-FAIL" : "align-ok";
+        return $"dL={dL:F1} dR={dR:F1} dH={dH:F1} {verdict}";
     }
 
     private static bool TextEq(FrameworkElement? fly, FrameworkElement? main) =>

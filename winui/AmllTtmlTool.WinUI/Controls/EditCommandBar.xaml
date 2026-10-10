@@ -256,7 +256,7 @@
 
         <Border x:Name="SepWordSecondary" Grid.Column="5" Grid.RowSpan="1" Style="{StaticResource RibbonSeparator}" Visibility="{x:Bind WordGroup.Visibility, Mode=OneWay}" />
 
-        <Grid x:Name="SecondaryGroup" Grid.Column="6" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,6">
+        <Grid x:Name="SecondaryGroup" Grid.Column="6" ColumnSpacing="6" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,6">
             <Grid.Transitions>
                 <TransitionCollection>
                     <RepositionThemeTransition />
@@ -266,22 +266,18 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Grid x:Name="TransRow" ColumnSpacing="6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="TransLabel" x:Uid="Ribbon_TransLabel" Style="{StaticResource RibbonFieldLabel}" Text="Translation" ToolTipService.ToolTip="Translation" />
-                <TextBox x:Name="TransBox" Grid.Column="1" Width="120" MinHeight="28" AutomationProperties.Name="Translation" />
-            </Grid>
-            <Grid x:Name="RomanRow" Grid.Row="1" ColumnSpacing="6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock x:Name="RomanLabel" x:Uid="Ribbon_RomanLabel" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" ToolTipService.ToolTip="Romanization" />
-                <TextBox x:Name="RomanBox" Grid.Column="1" Width="120" MinHeight="28" AutomationProperties.Name="Romanization" />
-            </Grid>
+            <!-- One shared label column (sized to the longest label) plus one
+                 star-sized input column, so both inputs share left edge, right
+                 edge, and row height. Two separate row grids could never agree
+                 on the label width: Romanization pushed its input right. -->
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="TransLabel" x:Uid="Ribbon_TransLabel" Style="{StaticResource RibbonFieldLabel}" Text="Translation" ToolTipService.ToolTip="Translation" />
+            <TextBox x:Name="TransBox" Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="120" MinHeight="28" AutomationProperties.Name="Translation" />
+            <TextBlock x:Name="RomanLabel" x:Uid="Ribbon_RomanLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" ToolTipService.ToolTip="Romanization" />
+            <TextBox x:Name="RomanBox" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="120" MinHeight="28" AutomationProperties.Name="Romanization" />
         </Grid>
         <Button x:Name="SecondaryOverflowButton"
                 Grid.Column="6"
@@ -295,19 +291,19 @@
                 ToolTipService.ToolTip="Translation and romanization">
             <Button.Flyout>
                 <Flyout>
-                    <Grid ColumnSpacing="6" RowSpacing="8">
+                    <Grid ColumnSpacing="6" RowSpacing="8" MinWidth="220">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock x:Name="FlyoutTransLabel" Style="{StaticResource RibbonFieldLabel}" Text="Translation" />
-                        <TextBox x:Name="FlyoutTransBox" Grid.Column="1" Width="140" MinHeight="28" AutomationProperties.Name="Translation" Text="{x:Bind TransBox.Text, Mode=TwoWay}" />
+                        <TextBox x:Name="FlyoutTransBox" Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="140" MinHeight="28" AutomationProperties.Name="Translation" Text="{x:Bind TransBox.Text, Mode=TwoWay}" />
                         <TextBlock x:Name="FlyoutRomanLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" />
-                        <TextBox x:Name="FlyoutRomanBox" Grid.Row="1" Grid.Column="1" Width="140" MinHeight="28" AutomationProperties.Name="Romanization" Text="{x:Bind RomanBox.Text, Mode=TwoWay}" />
+                        <TextBox x:Name="FlyoutRomanBox" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="140" MinHeight="28" AutomationProperties.Name="Romanization" Text="{x:Bind RomanBox.Text, Mode=TwoWay}" />
                     </Grid>
                 </Flyout>
             </Button.Flyout>

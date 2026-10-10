@@ -29,15 +29,15 @@ namespace AmllTtmlTool.WinUI.Controls
         {
             var showTrans = AppSettings.ShowTranslation;
             var showRoman = AppSettings.ShowRomanization;
-            TransRow.Visibility = showTrans ? Visibility.Visible : Visibility.Collapsed;
-            RomanRow.Visibility = showRoman ? Visibility.Visible : Visibility.Collapsed;
+            var transVisibility = showTrans ? Visibility.Visible : Visibility.Collapsed;
+            var romanVisibility = showRoman ? Visibility.Visible : Visibility.Collapsed;
+            TransLabel.Visibility = TransBox.Visibility = transVisibility;
+            RomanLabel.Visibility = RomanBox.Visibility = romanVisibility;
             // The flyout holds separate copies (same text via TwoWay binding),
             // so mirror the same visibility here. This also runs while the
             // flyout is open, since DisplayChanged fires on toggle change.
-            FlyoutTransLabel.Visibility = TransRow.Visibility;
-            FlyoutTransBox.Visibility = TransRow.Visibility;
-            FlyoutRomanLabel.Visibility = RomanRow.Visibility;
-            FlyoutRomanBox.Visibility = RomanRow.Visibility;
+            FlyoutTransLabel.Visibility = FlyoutTransBox.Visibility = transVisibility;
+            FlyoutRomanLabel.Visibility = FlyoutRomanBox.Visibility = romanVisibility;
             var showSection = showTrans || showRoman;
             // The tier setters collapse SecondaryGroup below Wide, but this
             // handler re-runs on every toggle change and tier change, so the
