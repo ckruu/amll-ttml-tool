@@ -27,8 +27,33 @@ Keep it current: any new binary or package must add an entry here first.
   nor `--enable-nonfree` (with `--enable-version3`, i.e. LGPLv3).
   Full text: `winui/libs/ffmpeg/LGPL-3.0.txt` (verbatim from the upstream zip).
 
-## SoundTouch (item 3: playback speed)
+## SoundTouch (playback speed)
 
-- Status: evaluation pending (native SoundTouch vs maintained managed port,
-  chosen by CPU benchmark). This section gets the version, source, SHA256,
-  and license entry before any binary or package is added.
+- Chosen: **SoundTouch.Net 2.3.2** (complete managed C# port of SoundTouch
+  2.3.2, tempo/pitch/rate engine), because the CPU benchmark below shows it
+  is more than fast enough while needing no native binary and no arm64
+  build at all. Native SoundTouch 2.3.3 was also built cleanly from the
+  official tarball as a fallback (kept out of the repo).
+- NuGet: https://www.nuget.org/packages/SoundTouch.Net/2.3.2
+  (`dotnet add package SoundTouch.Net --version 2.3.2`)
+- SHA512 of the package (from the local NuGet cache metadata):
+  `8VqYrvz0NsF/xTN0KI4EHX+0SFvNHrO1zYiplzFHfC2v1t4v+o+m7x0gcpMKMgV5BN5Qfm8GGV2oLs7MkC6h8Q==`
+- Upstream: https://github.com/owoudenberg/soundtouch.net (port of
+  https://codeberg.org/soundtouch/soundtouch, official release
+  https://www.surina.net/soundtouch/soundtouch-2.3.3.tar.gz)
+- License: LGPL-2.1-or-later (both the port and the original).
+- Linking: managed assembly referenced by the app (no native DLL shipped).
+- Benchmark, 60 s of 48 kHz stereo float on this machine (process ms for
+  the full output; output length exact and 440 Hz preserved in both):
+  - tempo 0.5x: native 212 ms (0.18% realtime), managed 1091 ms (0.91%)
+  - tempo 1.0x: native 132 ms (0.46% realtime), managed 640 ms (2.22%)
+  - tempo 2.0x: native 117 ms (0.39% realtime), managed 582 ms (1.94%)
+  Native is ~5x faster, but both are under ~2.5% realtime, so the managed
+  port wins on zero-native-binary grounds. Caveats: the port tracks
+  SoundTouch 2.3.2 (one minor behind 2.3.3), handles float mono/stereo
+  only (exactly what the playback graph feeds it), and was last updated
+  2021 (the WSOLA algorithm itself is decades stable; version pinned).
+- Native fallback, if ever needed: official tarball SHA256
+  `43B23DFAC2F64A3AFF55D64BE096FFC7B73842C3F5665CAFF44975633A975A99`,
+  clean MSVC x64 shared build verified (`SoundTouch.dll` + C API wrapper
+  compile; arm64 build was not attempted since the managed port won).

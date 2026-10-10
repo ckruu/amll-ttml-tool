@@ -655,15 +655,26 @@
                     ToolTipService.ToolTip="Playback rate">
                     <Button.Flyout>
                         <Flyout>
-                            <Slider
-                                x:Name="RateSlider"
-                                Header="Rate"
-                                Maximum="2"
-                                Minimum="0.25"
-                                StepFrequency="0.05"
-                                Value="1"
-                                ValueChanged="OnRateChanged"
-                                Width="180" />
+                            <StackPanel Spacing="8" MinWidth="200">
+                                <Slider
+                                    x:Name="RateSlider"
+                                    Header="Rate (pitch preserved)"
+                                    Maximum="2"
+                                    Minimum="0.25"
+                                    StepFrequency="0.05"
+                                    Value="1"
+                                    ValueChanged="OnRateChanged"
+                                    Width="180" />
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <Button Content="0.25x" Click="OnRatePresetClick" Tag="0.25" MinWidth="0" Padding="6,2" />
+                                    <Button Content="0.5x" Click="OnRatePresetClick" Tag="0.5" MinWidth="0" Padding="6,2" />
+                                    <Button Content="0.75x" Click="OnRatePresetClick" Tag="0.75" MinWidth="0" Padding="6,2" />
+                                    <Button Content="1x" Click="OnRatePresetClick" Tag="1" MinWidth="0" Padding="6,2" />
+                                    <Button Content="1.25x" Click="OnRatePresetClick" Tag="1.25" MinWidth="0" Padding="6,2" />
+                                    <Button Content="1.5x" Click="OnRatePresetClick" Tag="1.5" MinWidth="0" Padding="6,2" />
+                                    <Button Content="2x" Click="OnRatePresetClick" Tag="2" MinWidth="0" Padding="6,2" />
+                                </StackPanel>
+                            </StackPanel>
                         </Flyout>
                     </Button.Flyout>
                 </Button>

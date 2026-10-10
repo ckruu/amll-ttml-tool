@@ -36,6 +36,7 @@
         <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
         <Manifest Include="$(ApplicationManifest)" />
         <PackageReference Include="NAudio" Version="2.2.1" />
+        <PackageReference Include="SoundTouch.Net" Version="2.3.2" />
         <ProjectReference Include="..\AmllTtmlTool.Core\AmllTtmlTool.Core.csproj" />
     </ItemGroup>
     <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">

@@ -188,6 +188,38 @@ namespace AmllTtmlTool.WinUI.Views
                         }
                     });
                 }
+                // Stretch-test harness: --stretch-test [reportPath]. Offline
+                // time-stretch verification (no device): sine length/pitch/
+                // position checks plus the 60-second CPU benchmark.
+                // Self-closes. DEBUG-only.
+                var stretchIdx = Array.IndexOf(audioArgs, "--stretch-test");
+                if (stretchIdx >= 0)
+                {
+                    var stretchReport = stretchIdx + 1 < audioArgs.Length ? audioArgs[stretchIdx + 1] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.StretchTestCheck.RunAsync(win, stretchReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.StretchTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
 #endif
             };
         }
@@ -545,6 +577,15 @@ namespace AmllTtmlTool.WinUI.Views
         {
             _audio.SetPlaybackRate(e.NewValue);
             RateButton.Content = $"{e.NewValue:0.##}x";
+        }
+
+        private void OnRatePresetClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is Microsoft.UI.Xaml.Controls.Button button
+                && double.TryParse(button.Tag as string,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var rate))
+                RateSlider.Value = rate;
         }
 
         private void OnSeekPointerPressed(object sender, PointerRoutedEventArgs e) => _scrubbing = true;

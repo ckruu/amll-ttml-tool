@@ -24,6 +24,8 @@ public sealed class FfmpegPcmProvider : ISampleProvider
 
     public long TotalFrames => _samples.Length / FfmpegDecoder.OutChannels;
 
+    public long FramePosition => _framePosition;
+
     public TimeSpan CurrentTime
     {
         get => TimeSpan.FromSeconds((double)_framePosition / FfmpegDecoder.OutSampleRate);
@@ -46,6 +48,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
     private IWavePlayer? _output;
     private ISampleProvider? _source;
     private FfmpegPcmProvider? _pcm;
+    private TimeStretchProvider? _stretch;
     private readonly DispatcherQueueTimer _clock;
     private readonly DispatcherQueue _dispatcher;
     private double _pauseAtSeconds = double.NaN;
@@ -247,25 +250,10 @@ public partial class AudioEngine : ObservableObject, IDisposable
         rate = Math.Max(0.1, Math.Min(4, rate));
         if (Math.Abs(rate - PlaybackRate) < 0.001) return;
         PlaybackRate = rate;
-        // Device re-init can block (busy device), so rebuild off the UI
-        // thread. Stale rebuilds lose the generation race. (Item 3 replaces
-        // this whole path with a live time-stretch provider.)
-        var resume = IsPlaying;
-        var pos = Position.TotalSeconds;
-        var gen = ++_buildGen;
-        _ = Task.Run(() =>
-        {
-            try
-            {
-                BuildOutput(pos);
-                if (gen != _buildGen || _disposed) return;
-                if (resume) RunOnUi(Play);
-            }
-            catch (Exception ex)
-            {
-                LastOutputError = AudioErrorText.MessageOf(ex);
-            }
-        });
+        // Live change straight into the stretch provider: no rebuild, no
+        // gap, no click. The provider takes its own lock (device thread may
+        // be pulling); tempo slews inside the engine.
+        _stretch?.Tempo = rate;
     }
 
     public void AuditionRange(double startSeconds, double endSeconds)
@@ -298,7 +286,13 @@ public partial class AudioEngine : ObservableObject, IDisposable
         var clamped = Math.Max(0, Math.Min(seconds, Duration.TotalSeconds));
         try
         {
-            if (_pcm is not null) _pcm.CurrentTime = TimeSpan.FromSeconds(clamped);
+            if (_pcm is not null)
+            {
+                _pcm.CurrentTime = TimeSpan.FromSeconds(clamped);
+                // Drop stretcher buffers and re-anchor its counter, or the
+                // old tempo tail would smear across the seek point.
+                _stretch?.Reset(_pcm.FramePosition);
+            }
         }
         catch { }
         RefreshPosition();
@@ -319,17 +313,15 @@ public partial class AudioEngine : ObservableObject, IDisposable
         }
         var mix = QueryMixTarget();
         DeviceMixFormatDescription = mix.Desc;
-        // Source (always stereo float from the FFmpeg path) is mapped to the
-        // device channel count first (fewer channels to resample), then to
-        // the device rate. The device never sees our internal format.
-        // (PlaybackRate resampling below is interim pitch-shifting behavior;
-        // item 3 replaces it with a pitch-preserving time-stretch provider.)
+        // Source (always stereo float from the FFmpeg path) runs through the
+        // pitch-preserving time-stretch provider first (live tempo, bypassed
+        // at 1x), then channel mapping and the device-rate resample. The
+        // device never sees our internal format.
         ISampleProvider chain = _source;
-        if (Math.Abs(PlaybackRate - 1.0) > 0.001)
-        {
-            var targetRate = Math.Max(8000, (int)(chain.WaveFormat.SampleRate * PlaybackRate));
-            chain = new WdlResamplingSampleProvider(chain, targetRate);
-        }
+        var stretch = new TimeStretchProvider(chain);
+        stretch.Tempo = PlaybackRate;
+        _stretch = stretch;
+        chain = stretch;
         if (chain.WaveFormat.Channels != mix.Channels)
             chain = new ChannelMapSampleProvider(chain, mix.Channels);
         if (chain.WaveFormat.SampleRate != mix.Rate)
@@ -477,7 +469,12 @@ public partial class AudioEngine : ObservableObject, IDisposable
         TimeSpan pos;
         try
         {
-            pos = _pcm is not null ? _pcm.CurrentTime : Position;
+            // Source-audio time, stretch-buffer latency accounted for inside
+            // the provider (fed minus still-buffered frames). Falls back to
+            // the raw PCM clock when no stretch stage exists yet.
+            pos = _stretch is not null
+                ? TimeSpan.FromSeconds(_stretch.ReportedSourceSeconds)
+                : _pcm is not null ? _pcm.CurrentTime : Position;
         }
         catch
         {
@@ -511,6 +508,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         }
         _pcm = null;
         _source = null;
+        _stretch = null;
         ClearAudition();
         RunOnUi(() =>
         {
