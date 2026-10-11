@@ -406,6 +406,38 @@ try {
         Invoke-Ui @('invoke', 'PlayButton') -Window $hwnd | Out-Null
     }
 
+    Test-UI 'bar children share one center line, buttons 44x36' {
+        $ids = @('TrackButton', 'PlayButton', 'PositionText', 'SeekSlider', 'DurationText', 'EyeButton', 'RateButton')
+        $cys = @()
+        $sizes = @()
+        foreach ($id in $ids) {
+            $r = Element-Rect $id
+            $cys += ($r.y + $r.height / 2)
+        }
+        $lo = ($cys | Measure-Object -Minimum).Minimum
+        $hi = ($cys | Measure-Object -Maximum).Maximum
+        Write-Host "  centers: $($cys -join ', ') (spread $($hi - $lo), UIA ints: 2px budget)"
+        if (($hi - $lo) -gt 2) { throw "bar children off one line (spread $($hi - $lo))" }
+        foreach ($id in @('TrackButton', 'PlayButton', 'EyeButton', 'RateButton')) {
+            $r = Element-Rect $id
+            $sizes += "$id=$($r.width)x$($r.height)"
+            if ([Math]::Abs($r.width - 44) -gt 1 -or [Math]::Abs($r.height - 36) -gt 1) {
+                throw "button $id not 44x36: $($r.width)x$($r.height)"
+            }
+        }
+        Write-Host "  sizes: $($sizes -join ' ')"
+    }
+
+    Test-UI 'speed hover screenshot delivered' {
+        Invoke-Ui @('hover', 'RateButton') -Window $hwnd | Out-Null
+        Start-Sleep -Milliseconds 400
+        $p = Join-Path $Artifacts '04-speed-hover.png'
+        Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or (Get-Item -LiteralPath $p).Length -eq 0) {
+            throw "screenshot not delivered: $p"
+        }
+    }
+
     Test-UI 'layout widths keep slider >= 120px' {
         $hw = [System.IntPtr]$hwnd
         foreach ($w in @(1400, 1116, 900, 750, 672, 600)) {

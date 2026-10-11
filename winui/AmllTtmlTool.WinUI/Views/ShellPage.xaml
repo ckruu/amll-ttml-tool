@@ -13,6 +13,21 @@
             <Setter Property="MinWidth" Value="40" />
             <Setter Property="Padding" Value="8,0" />
         </Style>
+        <!-- Player-bar buttons: one shared size and idle look. Idle is fully
+             transparent (no background, no border); hover/pressed come from
+             the default Button visuals (ControlFill secondary/tertiary).
+             44px fits the longest speed text ("1.25x") unclipped. -->
+        <Style x:Key="PlayerBarButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Width" Value="44" />
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
     </Page.Resources>
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnOpenAccelerator" />
@@ -79,6 +94,7 @@
             <RowDefinition Height="48" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -626,23 +642,18 @@
             IsOpen="False" />
 
         <!--
-            Floating player bar (slice A): it lives in the content row with
-            bottom alignment and a margin, so page content extends beneath
-            it. Scrolling pages must reserve bottom padding for the bar
-            clearance (bar height + margin, ~76px) so the last item can
-            scroll above it; the bar background stays transparent to that
-            content (in-app acrylic, slice E). Order: track, play, elapsed,
+            Player bar: own bottom row (content no longer slides beneath
+            it), symmetric left/right/bottom margin. ~48px outer height
+            (36px content + 12px padding). Order: track, play, elapsed,
             seek (all remaining width, >=120px), total, eye, speed last.
-            The speaker button's volume functions move into
-            the track tip (slice B); the pin slot is now the eye button
-            (same stub behavior).
+            Every child sits on one horizontal center line. The four buttons
+            share PlayerBarButtonStyle (44x36, transparent idle).
         -->
         <Border
             x:Name="PlayerBarBorder"
-            Grid.Row="2"
-            Margin="8"
-            Padding="8,4"
-            VerticalAlignment="Bottom"
+            Grid.Row="4"
+            Margin="8,0,8,8"
+            Padding="8,6"
             Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1"
@@ -657,32 +668,31 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <AppBarButton
+                <Button
                     x:Name="TrackButton"
                     x:Uid="AudioBar_Track"
                     AutomationProperties.AutomationId="TrackButton"
                     AutomationProperties.Name="Track info"
+                    VerticalAlignment="Center"
                     Click="OnTrackButtonClick"
-                    IsCompact="True"
+                    Style="{StaticResource PlayerBarButtonStyle}"
                     TabIndex="0"
-                    Width="44"
                     ToolTipService.ToolTip="Track info">
-                    <AppBarButton.Icon>
-                        <FontIcon Glyph="&#xEC4F;" />
-                    </AppBarButton.Icon>
-                </AppBarButton>
-                <AppBarButton
+                    <FontIcon FontSize="16" Glyph="&#xEC4F;" />
+                </Button>
+                <Button
                     x:Name="PlayButton"
                     x:Uid="AudioBar_Play"
                     Grid.Column="1"
                     AutomationProperties.AutomationId="PlayButton"
+                    VerticalAlignment="Center"
                     Click="OnPlayPauseClick"
-                    Icon="Play"
-                    IsCompact="True"
+                    Style="{StaticResource PlayerBarButtonStyle}"
                     IsEnabled="False"
                     TabIndex="1"
-                    Width="44"
-                    ToolTipService.ToolTip="Play" />
+                    ToolTipService.ToolTip="Play">
+                    <FontIcon x:Name="PlayGlyph" FontSize="16" Glyph="&#xE768;" />
+                </Button>
                 <TextBlock
                     x:Name="PositionText"
                     AutomationProperties.AutomationId="PositionText"
@@ -723,34 +733,29 @@
                     Text="00:00.000"
                     TextAlignment="Center"
                     Typography.NumeralAlignment="Tabular" />
-                <AppBarButton
+                <Button
                     x:Name="EyeButton"
                     x:Uid="AudioBar_JumpToCurrent"
                     Grid.Column="5"
                     AutomationProperties.AutomationId="EyeButton"
                     AutomationProperties.Name="Jump to current lyric line"
+                    VerticalAlignment="Center"
                     Click="OnLocateClick"
-                    IsCompact="True"
+                    Style="{StaticResource PlayerBarButtonStyle}"
                     TabIndex="3"
-                    Width="44"
                     ToolTipService.ToolTip="Jump to current lyric line">
-                    <AppBarButton.Icon>
-                        <FontIcon Glyph="&#xE890;" />
-                    </AppBarButton.Icon>
-                </AppBarButton>
-                <!--
-                    Fixed width: sized once for the longest text ("1.25x") so
-                    the button never resizes or moves as the speed changes.
-                -->
+                    <FontIcon FontSize="16" Glyph="&#xE890;" />
+                </Button>
                 <Button
                     x:Name="RateButton"
                     Grid.Column="6"
                     AutomationProperties.AutomationId="RateButton"
                     AutomationProperties.Name="Playback speed"
-                    MinWidth="64"
+                    VerticalAlignment="Center"
                     HorizontalContentAlignment="Center"
                     Content="1x"
                     Click="OnSpeedButtonClick"
+                    Style="{StaticResource PlayerBarButtonStyle}"
                     TabIndex="4"
                     ToolTipService.ToolTip="Playback speed" />
             </Grid>
@@ -965,7 +970,7 @@
 
         <Border
             x:Name="DropOverlay"
-            Grid.RowSpan="4"
+            Grid.RowSpan="5"
             Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
             IsHitTestVisible="False"
             Visibility="Collapsed">

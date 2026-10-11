@@ -957,7 +957,7 @@ namespace AmllTtmlTool.WinUI.Views
             // -> Pause. No global Space binding: Space is reserved for word
             // stamping. Media-key presses land here through the SMTC
             // ButtonPressed -> play()/pause() -> RefreshAudioChrome path.
-            PlayButton.Icon = new SymbolIcon(_audio.IsPlaying ? Symbol.Pause : Symbol.Play);
+            PlayGlyph.Glyph = _audio.IsPlaying ? "\uE769" : "\uE768";
             var playName = _audio.IsPlaying ? "Pause" : "Play";
             ToolTipService.SetToolTip(PlayButton, playName);
             AutomationProperties.SetName(PlayButton, playName);
@@ -2494,6 +2494,52 @@ namespace AmllTtmlTool.WinUI.Views
                     }
                 }
                 return "OK " + detail;
+            }
+            catch (Exception ex)
+            {
+                return "FAIL harness-error " + ex.GetType().Name;
+            }
+        }
+        // Bar metrics (item 3): single center line, unified button size,
+        // transparent speed idle. TextBlock centers use their bounds.
+        internal string Test_BarMetrics()
+        {
+            try
+            {
+                FrameworkElement[] items =
+                [
+                    TrackButton, PlayButton, PositionText, SeekSlider,
+                    DurationText, EyeButton, RateButton,
+                ];
+                var centers = new List<string>();
+                double lo = double.MaxValue, hi = double.MinValue;
+                foreach (var el in items)
+                {
+                    var origin = el.TransformToVisual(PlayerBarBorder)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0));
+                    var cy = origin.Y + el.ActualHeight / 2;
+                    lo = Math.Min(lo, cy);
+                    hi = Math.Max(hi, cy);
+                    centers.Add($"{el.Name}={cy:F2}");
+                }
+                var spread = hi - lo;
+                var detail = $"spread={spread:F2} " + string.Join(" ", centers);
+                if (spread > 1.0) return $"FAIL center-line {detail}";
+                Button[] buttons = [TrackButton, PlayButton, EyeButton, RateButton];
+                foreach (var b in buttons)
+                {
+                    if (Math.Abs(b.ActualWidth - 44) > 0.01 || Math.Abs(b.ActualHeight - 36) > 0.01)
+                        return $"FAIL button-size {b.Name}={b.ActualWidth:F1}x{b.ActualHeight:F1} [{detail}]";
+                }
+                var bg = RateButton.Background as Microsoft.UI.Xaml.Media.SolidColorBrush;
+                if (bg is null || bg.Color != Microsoft.UI.Colors.Transparent)
+                    return $"FAIL speed-idle-bg {(bg is null ? "not-solid" : bg.Color.ToString())} [{detail}]";
+                var barH = PlayerBarBorder.ActualHeight;
+                // 50.0 standard (36 content + 6+6 padding + border); 42.0 in
+                // the narrow tier (padding 6,2). Both keep every guarantee.
+                if (barH < 39.5 || barH > 52.5)
+                    return $"FAIL bar-height {barH:F1} [{detail}]";
+                return "OK " + detail + $" barH={barH:F1}";
             }
             catch (Exception ex)
             {

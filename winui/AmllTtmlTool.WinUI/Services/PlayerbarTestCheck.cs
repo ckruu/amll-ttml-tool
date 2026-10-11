@@ -609,6 +609,10 @@ internal static class PlayerbarTestCheck
             await OnUiAsync(window, () => verdict = page.Test_BarLayout());
             Check(report, $"layout@{width}", verdict.StartsWith("OK", StringComparison.Ordinal),
                 verdict, ref fails);
+            var metrics = "";
+            await OnUiAsync(window, () => metrics = page.Test_BarMetrics());
+            Check(report, $"metrics@{width}", metrics.StartsWith("OK", StringComparison.Ordinal),
+                metrics, ref fails);
         }
         return fails;
     }
