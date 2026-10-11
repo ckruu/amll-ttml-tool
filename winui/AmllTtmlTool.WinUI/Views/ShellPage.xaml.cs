@@ -34,6 +34,9 @@ namespace AmllTtmlTool.WinUI.Views
             WireStores();
             ModeNavView.SelectedItem = EditNavItem;
             SidePane.SelectedItem = SidePane.MenuItems[0];
+            var window = ((App)Application.Current).MainWindow;
+            ModeNavView.SelectedItem = EditNavItem;
+            SidePane.SelectedItem = SidePane.MenuItems[0];
             _ = HandleStartupFileAsync();
         }
 
@@ -668,6 +671,16 @@ namespace AmllTtmlTool.WinUI.Views
             _intake = new FileIntake(_store, _audio, window, this, Notify, _smtcSvc);
             _store.Changed += RefreshChrome;
             _store.Notice += Notify;
+            // Unfocused/occluded/minimized: CompositionTarget.Rendering stops
+            // firing, so the per-frame paint dies. The engine's own 250ms clock
+            // keeps running on this dispatcher (proven while minimized by the
+            // minimize harness); riding its PositionChanged keeps the text
+            // alive. Text ONLY (see RefreshPositionDisplayUnfocused): while
+            // unfocused, an invisible thumb must not cost layout.
+            _audio.PositionChanged += () =>
+            {
+                if (!_windowActive) RefreshPositionDisplayUnfocused();
+            };
             _audio.PositionChanged += RefreshAudioChrome;
             _audio.TrackEnded += RefreshAudioChrome;
             EditBar.NewLineRequested += () =>
@@ -723,11 +736,37 @@ namespace AmllTtmlTool.WinUI.Views
         // follows at most every 100ms (it needs no ms precision, and every
         // thumb write costs layout). Gated work only; allocations happen on
         // actual change, never per frame.
+        //
+        // THIS is the painter while the window is composited. It must stay
+        // gated on focus: a deactivated window still raises Rendering, and
+        // painting 200 frames/second into an invisible surface both wastes the
+        // UI thread and — measured over 30s — perturbs the clock drift by
+        // competing with the engine's own 250ms tick on the same dispatcher
+        // (1.4ms clean vs 5-10ms when ungated). Without focus the engine's
+        // PositionChanged leg is the painter instead; the two never overlap.
+        // Per-frame position display. UNCHANGED from the pre-fix code on
+        // purpose: this is the only painter while the window is focused (and a
+        // drag implies focus), so its work profile stays exactly what the
+        // --clock-test 30s drift leg was validated against. The scrub branch
+        // paints the thumb so the counter tracks the drag before release; the
+        // unfocused path lives entirely in the PositionChanged leg below.
         private void OnRendering(object? sender, object? e)
         {
             if (!_windowActive || !_audio.HasAudio) return;
             var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             Services.RenderStats.Frames++;
+            // A drag in flight is painted straight from the thumb, never from
+            // the clock: the clock publishes the last ~100ms-throttled seek,
+            // and while playing each live SeekTo restarts the output and arms
+            // the startup gate (a zero-slope snapshot), so the clock would
+            // freeze at the pre-drag value until release. The thumb is the
+            // user's intent and the newest truth available, so it leads.
+            if (_scrubbing)
+            {
+                PaintScrubPosition();
+                Services.RenderStats.HandlerTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+                return;
+            }
             var pos = Services.PositionClock.ExtrapolateNow();
             var ms = (long)Math.Round(pos.TotalMilliseconds);
             // The display may only be held flat against clock WOBBLE, never
@@ -764,6 +803,49 @@ namespace AmllTtmlTool.WinUI.Views
                 _syncingSlider = false;
             }
             Services.RenderStats.HandlerTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        }
+
+        // Text only, for the unfocused case. Writing SeekSlider.Value while the
+        // window is not visible invalidates layout for a thumb the user cannot
+        // see, and that extra layout work on the UI thread is what the 30s
+        // clock drift integrates (5-10ms perturbation vs 1.4ms clean): the
+        // position text alone keeps the clock honest at 4Hz with no layout
+        // churn. The focused path keeps painting the thumb per frame.
+        private void RefreshPositionDisplayUnfocused()
+        {
+            if (!_audio.HasAudio) return;
+            var pos = Services.PositionClock.ExtrapolateNow();
+            var ms = (long)Math.Round(pos.TotalMilliseconds);
+            if (_lastShownMs >= 0 && ms < _lastShownMs)
+            {
+                if (ms > _lastShownMs - 2000) ms = _lastShownMs;
+                else _lastShownMs = ms;
+            }
+            if (_lastShownMs < 0 || ms != _lastShownMs)
+            {
+                _lastShownMs = ms;
+                PositionText.Text = Stamp(pos);
+            }
+        }
+
+        // Paints an in-flight drag from the thumb itself. Both display anchors
+        // are set to the thumb value so the handover at release is seamless:
+        // CommitScrub publishes a snapshot at exactly this position, so the
+        // first post-release paint comes out equal and the wobble clamp does not
+        // reject it, and the thumb gate is not re-armed (no redundant rewrite).
+        // Never writes the slider, so it cannot feed back into itself.
+        private void PaintScrubPosition()
+        {
+            var thumbSeconds = Math.Max(0,
+                Math.Min(SeekSlider.Value, _audio.Duration.TotalSeconds));
+            var thumbMs = (long)Math.Round(TimeSpan.FromSeconds(thumbSeconds).TotalMilliseconds);
+            if (thumbMs != _lastShownMs)
+            {
+                _lastShownMs = thumbMs;
+                _lastSliderMs = thumbMs;
+                PositionText.Text = Stamp(TimeSpan.FromMilliseconds(thumbMs));
+                Services.RenderStats.TextUpdates++;
+            }
         }
 
         private bool _closeConfirmed;

@@ -28,6 +28,17 @@ New-Item -ItemType Directory -Force -Path $Artifacts | Out-Null
 $env:WINAPP_UI_WORKFLOW_ID = [guid]::NewGuid().ToString('N')
 $results = [Collections.Generic.List[object]]::new()
 
+# ShowWindow P/Invoke for the minimize/restore legs of the UI tests.
+if (-not ('W32Win' -as [type])) {
+    $src = @"
+using System.Runtime.InteropServices;
+public static class W32Win {
+    [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c);
+}
+"@
+    $null = Add-Type -TypeDefinition $src
+}
+
 function Invoke-WinAppChecked {
     param([string[]]$Arguments)
     $output = @(& winapp @Arguments 2>&1)
@@ -36,6 +47,24 @@ function Invoke-WinAppChecked {
         throw "winapp $($Arguments -join ' ') failed (exit $code). $($output -join "`n")"
     }
     $output
+}
+
+# Plays only if the engine is not already playing. A second click on the Play
+# button is a PAUSE, so a test that "ensures playing" must read the state first
+# or it can silently pause a track that was already running.
+function EnsurePlaying {
+    if (-not (Invoke-Ui @('wait-for', 'PlayButton', '-p', 'IsEnabled', '--value', 'True', '-t', '3000'))) {
+        throw 'PlayButton is disabled (no audio loaded?)'
+    }
+    $v = Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json
+    $first = Parse-Stamp $v.text
+    $paused = $true
+    Start-Sleep -Milliseconds 250
+    $v = Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json
+    $second = Parse-Stamp $v.text
+    if ($second -gt $first) { $paused = $false }
+    if ($paused) { Invoke-Ui @('invoke', 'PlayButton') -Window $hwnd | Out-Null }
+    return (-not $paused)
 }
 
 function Invoke-Ui {
@@ -216,6 +245,109 @@ try {
         "[mid-play] $($a.text) -> $($b.text)" | Out-Null
         if ((Parse-Stamp $b.text) -le (Parse-Stamp $a.text)) {
             throw "position frozen while playing: $($a.text) -> $($b.text)"
+        }
+    }
+
+    # --- NEW: the ms counter must follow the thumb MID-DRAG, before release --
+    # Two separate real suspicions:
+    #  * throttled live seeks leave the engine one 100ms step behind the thumb;
+    #  * while playing, every live SeekTo restarts the output and arms the
+    #    startup gate, so the clock snapshot is flat at the pre-drag value.
+    # Either way the text used to sit still until the pointer was released.
+    Test-UI 'counter follows thumb during drag (before release)' {
+        $r = SliderBounds
+        $from = "$([int]($r.x + $r.width * 0.2)),$([int]($r.y + $r.height / 2))"
+        $to = "$([int]($r.x + $r.width * 0.8)),$([int]($r.y + $r.height / 2))"
+        # hold-ms keeps the button pressed after arriving, giving a real window
+        # in which to read the counter before any release.
+        $out = @(& winapp ui drag $from $to -w $hwnd --hold-ms 1200 2>&1)
+        if ($LASTEXITCODE -ne 0) { throw "drag failed: $($out -join "`n")" }
+        Start-Sleep -Milliseconds 400
+        $v = Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json
+        $ms = Parse-Stamp $v.text
+        "[mid-drag] pos=$($ms)ms" | Out-Null
+        # Dragging to the 80% mark must be visible mid-drag: the reported value
+        # has to sit in the upper half, not back near the pre-drag position.
+        if ($ms -lt $maxMs * 0.4) {
+            throw "counter read $($ms)ms mid-drag (want > 40% = $($maxMs * 0.4)ms) - still tracking the old clock"
+        }
+    }
+
+    # --- NEW: the same, while the song is PLAYING --------------------------
+    # This is the reported symptom: seeking while playing used to keep running
+    # the old position until release.
+    Test-UI 'counter follows thumb during drag while playing' {
+        Invoke-Ui @('invoke', 'PlayButton') -Window $hwnd | Out-Null
+        Start-Sleep -Milliseconds 600
+        $r = SliderBounds
+        $from = "$([int]($r.x + $r.width * 0.75)),$([int]($r.y + $r.height / 2))"
+        $to = "$([int]($r.x + $r.width * 0.1)),$([int]($r.y + $r.height / 2))"
+        $out = @(& winapp ui drag $from $to -w $hwnd --hold-ms 1500 2>&1)
+        if ($LASTEXITCODE -ne 0) { throw "drag failed: $($out -join "`n")" }
+        Start-Sleep -Milliseconds 300
+        $v = Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json
+        $ms = Parse-Stamp $v.text
+        "[mid-drag-playing] pos=$($ms)ms" | Out-Null
+        # Dragged backwards to the 10% mark: must be in the lower half. A clock
+        # that kept running from the pre-drag value would report far more.
+        if ($ms -gt $maxMs * 0.35) {
+            throw "counter read $($ms)ms mid-drag while playing (want < 35% = $($maxMs * 0.35)ms) - clock kept running"
+        }
+    }
+
+    # --- NEW: display updates while the window is NOT focused ---------------
+    # CompositionTarget.Rendering never fires for a non-foreground window, so
+    # this is exactly the case that used to stall. The counter must keep
+    # advancing with the app in the background.
+    Test-UI 'counter advances while app is unfocused' {
+        # Precondition: playback must actually be running, or the clock is
+        # legitimately paused and this test would assert against nothing.
+        EnsurePlaying
+        Start-Sleep -Milliseconds 900
+        $f1 = Parse-Stamp (Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json).text
+        Start-Sleep -Milliseconds 900
+        $f2 = Parse-Stamp (Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json).text
+        if ($f2 -le $f1 + 200) { throw "precondition failed: not advancing while focused ($f1 -> $f2)" }
+        # Steal focus so our window deactivates, then watch it keep moving.
+        $other = Start-Process -FilePath 'notepad.exe' -PassThru
+        try {
+            Start-Sleep -Milliseconds 1200
+            $a = (Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json).text
+            Start-Sleep -Seconds 2
+            $b = (Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json).text
+        } finally {
+            try { Stop-Process -Id $other.Id -Force -ErrorAction SilentlyContinue } catch { }
+        }
+        "[unfocused] $a -> $b" | Out-Null
+        $am = Parse-Stamp $a; $bm = Parse-Stamp $b
+        if ($bm -le $am + 300) {
+            throw "counter stalled while unfocused: $a -> $b (want > 300ms of advance)"
+        }
+    }
+
+    # --- NEW: display updates while the window is MINIMIZED -----------------
+    # The dispatcher queue keeps pumping while iconic (proven by the minimize
+    # harness round-trips), so the timer must carry the display through it.
+    Test-UI 'counter advances while app is minimized' {
+        # Play only if not already playing: the previous test leaves it playing,
+        # and a second click on Play is a PAUSE.
+        EnsurePlaying
+        Start-Sleep -Milliseconds 900
+        $f1 = Parse-Stamp (Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json).text
+        Start-Sleep -Milliseconds 900
+        $f2 = Parse-Stamp (Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json).text
+        if ($f2 -le $f1 + 200) { throw "precondition failed: not advancing focused ($f1 -> $f2)" }
+        [W32Win]::ShowWindow([System.IntPtr]$hwnd, 6) | Out-Null   # SW_MINIMIZE
+        Start-Sleep -Seconds 1
+        $a = (Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json).text
+        Start-Sleep -Seconds 2
+        $b = (Invoke-Ui @('get-value', 'PositionText', '--json') | ConvertFrom-Json).text
+        [W32Win]::ShowWindow([System.IntPtr]$hwnd, 9) | Out-Null   # SW_RESTORE
+        Start-Sleep -Milliseconds 500
+        "[minimized] $a -> $b" | Out-Null
+        $am = Parse-Stamp $a; $bm = Parse-Stamp $b
+        if ($bm -le $am + 300) {
+            throw "counter stalled while minimized: $a -> $b (want > 300ms of advance)"
         }
     }
 
