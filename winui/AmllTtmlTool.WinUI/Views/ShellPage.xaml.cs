@@ -88,6 +88,15 @@ namespace AmllTtmlTool.WinUI.Views
             // opens the picker immediately (never the tip) and swallows any
             // default context menu.
             TrackButton.ContextRequested += OnTrackContextRequested;
+            // Speed button: right click cycles presets (ContextRequested),
+            // middle click resets to 1x. The Button swallows pointer events,
+            // so the middle-button pair registers handledEventsToo and acts
+            // on release over the button only.
+            RateButton.ContextRequested += OnSpeedContextRequested;
+            RateButton.AddHandler(UIElement.PointerPressedEvent,
+                new PointerEventHandler(OnSpeedPointerPressed), true);
+            RateButton.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnSpeedPointerReleased), true);
             // Per-frame position display (throttled to hidden windows) and
             // activation tracking for the same throttle.
             CompositionTarget.Rendering += OnRendering;
@@ -857,6 +866,7 @@ namespace AmllTtmlTool.WinUI.Views
                 SeekSlider.Maximum = _audio.Duration.TotalMilliseconds;
             }
             RefreshTrackTip();
+            RefreshSpeedTip();
             UpdateSmtc();
         }
 
@@ -1319,26 +1329,120 @@ namespace AmllTtmlTool.WinUI.Views
             Services.AppSettings.Mute = _audio.IsMuted;
         }
 
-        private void OnRateChanged(object sender, RangeBaseValueChangedEventArgs e)
+        // --- speed tip ------------------------------------------------------
+        private bool _syncingSpeed;
+        private bool _speedMiddleArmed;
+
+        private void OnSpeedButtonClick(object sender, RoutedEventArgs e)
         {
-            _audio.SetPlaybackRate(e.NewValue);
-            RateButton.Content = $"{e.NewValue:0.##}x";
+            SpeedTip.IsOpen = !SpeedTip.IsOpen;
+            if (SpeedTip.IsOpen) RefreshSpeedTip();
         }
 
-        private void OnRatePresetClick(object sender, RoutedEventArgs e)
+        private void OnSpeedContextRequested(UIElement sender, ContextRequestedEventArgs args)
         {
-            if (sender is Microsoft.UI.Xaml.Controls.Button button
+            // Right click / Shift+F10 / touch long-press: cycle presets
+            // without opening the tip.
+            args.Handled = true;
+            _audio.SetPlaybackRate(Core.Audio.SpeedDisplay.CycleFrom(_audio.PlaybackRate));
+            SyncSpeedUI();
+        }
+
+        private void OnSpeedPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (e.GetCurrentPoint(RateButton).Properties.IsMiddleButtonPressed)
+                _speedMiddleArmed = true;
+        }
+
+        private void OnSpeedPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_speedMiddleArmed) return;
+            _speedMiddleArmed = false;
+            // Reset on release only while the pointer is still over the
+            // button, and swallow the event so nothing else (autoscroll,
+            // paste) fires.
+            var at = e.GetCurrentPoint(RateButton).Position;
+            if (at.X >= 0 && at.Y >= 0
+                && at.X <= RateButton.ActualWidth && at.Y <= RateButton.ActualHeight)
+            {
+                _audio.SetPlaybackRate(1.0);
+                SyncSpeedUI();
+                e.Handled = true;
+            }
+        }
+
+        private void OnSpeedSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            if (_syncingSpeed) return;
+            _audio.SetPlaybackRate(e.NewValue);
+            SyncSpeedUI();
+        }
+
+        private void OnSpeedPresetClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is ToggleButton button
                 && double.TryParse(button.Tag as string,
                     System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var rate))
-                RateSlider.Value = rate;
+                SpeedSlider.Value = rate;
         }
 
         private void OnKeepPitchChanged(object sender, RoutedEventArgs e)
         {
-            var keep = KeepPitchCheck.IsChecked == true;
-            _audio.SetKeepPitch(keep);
-            RateSlider.Header = keep ? "Rate (pitch preserved)" : "Rate (varispeed: pitch follows rate)";
+            // Empty-state display (unchecked while no track) must not touch
+            // the engine setting.
+            if (!_audio.HasAudio) return;
+            _audio.SetKeepPitch(SpeedKeepPitch.IsChecked == true);
+        }
+
+        // Repaints the button text, the slider, its tooltip and the preset
+        // states from the engine. The button uses the simplified form (".5x")
+        // and never resizes (fixed MinWidth in XAML).
+        private void SyncSpeedUI()
+        {
+            var rate = _audio.PlaybackRate;
+            var text = Core.Audio.SpeedDisplay.Format(rate);
+            if ((RateButton.Content as string) != text) RateButton.Content = text;
+            ToolTipService.SetToolTip(SpeedSlider, text);
+            if (Math.Abs(SpeedSlider.Value - rate) > 0.0005)
+            {
+                _syncingSpeed = true;
+                try
+                {
+                    SpeedSlider.Value = Math.Clamp(rate, SpeedSlider.Minimum, SpeedSlider.Maximum);
+                }
+                finally
+                {
+                    _syncingSpeed = false;
+                }
+            }
+            var match = Core.Audio.SpeedDisplay.PresetIndex(rate);
+            var presets = new ToggleButton[]
+                { SpeedPreset025, SpeedPreset05, SpeedPreset1, SpeedPreset15, SpeedPreset125 };
+            for (var i = 0; i < presets.Length; i++)
+                presets[i].IsChecked = i == match;
+        }
+
+        // Enabled state follows the loaded track. Empty state: the slider,
+        // the checkbox (shown unchecked) and all presets greyed out.
+        private void RefreshSpeedTip()
+        {
+            var has = _audio.HasAudio;
+            RateButton.IsEnabled = has;
+            SpeedSlider.IsEnabled = has;
+            SpeedKeepPitch.IsEnabled = has;
+            var presets = new ToggleButton[]
+                { SpeedPreset025, SpeedPreset05, SpeedPreset1, SpeedPreset15, SpeedPreset125 };
+            foreach (var p in presets)
+                p.IsEnabled = has;
+            if (!has)
+            {
+                SpeedKeepPitch.IsChecked = false;
+                return;
+            }
+            if (SpeedKeepPitch.IsChecked != _audio.KeepPitch)
+                SpeedKeepPitch.IsChecked = _audio.KeepPitch;
+            SyncSpeedUI();
         }
 
         // The single place a drag/scrub is committed: it always issues the

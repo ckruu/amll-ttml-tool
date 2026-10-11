@@ -706,45 +706,21 @@
                         <FontIcon Glyph="&#xE890;" />
                     </AppBarButton.Icon>
                 </AppBarButton>
+                <!--
+                    Fixed width: sized once for the longest text ("1.25x") so
+                    the button never resizes or moves as the speed changes.
+                -->
                 <Button
                     x:Name="RateButton"
                     Grid.Column="6"
                     AutomationProperties.AutomationId="RateButton"
                     AutomationProperties.Name="Playback speed"
-                    Content="1.0x"
+                    MinWidth="64"
+                    HorizontalContentAlignment="Center"
+                    Content="1x"
+                    Click="OnSpeedButtonClick"
                     TabIndex="4"
-                    ToolTipService.ToolTip="Playback rate">
-                    <Button.Flyout>
-                        <Flyout>
-                            <StackPanel Spacing="8" MinWidth="200">
-                                <Slider
-                                    x:Name="RateSlider"
-                                    Header="Rate (pitch preserved)"
-                                    Maximum="2"
-                                    Minimum="0.25"
-                                    StepFrequency="0.05"
-                                    Value="1"
-                                    ValueChanged="OnRateChanged"
-                                    Width="180" />
-                                <CheckBox
-                                    x:Name="KeepPitchCheck"
-                                    Content="Keep pitch"
-                                    IsChecked="True"
-                                    Checked="OnKeepPitchChanged"
-                                    Unchecked="OnKeepPitchChanged" />
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <Button Content="0.25x" Click="OnRatePresetClick" Tag="0.25" MinWidth="0" Padding="6,2" />
-                                    <Button Content="0.5x" Click="OnRatePresetClick" Tag="0.5" MinWidth="0" Padding="6,2" />
-                                    <Button Content="0.75x" Click="OnRatePresetClick" Tag="0.75" MinWidth="0" Padding="6,2" />
-                                    <Button Content="1x" Click="OnRatePresetClick" Tag="1" MinWidth="0" Padding="6,2" />
-                                    <Button Content="1.25x" Click="OnRatePresetClick" Tag="1.25" MinWidth="0" Padding="6,2" />
-                                    <Button Content="1.5x" Click="OnRatePresetClick" Tag="1.5" MinWidth="0" Padding="6,2" />
-                                    <Button Content="2x" Click="OnRatePresetClick" Tag="2" MinWidth="0" Padding="6,2" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Flyout>
-                    </Button.Flyout>
-                </Button>
+                    ToolTipService.ToolTip="Playback speed" />
                 <AppBarToggleButton
                     x:Name="SpectroToggle"
                     x:Uid="AudioBar_Spectrogram"
@@ -886,6 +862,86 @@
                             Click="OnTipExplorerClick"
                             Content="View in Explorer" />
                     </Grid>
+                </Grid>
+            </TeachingTip.Content>
+        </TeachingTip>
+
+        <!--
+            Speed tip (slice C): slider + Preserve pitch + preset row, in
+            preset order 0.25x, 0.5x, 1x, 1.5x, 1.25x. The matching preset
+            shows on (ToggleButton checked = accent); a non-preset speed
+            leaves all off. Proportions follow the mockup; the tip's default
+            width/padding are left alone.
+        -->
+        <TeachingTip
+            x:Name="SpeedTip"
+            AutomationProperties.AutomationId="SpeedTip"
+            Title="Playback speed"
+            IsLightDismissEnabled="False"
+            PreferredPlacement="Top"
+            ShouldConstrainToRootBounds="True"
+            Target="{x:Bind RateButton}">
+            <TeachingTip.Content>
+                <Grid RowSpacing="8" MinWidth="280" MaxWidth="340">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Slider
+                        x:Name="SpeedSlider"
+                        AutomationProperties.AutomationId="SpeedSlider"
+                        AutomationProperties.Name="Playback speed"
+                        Maximum="2"
+                        Minimum="0.25"
+                        StepFrequency="0.05"
+                        Value="1"
+                        ValueChanged="OnSpeedSliderChanged" />
+                    <CheckBox
+                        x:Name="SpeedKeepPitch"
+                        AutomationProperties.AutomationId="SpeedKeepPitch"
+                        Grid.Row="1"
+                        Content="Preserve pitch"
+                        IsChecked="True"
+                        Checked="OnKeepPitchChanged"
+                        Unchecked="OnKeepPitchChanged" />
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="4">
+                        <ToggleButton
+                            x:Name="SpeedPreset025"
+                            AutomationProperties.AutomationId="SpeedPreset025"
+                            MinWidth="52"
+                            Click="OnSpeedPresetClick"
+                            Content="0.25x"
+                            Tag="0.25" />
+                        <ToggleButton
+                            x:Name="SpeedPreset05"
+                            AutomationProperties.AutomationId="SpeedPreset05"
+                            MinWidth="52"
+                            Click="OnSpeedPresetClick"
+                            Content="0.5x"
+                            Tag="0.5" />
+                        <ToggleButton
+                            x:Name="SpeedPreset1"
+                            AutomationProperties.AutomationId="SpeedPreset1"
+                            MinWidth="52"
+                            Click="OnSpeedPresetClick"
+                            Content="1x"
+                            Tag="1" />
+                        <ToggleButton
+                            x:Name="SpeedPreset15"
+                            AutomationProperties.AutomationId="SpeedPreset15"
+                            MinWidth="52"
+                            Click="OnSpeedPresetClick"
+                            Content="1.5x"
+                            Tag="1.5" />
+                        <ToggleButton
+                            x:Name="SpeedPreset125"
+                            AutomationProperties.AutomationId="SpeedPreset125"
+                            MinWidth="52"
+                            Click="OnSpeedPresetClick"
+                            Content="1.25x"
+                            Tag="1.25" />
+                    </StackPanel>
                 </Grid>
             </TeachingTip.Content>
         </TeachingTip>
