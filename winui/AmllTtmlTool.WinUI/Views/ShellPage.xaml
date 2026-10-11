@@ -699,10 +699,19 @@
                     Grid.Column="5"
                     VerticalAlignment="Center"
                     IsEnabled="False"
-                    Maximum="100"
+                    Maximum="0"
                     Minimum="0"
                     Value="0"
-                    ValueChanged="OnSeekValueChanged" />
+                    ValueChanged="OnSeekValueChanged">
+                    <!--
+                      The slider domain is MILLISECONDS (double), not seconds:
+                      a 4-minute track across ~900px is ~212ms per pixel, so a
+                      100ms-throttled live seek could land a whole pixel away
+                      and the text could not show the thumb's true ms. StepFrequency
+                      1ms: the thumb is the truth while dragging.
+                    -->
+                    <Slider.StepFrequency>1</Slider.StepFrequency>
+                </Slider>
                 <TextBlock
                     x:Name="DurationText"
                     AutomationProperties.AutomationId="DurationText"

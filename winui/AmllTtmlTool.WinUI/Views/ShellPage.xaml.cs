@@ -68,8 +68,10 @@ namespace AmllTtmlTool.WinUI.Views
             // did not start from the beginning. All four events end in the same
             // commit. Registered with handledEventsToo because the Slider marks
             // these handled itself.
-            SeekSlider.AddHandler(UIElement.PointerPressedEvent,
-                new PointerEventHandler(OnSeekPointerPressed), true);
+        SeekSlider.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler(OnSeekPointerPressed), true);
+        SeekSlider.AddHandler(UIElement.PointerMovedEvent,
+            new PointerEventHandler(OnSeekPointerMoved), true);
             SeekSlider.AddHandler(UIElement.PointerReleasedEvent,
                 new PointerEventHandler(OnSeekPointerReleased), true);
             SeekSlider.AddHandler(UIElement.PointerCaptureLostEvent,
@@ -392,6 +394,22 @@ namespace AmllTtmlTool.WinUI.Views
                             Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
+                    });
+                }
+                // Seek-drag harness: --seek-drag <file> [reportPath]. External
+                // driver performs a continuous 1px drag while the app records
+                // per-frame (pointer X, text, thumb value). Target mode: stays
+                // open until the driver signals done. DEBUG-only.
+                var seekDragIdx = Array.IndexOf(audioArgs, "--seek-drag");
+                if (seekDragIdx >= 0)
+                {
+                    var seekDragFile = seekDragIdx + 1 < audioArgs.Length ? audioArgs[seekDragIdx + 1] : "";
+                    var seekDragReport = seekDragIdx + 2 < audioArgs.Length ? audioArgs[seekDragIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(800);
+                        var win = ((App)Application.Current).MainWindow;
+                        await Services.SeekDragCheck.RunTargetAsync(win, _audio, seekDragFile, seekDragReport);
                     });
                 }
                 // SMTC-test harness: --smtc-test <file> [reportPath].
@@ -757,7 +775,12 @@ namespace AmllTtmlTool.WinUI.Views
             PlayButton.IsEnabled = _audio.HasAudio;
             SeekSlider.IsEnabled = _audio.HasAudio;
             if (_audio.HasAudio && _audio.Duration > TimeSpan.Zero)
-                SeekSlider.Maximum = _audio.Duration.TotalSeconds;
+            {
+                // Slider domain is milliseconds (see the XAML note): the
+                // thumb's double ms value maps 1:1 onto the displayed value, so
+                // nothing is lost to rounding or to a per-pixel scale.
+                SeekSlider.Maximum = _audio.Duration.TotalMilliseconds;
+            }
             UpdateSmtc();
         }
 
@@ -833,7 +856,7 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 _lastSliderMs = ms;
                 _syncingSlider = true;
-                SeekSlider.Value = Math.Max(0, Math.Min(pos.TotalSeconds, _audio.Duration.TotalSeconds));
+                SeekSlider.Value = Math.Clamp(ms, 0, _audio.Duration.TotalMilliseconds);
                 _syncingSlider = false;
             }
             Services.RenderStats.HandlerTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
@@ -862,17 +885,18 @@ namespace AmllTtmlTool.WinUI.Views
             }
         }
 
-        // Paints an in-flight drag from the thumb itself. Both display anchors
-        // are set to the thumb value so the handover at release is seamless:
-        // CommitScrub publishes a snapshot at exactly this position, so the
-        // first post-release paint comes out equal and the wobble clamp does not
-        // reject it, and the thumb gate is not re-armed (no redundant rewrite).
-        // Never writes the slider, so it cannot feed back into itself.
+        // Paints an in-flight drag straight from the thumb. The slider domain
+        // is milliseconds, so the thumb value IS the displayed value - there is
+        // no conversion, no rounding, and nothing waits on the throttled audio
+        // seek. Both display anchors are set here so the handover at release is
+        // seamless: CommitScrub publishes a snapshot at exactly this position,
+        // so the first post-release paint comes out equal and the wobble clamp
+        // does not reject it, and the thumb gate is not re-armed. Never writes
+        // the slider, so it cannot feed back into itself.
         private void PaintScrubPosition()
         {
-            var thumbSeconds = Math.Max(0,
-                Math.Min(SeekSlider.Value, _audio.Duration.TotalSeconds));
-            var thumbMs = (long)Math.Round(TimeSpan.FromSeconds(thumbSeconds).TotalMilliseconds);
+            var thumbMs = (long)Math.Round(Math.Clamp(
+                SeekSlider.Value, 0, _audio.Duration.TotalMilliseconds));
             if (thumbMs != _lastShownMs)
             {
                 _lastShownMs = thumbMs;
@@ -1084,8 +1108,6 @@ namespace AmllTtmlTool.WinUI.Views
             RateSlider.Header = keep ? "Rate (pitch preserved)" : "Rate (varispeed: pitch follows rate)";
         }
 
-        private void OnSeekPointerPressed(object sender, PointerRoutedEventArgs e) => BeginScrub();
-
         // The single place a drag/scrub is committed: it always issues the
         // slider's CURRENT value. The throttled live seek during a drag can
         // only ever drop intermediate values, never the final one, and the
@@ -1095,7 +1117,8 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (!_scrubbing) return;
             EndScrub();
-            _audio.SeekTo(SeekSlider.Value);
+            // Slider domain is milliseconds; the engine speaks seconds.
+            _audio.SeekTo(SeekSlider.Value / 1000.0);
             RefreshAudioChrome();
         }
 
@@ -1114,6 +1137,63 @@ namespace AmllTtmlTool.WinUI.Views
 
         internal void EndScrub() => _scrubbing = false;
 
+        // --- fine scrub ---------------------------------------------------
+        // 1 pixel is ~212ms on a 4-minute track across ~900px, so sub-pixel
+        // aiming at ms level is impossible by hand. Holding Shift scales the
+        // pointer travel by 10 (1px -> ~21ms); the arrow keys already step
+        // whole milliseconds because the slider domain is ms, and Shift makes
+        // them 10ms steps. One hand, no extra UI.
+        private const double FineScrubScale = 0.1;
+        private bool _fineScrub;
+        private double _scrubAnchorMs;
+        private double _scrubAnchorX;
+
+        private bool IsFineScrubDown()
+        {
+            // Held Shift state, read at press so a drag that starts fine stays
+            // fine even if the modifier is released mid-gesture.
+            var state = Windows.UI.Core.CoreWindow.GetForCurrentThread()
+                .GetKeyState(Windows.System.VirtualKey.Shift);
+            return (state & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        }
+
+        // ms per track pixel, measured from the control itself rather than
+        // assumed: a 4-minute track across ~900px is ~212ms/px, but that is
+        // DPI- and layout-dependent, and fine scrub depends on it directly.
+        private double MsPerPixel()
+        {
+            var w = SeekSlider.ActualWidth;
+            var total = _audio.Duration.TotalMilliseconds;
+            if (!(w > 0) || !(total > 0)) return 0;
+            return total / w;
+        }
+
+        private void OnSeekPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            BeginScrub();
+            _fineScrub = IsFineScrubDown();
+            var point = e.GetCurrentPoint(SeekSlider);
+            _scrubAnchorX = point.Position.X;
+            _scrubAnchorMs = SeekSlider.Value;
+        }
+
+        // Fine scrub: while Shift was held at press, translate the pointer
+        // delta through the measured ms-per-pixel and scale it by 1/10, then
+        // claim the event so the Slider's own full-rate track-follow does not
+        // fight it. Pointer travel therefore buys ~21ms per pixel instead of
+        // ~212ms. Unshifted drags never reach this handler.
+        private void OnSeekPointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_scrubbing || !_fineScrub) return;
+            var msPerPixel = MsPerPixel();
+            if (msPerPixel <= 0) return;
+            var x = e.GetCurrentPoint(SeekSlider).Position.X;
+            var deltaMs = (x - _scrubAnchorX) * msPerPixel * FineScrubScale;
+            var want = Math.Clamp(_scrubAnchorMs + deltaMs, 0, SeekSlider.Maximum);
+            if (Math.Abs(want - SeekSlider.Value) >= 1) SeekSlider.Value = want;
+            e.Handled = true;
+        }
+
         private long _lastLiveSeekMs;
 
         private void OnSeekValueChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -1126,11 +1206,13 @@ namespace AmllTtmlTool.WinUI.Views
             if (!_scrubbing && SeekSlider.FocusState == FocusState.Unfocused) return;
             // Live seek while dragging, throttled: every ValueChanged would
             // restart the output dozens of times per second. Release always
-            // seeks exactly (see above).
+            // seeks exactly (see above). The DISPLAY never waits for this -
+            // it is painted from the thumb in PaintScrubPosition.
             var now = Environment.TickCount64;
             if (now - _lastLiveSeekMs < 100) return;
             _lastLiveSeekMs = now;
-            _audio.SeekTo(e.NewValue);
+            // Slider domain is milliseconds; the engine speaks seconds.
+            _audio.SeekTo(SeekSlider.Value / 1000.0);
         }
 
         private void OnLocateClick(object sender, RoutedEventArgs e) =>
