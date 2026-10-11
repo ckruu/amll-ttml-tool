@@ -53,7 +53,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!--
@@ -599,10 +598,21 @@
             Margin="8,4,8,0"
             IsOpen="False" />
 
+        <!--
+            Floating player bar (slice A): it lives in the content row with
+            bottom alignment and a margin, so page content extends beneath
+            it. Slice E gives scrolling pages bottom padding plus the
+            acrylic background. Order: track, play, elapsed, seek (all
+            remaining width, >=120px), total, eye, speed, spectrogram. The
+            speaker button's volume functions move into the track tip
+            (slice B); the pin slot is now the eye button (same stub
+            behavior); the chevron (spectrogram) is unchanged, last.
+        -->
         <Border
-            Grid.Row="4"
-            Margin="8,8,8,8"
+            Grid.Row="2"
+            Margin="8"
             Padding="8,4"
+            VerticalAlignment="Bottom"
             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1"
@@ -612,48 +622,97 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <AppBarButton x:Name="LoadButton" x:Uid="AudioBar_Load" Click="OnLoadAudioClick" Icon="Audio" IsCompact="True" ToolTipService.ToolTip="Load audio" />
+                <AppBarButton
+                    x:Name="TrackButton"
+                    x:Uid="AudioBar_Track"
+                    AutomationProperties.AutomationId="TrackButton"
+                    AutomationProperties.Name="Track info"
+                    Click="OnLoadAudioClick"
+                    IsCompact="True"
+                    TabIndex="0"
+                    ToolTipService.ToolTip="Track info">
+                    <AppBarButton.Icon>
+                        <FontIcon Glyph="&#xEC4F;" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
                 <AppBarButton
                     x:Name="PlayButton"
                     x:Uid="AudioBar_Play"
                     Grid.Column="1"
+                    AutomationProperties.AutomationId="PlayButton"
                     Click="OnPlayPauseClick"
                     Icon="Play"
                     IsCompact="True"
                     IsEnabled="False"
+                    TabIndex="1"
                     ToolTipService.ToolTip="Play" />
-                <Button
-                    x:Name="VolumeButton"
-                    x:Uid="AudioBar_Volume"
+                <TextBlock
+                    x:Name="PositionText"
+                    AutomationProperties.AutomationId="PositionText"
                     Grid.Column="2"
-                    ToolTipService.ToolTip="Volume"
-                    Click="OnVolumeButtonClick">
-                    <FontIcon x:Name="VolumeGlyph" Glyph="&#xE995;" />
-                    <Button.Flyout>
-                        <Flyout>
-                            <Slider
-                                x:Name="VolumeSlider"
-                                Header="Volume"
-                                Maximum="100"
-                                Minimum="0"
-                                StepFrequency="1"
-                                Value="50"
-                                ValueChanged="OnVolumeChanged"
-                                Width="180" />
-                        </Flyout>
-                    </Button.Flyout>
-                </Button>
+                    MinWidth="90"
+                    VerticalAlignment="Center"
+                    Text="00:00.000"
+                    TextAlignment="Center"
+                    Typography.NumeralAlignment="Tabular" />
+                <Slider
+                    x:Name="SeekSlider"
+                    AutomationProperties.AutomationId="SeekSlider"
+                    AutomationProperties.Name="Seek"
+                    Grid.Column="3"
+                    VerticalAlignment="Center"
+                    IsEnabled="False"
+                    Maximum="0"
+                    Minimum="0"
+                    MinWidth="120"
+                    TabIndex="2"
+                    Value="0"
+                    ValueChanged="OnSeekValueChanged">
+                    <!--
+                      The slider domain is MILLISECONDS (double), not seconds:
+                      a 4-minute track across ~900px is ~212ms per pixel, so a
+                      100ms-throttled live seek could land a whole pixel away
+                      and the text could not show the thumb's true ms. StepFrequency
+                      1ms: the thumb is the truth while dragging.
+                    -->
+                    <Slider.StepFrequency>1</Slider.StepFrequency>
+                </Slider>
+                <TextBlock
+                    x:Name="DurationText"
+                    AutomationProperties.AutomationId="DurationText"
+                    Grid.Column="4"
+                    MinWidth="90"
+                    VerticalAlignment="Center"
+                    Text="00:00.000"
+                    TextAlignment="Center"
+                    Typography.NumeralAlignment="Tabular" />
+                <AppBarButton
+                    x:Name="EyeButton"
+                    x:Uid="AudioBar_JumpToCurrent"
+                    Grid.Column="5"
+                    AutomationProperties.AutomationId="EyeButton"
+                    AutomationProperties.Name="Jump to current lyric line"
+                    Click="OnLocateClick"
+                    IsCompact="True"
+                    TabIndex="3"
+                    ToolTipService.ToolTip="Jump to current lyric line">
+                    <AppBarButton.Icon>
+                        <FontIcon Glyph="&#xE890;" />
+                    </AppBarButton.Icon>
+                </AppBarButton>
                 <Button
                     x:Name="RateButton"
-                    Grid.Column="3"
+                    Grid.Column="6"
+                    AutomationProperties.AutomationId="RateButton"
+                    AutomationProperties.Name="Playback speed"
                     Content="1.0x"
+                    TabIndex="4"
                     ToolTipService.ToolTip="Playback rate">
                     <Button.Flyout>
                         <Flyout>
@@ -686,55 +745,14 @@
                         </Flyout>
                     </Button.Flyout>
                 </Button>
-                <TextBlock
-                    x:Name="PositionText"
-                    AutomationProperties.AutomationId="PositionText"
-                    Grid.Column="4"
-                    VerticalAlignment="Center"
-                    Text="00:00.000"
-                    Typography.NumeralAlignment="Tabular" />
-                <Slider
-                    x:Name="SeekSlider"
-                    AutomationProperties.AutomationId="SeekSlider"
-                    Grid.Column="5"
-                    VerticalAlignment="Center"
-                    IsEnabled="False"
-                    Maximum="0"
-                    Minimum="0"
-                    Value="0"
-                    ValueChanged="OnSeekValueChanged">
-                    <!--
-                      The slider domain is MILLISECONDS (double), not seconds:
-                      a 4-minute track across ~900px is ~212ms per pixel, so a
-                      100ms-throttled live seek could land a whole pixel away
-                      and the text could not show the thumb's true ms. StepFrequency
-                      1ms: the thumb is the truth while dragging.
-                    -->
-                    <Slider.StepFrequency>1</Slider.StepFrequency>
-                </Slider>
-                <TextBlock
-                    x:Name="DurationText"
-                    AutomationProperties.AutomationId="DurationText"
-                    Grid.Column="6"
-                    VerticalAlignment="Center"
-                    Text="00:00.000" />
-                <AppBarButton
-                    x:Name="LocateButton"
-                    x:Uid="AudioBar_Locate"
-                    Grid.Column="7"
-                    Click="OnLocateClick"
-                    IsCompact="True"
-                    ToolTipService.ToolTip="Locate">
-                    <AppBarButton.Icon>
-                        <FontIcon Glyph="&#xE718;" />
-                    </AppBarButton.Icon>
-                </AppBarButton>
                 <AppBarToggleButton
                     x:Name="SpectroToggle"
                     x:Uid="AudioBar_Spectrogram"
-                    Grid.Column="8"
+                    Grid.Column="7"
+                    AutomationProperties.AutomationId="SpectroToggle"
                     Click="OnSpectroClick"
                     IsCompact="True"
+                    TabIndex="5"
                     ToolTipService.ToolTip="Spectrogram">
                     <AppBarToggleButton.Icon>
                         <FontIcon Glyph="&#xE70D;" />
@@ -745,7 +763,7 @@
 
         <Border
             x:Name="DropOverlay"
-            Grid.RowSpan="5"
+            Grid.RowSpan="4"
             Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
             IsHitTestVisible="False"
             Visibility="Collapsed">

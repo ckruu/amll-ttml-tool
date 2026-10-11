@@ -1091,73 +1091,26 @@ namespace AmllTtmlTool.WinUI.Views
             RefreshAudioChrome();
         }
 
-        private void OnVolumeChanged(object sender, RangeBaseValueChangedEventArgs e)
-        {
-            // The slider position IS the app's own level (0-100). It is applied
-            // as in-app gain only; the OS endpoint volume is never read or
-            // written, so opening or importing a file cannot move the OS.
-            _audio.SetVolumePercent(e.NewValue);
-            PersistVolume();
-            UpdateVolumeGlyph(e.NewValue);
-        }
-
-        private bool _applyingVolume;
-
         // Restores the remembered level and mute state. Called once at startup
         // and re-applied after every audio load: the level belongs to the app,
         // not to a track, so nothing about opening a file may disturb it.
+        // (Slice A: the bar has no volume UI; the engine level is still
+        // applied. Slice B moves the slider + mute button into the track tip.)
         private void ApplyRememberedVolume()
         {
-            _applyingVolume = true;
-            try
-            {
-                var stored = Services.AppSettings.Volume;
-                var muted = Services.AppSettings.Mute;
-                _audio.SetMuted(false);
-                _audio.SetVolumePercent(stored);
-                _audio.SetMuted(muted);
-                VolumeSlider.Value = stored;
-            }
-            finally
-            {
-                _applyingVolume = false;
-            }
-            UpdateVolumeGlyph(Services.AppSettings.Mute ? 0 : Services.AppSettings.Volume);
+            var stored = Services.AppSettings.Volume;
+            var muted = Services.AppSettings.Mute;
+            _audio.SetMuted(false);
+            _audio.SetVolumePercent(stored);
+            _audio.SetMuted(muted);
         }
 
         private void PersistVolume()
         {
             // A harness run must never overwrite the user's remembered level.
             if (Services.AppSettings.SilentMode) return;
-            Services.AppSettings.Volume = Services.AppSettings.Mute
-                ? _audio.VolumePercent
-                : VolumeSlider.Value;
+            Services.AppSettings.Volume = _audio.VolumePercent;
             Services.AppSettings.Mute = _audio.IsMuted;
-        }
-
-        // Mute is the button: click mutes when playing a level, click un-mutes
-        // back to the level remembered before the mute.
-        private void OnVolumeButtonClick(object sender, RoutedEventArgs e)
-        {
-            var level = VolumeSlider.Value;
-            var muted = !_audio.IsMuted;
-            _audio.SetMuted(muted);
-            if (!muted) level = _audio.VolumePercent;
-            PersistVolume();
-            UpdateVolumeGlyph(muted ? 0 : level);
-        }
-
-        // Segoe Fluent volume set: muted, low, mid, high. These are REAL Unicode
-        // codepoints ("\uE993"), never XAML entities ("&#xE993;"): Glyph is a
-        // string property, and assigning the entity text paints the literal
-        // characters as tofu boxes.
-        private void UpdateVolumeGlyph(double level)
-        {
-            var glyph = level <= 0 ? "\uE993"
-                : level < 34 ? "\uE994"
-                : level < 67 ? "\uE995"
-                : "\uE992";
-            if (VolumeGlyph.Glyph != glyph) VolumeGlyph.Glyph = glyph;
         }
 
         private void OnRateChanged(object sender, RangeBaseValueChangedEventArgs e)
