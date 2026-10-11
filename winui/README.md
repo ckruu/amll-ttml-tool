@@ -25,4 +25,4 @@ dotnet test winui/AmllTtmlTool.Core.Tests
 
 1. Phase 0 (here): skeleton + TTML core + tests.
 2. Phase 1 (MVP): lyrics import, edit, sync/timing, preview (Win2D karaoke renderer), audio via MediaPlayer + FFmpegInteropX.
-3. Stability gate, then Phase 2: spectrogram, BPM, segmentation/ruby, project autosave (SQLite), settings, LRCLIB, updater via AppInstaller.
+3. Stability gate, then Phase 2: BPM, segmentation/ruby, project autosave (SQLite), settings, LRCLIB, updater via AppInstaller.

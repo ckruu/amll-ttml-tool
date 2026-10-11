@@ -632,11 +632,10 @@
             clearance (bar height + margin, ~76px) so the last item can
             scroll above it; the bar background stays transparent to that
             content (in-app acrylic, slice E). Order: track, play, elapsed,
-            seek (all remaining width, >=120px), total, eye, speed,
-            spectrogram. The speaker button's volume functions move into
+            seek (all remaining width, >=120px), total, eye, speed last.
+            The speaker button's volume functions move into
             the track tip (slice B); the pin slot is now the eye button
-            (same stub behavior); the chevron (spectrogram) is unchanged,
-            last.
+            (same stub behavior).
         -->
         <Border
             x:Name="PlayerBarBorder"
@@ -654,7 +653,6 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -755,20 +753,6 @@
                     Click="OnSpeedButtonClick"
                     TabIndex="4"
                     ToolTipService.ToolTip="Playback speed" />
-                <AppBarToggleButton
-                    x:Name="SpectroToggle"
-                    x:Uid="AudioBar_Spectrogram"
-                    Grid.Column="7"
-                    AutomationProperties.AutomationId="SpectroToggle"
-                    Click="OnSpectroClick"
-                    IsCompact="True"
-                    TabIndex="5"
-                    Width="44"
-                    ToolTipService.ToolTip="Spectrogram">
-                    <AppBarToggleButton.Icon>
-                        <FontIcon Glyph="&#xE70D;" />
-                    </AppBarToggleButton.Icon>
-                </AppBarToggleButton>
             </Grid>
         </Border>
 

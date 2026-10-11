@@ -1720,12 +1720,6 @@ namespace AmllTtmlTool.WinUI.Views
             Notify("Line locate arrives with the lyric list.");
         }
 
-        private void OnSpectroClick(object sender, RoutedEventArgs e)
-        {
-            Notify("Spectrogram arrives in Phase 2.");
-            if (SpectroToggle.IsChecked == true) SpectroToggle.IsChecked = false;
-        }
-
         private void OnDragEnter(object sender, DragEventArgs e) =>
             _ = HandleDragAsync(e);
 
@@ -2470,7 +2464,7 @@ namespace AmllTtmlTool.WinUI.Views
                 FrameworkElement[] items =
                 [
                     TrackButton, PlayButton, PositionText, SeekSlider,
-                    DurationText, EyeButton, RateButton, SpectroToggle,
+                    DurationText, EyeButton, RateButton,
                 ];
                 var rects = new List<(string Name, double L, double T, double R, double B)>();
                 foreach (var el in items)
