@@ -1147,13 +1147,16 @@ namespace AmllTtmlTool.WinUI.Views
             UpdateVolumeGlyph(muted ? 0 : level);
         }
 
-        // Segoe Fluent volume set: muted, 0, low, mid, high.
+        // Segoe Fluent volume set: muted, low, mid, high. These are REAL Unicode
+        // codepoints ("\uE993"), never XAML entities ("&#xE993;"): Glyph is a
+        // string property, and assigning the entity text paints the literal
+        // characters as tofu boxes.
         private void UpdateVolumeGlyph(double level)
         {
-            var glyph = level <= 0 ? "&#xE74F;"
-                : level < 34 ? "&#xE993;"
-                : level < 67 ? "&#xE994;"
-                : "&#xE995;";
+            var glyph = level <= 0 ? "\uE993"
+                : level < 34 ? "\uE994"
+                : level < 67 ? "\uE995"
+                : "\uE992";
             if (VolumeGlyph.Glyph != glyph) VolumeGlyph.Glyph = glyph;
         }
 

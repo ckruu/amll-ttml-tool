@@ -35,3 +35,9 @@ TestResults/
 !winui/*.sln
 .vs/
 winui/libs/ffmpeg/dl/
+
+# harness evidence artifacts
+scripts/seek-drag-results.json
+scripts/focus-test-report.txt
+scripts/seek-drag-report.txt
+
