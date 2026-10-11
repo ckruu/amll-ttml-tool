@@ -189,6 +189,12 @@ public partial class AudioEngine : ObservableObject, IDisposable
     [ObservableProperty]
     private AudioCover? _cover;
 
+    /// <summary>Probe codec_name of the loaded track's audio stream ("" when unknown).</summary>
+    public string CodecName { get; private set; } = "";
+
+    /// <summary>Full path of the loaded audio file ("" when none).</summary>
+    public string AudioPath { get; private set; } = "";
+
     public Dictionary<string, string> ProbeTags { get; } =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -309,6 +315,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         float[]? samples = null;
         TimeSpan duration = TimeSpan.Zero;
         Dictionary<string, string>? tags = null;
+        string? codecName = null;
         await Task.Run(async () =>
         {
             StopInternal();
@@ -333,6 +340,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
             {
                 var probe = await FfmpegDecoder.ProbeAsync(bins, path, ct);
                 tags = new Dictionary<string, string>(probe.Tags, StringComparer.OrdinalIgnoreCase);
+                codecName = probe.CodecName;
             }
             catch { }
             _pcm = new FfmpegPcmProvider(samples);
@@ -361,6 +369,8 @@ public partial class AudioEngine : ObservableObject, IDisposable
             Duration = duration;
             Position = TimeSpan.Zero;
             HasAudio = true;
+            CodecName = codecName ?? "";
+            AudioPath = path;
             PublishClock(PlaybackClockState.Paused);
         });
     }
@@ -522,6 +532,8 @@ public partial class AudioEngine : ObservableObject, IDisposable
         Position = TimeSpan.Zero;
         Duration = TimeSpan.Zero;
         Cover = null;
+        CodecName = "";
+        AudioPath = "";
         ProbeTags.Clear();
         DecodeBackend = "none";
         _clock.Stop();

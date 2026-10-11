@@ -110,6 +110,22 @@ public static class AppSettings
     }
 
     /// <summary>
+    /// Last non-zero playback level (0-100 slider position). Mute/unmute and
+    /// slider-to-0 restore exactly this level; a missing or non-positive
+    /// stored value falls back to 50.
+    /// </summary>
+    public static double LastNonZeroVolume
+    {
+        get
+        {
+            var v = GetDouble("lastNonZeroVolume", 50.0);
+            return v > 0 ? v : 50.0;
+        }
+        set => SetDouble("lastNonZeroVolume",
+            double.IsNaN(value) || value <= 0 ? 50.0 : Math.Clamp(value, 0, 100));
+    }
+
+    /// <summary>
     /// True while a test harness owns the app: the harness forces output
     /// silence through the in-app gain instead of the OS volume, and no
     /// setting is written, so a harness run can never persist a 0 or a mute

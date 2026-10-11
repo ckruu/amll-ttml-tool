@@ -4,6 +4,7 @@ using Microsoft.UI;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
@@ -11,6 +12,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using System.Numerics;
+using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Storage;
@@ -26,6 +28,10 @@ namespace AmllTtmlTool.WinUI.Views
         private bool _scrubbing;
         private bool _syncingSlider;
         private readonly SmtcService _smtcSvc = new();
+        private Services.IFilePickerService? _picker;
+        private Services.IShellService? _shell;
+        private bool _syncingTipVolume;
+        private string _trackTipKey = "";
 
         public ShellPage()
         {
@@ -78,6 +84,10 @@ namespace AmllTtmlTool.WinUI.Views
                 new PointerEventHandler(OnSeekPointerCaptureLost), true);
             SeekSlider.AddHandler(UIElement.PointerCanceledEvent,
                 new PointerEventHandler(OnSeekPointerCanceled), true);
+            // Right click / Shift+F10 / touch long-press on the track button
+            // opens the picker immediately (never the tip) and swallows any
+            // default context menu.
+            TrackButton.ContextRequested += OnTrackContextRequested;
             // Per-frame position display (throttled to hidden windows) and
             // activation tracking for the same throttle.
             CompositionTarget.Rendering += OnRendering;
@@ -770,6 +780,21 @@ namespace AmllTtmlTool.WinUI.Views
             var window = ((App)Application.Current).MainWindow;
             SetupSmtc();
             _intake = new FileIntake(_store, _audio, window, this, Notify, _smtcSvc);
+#if DEBUG
+            if (Services.HarnessHost.IsTest)
+            {
+                _picker = new Services.TestFilePickerService();
+                _shell = new Services.TestShellService();
+            }
+            else
+            {
+                _picker = new Services.FilePickerService(window);
+                _shell = new Services.ShellService();
+            }
+#else
+            _picker = new Services.FilePickerService(window);
+            _shell = new Services.ShellService();
+#endif
             _store.Changed += RefreshChrome;
             _store.Notice += Notify;
             // Unfocused/occluded/minimized: CompositionTarget.Rendering stops
@@ -831,6 +856,7 @@ namespace AmllTtmlTool.WinUI.Views
                 // nothing is lost to rounding or to a per-pixel scale.
                 SeekSlider.Maximum = _audio.Duration.TotalMilliseconds;
             }
+            RefreshTrackTip();
             UpdateSmtc();
         }
 
@@ -1076,12 +1102,192 @@ namespace AmllTtmlTool.WinUI.Views
         private Task CopyWithFormatAsync(string format) =>
             _intake?.CopyTtmlAsync(format == "apple") ?? Task.CompletedTask;
 
-        private async void OnLoadAudioClick(object sender, RoutedEventArgs e)
+        // --- track tip ----------------------------------------------------
+        // Left click (and Enter/Space on the focused button, which raise
+        // Click) toggles the tip. Right click / Shift+F10 / touch long-press
+        // arrives via ContextRequested and goes straight to the picker.
+        private void OnTrackButtonClick(object sender, RoutedEventArgs e)
         {
-            if (_intake is null) return;
-            var window = ((App)Application.Current).MainWindow;
-            var file = await FileDialogs.PickOpenAudioAsync(window);
-            if (file is not null) await _intake.OpenAudioFileAsync(file);
+            TrackTip.IsOpen = !TrackTip.IsOpen;
+            if (TrackTip.IsOpen) RefreshTrackTip();
+        }
+
+        private void OnTrackContextRequested(UIElement sender, ContextRequestedEventArgs args)
+        {
+            args.Handled = true;
+            _ = OpenAudioViaPickerAsync();
+        }
+
+        private async Task OpenAudioViaPickerAsync()
+        {
+            if (_picker is null || _intake is null) return;
+            var path = await _picker.PickOpenAudioAsync();
+            if (string.IsNullOrEmpty(path)) return;
+            StorageFile? file;
+            try
+            {
+                file = await StorageFile.GetFileFromPathAsync(path);
+            }
+            catch
+            {
+                return;
+            }
+            await _intake.OpenAudioFileAsync(file);
+            // The tip stays open and updates in place for the new file.
+            RefreshAudioChrome();
+            RefreshTrackTip();
+        }
+
+        private async void OnTipOpenFileClick(object sender, RoutedEventArgs e) =>
+            await OpenAudioViaPickerAsync();
+
+        private void OnTipExplorerClick(object sender, RoutedEventArgs e)
+        {
+            if (_shell is null || string.IsNullOrEmpty(_audio.AudioPath)) return;
+            _shell.ShowInExplorer(_audio.AudioPath);
+        }
+
+        private void OnTipVolumeChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            if (_syncingTipVolume) return;
+            // The slider position IS the app's own level (0-100). It is
+            // applied as in-app gain only; the OS endpoint volume is never
+            // read or written. Dragging while muted unmutes at that level
+            // (SetVolumePercent clears mute above 0); dragging to 0 shows
+            // the muted glyph while LastNonZeroVolume is kept for restore.
+            _audio.SetVolumePercent(e.NewValue);
+            if (!Services.AppSettings.SilentMode && e.NewValue > 0)
+                Services.AppSettings.LastNonZeroVolume = e.NewValue;
+            PersistVolume();
+            UpdateTipVolumeGlyph();
+        }
+
+        // Mute is the state button: click mutes an audible level, click
+        // restores exactly the last non-zero level (no jumping). A 0 slider
+        // shows muted and also restores the last non-zero level.
+        private void OnTipVolumeStateClick(object sender, RoutedEventArgs e)
+        {
+            var audible = !_audio.IsMuted && _audio.VolumePercent > 0;
+            if (audible)
+            {
+                _audio.SetMuted(true);
+            }
+            else
+            {
+                var restore = Services.AppSettings.LastNonZeroVolume;
+                _syncingTipVolume = true;
+                try
+                {
+                    TipVolumeSlider.Value = restore;
+                }
+                finally
+                {
+                    _syncingTipVolume = false;
+                }
+                _audio.SetVolumePercent(restore);
+                _audio.SetMuted(false);
+            }
+            PersistVolume();
+            UpdateTipVolumeGlyph();
+        }
+
+        // Segoe Fluent volume set: muted, low, mid, high. These are REAL
+        // Unicode codepoints ("\uE993"), never XAML entities ("&#xE993;"):
+        // Glyph is a string property, and assigning the entity text paints
+        // the literal characters as tofu boxes.
+        private void UpdateTipVolumeGlyph()
+        {
+            var level = _audio.IsMuted ? 0 : _audio.VolumePercent;
+            var glyph = level <= 0 ? "\uE993"
+                : level < 34 ? "\uE994"
+                : level < 67 ? "\uE995"
+                : "\uE992";
+            if (TipVolumeStateGlyph.Glyph != glyph) TipVolumeStateGlyph.Glyph = glyph;
+            var muted = level <= 0;
+            ToolTipService.SetToolTip(TipVolumeStateButton, muted ? "Unmute" : "Mute");
+            AutomationProperties.SetName(TipVolumeStateButton, muted ? "Unmute" : "Mute");
+        }
+
+        // Repaints the tip from engine state. Key-guarded: text/cover/enabled
+        // state only rebuild when the track changes; the slider and glyph
+        // follow the live level on every audio-chrome refresh.
+        private void RefreshTrackTip()
+        {
+            var has = _audio.HasAudio;
+            var key = has
+                ? _audio.AudioPath + "\0" + _audio.CodecName + "\0"
+                    + string.Join(";", _audio.ProbeTags.Values) + "\0"
+                    + (_audio.Cover?.Bytes.Length ?? 0)
+                : "";
+            if (key != _trackTipKey)
+            {
+                _trackTipKey = key;
+                if (!has)
+                {
+                    TrackTitleText.Text = "-";
+                    TrackArtistText.Text = "-";
+                    TrackCodecText.Text = "-";
+                    TrackCoverArt.Visibility = Visibility.Collapsed;
+                    TrackCoverPlaceholder.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    var raw = new Dictionary<string, string>(
+                        _audio.ProbeTags, StringComparer.OrdinalIgnoreCase);
+                    var fileName = System.IO.Path.GetFileNameWithoutExtension(_audio.AudioPath);
+                    var meta = Core.Audio.AudioMetadata.ParseAudioTrackMetadata(raw, fileName);
+                    TrackTitleText.Text = Core.Audio.TrackDisplay.TitleFor(meta);
+                    var artist = Core.Audio.TrackDisplay.ArtistOrUnknown(meta);
+                    var container = System.IO.Path.GetExtension(_audio.AudioPath).TrimStart('.');
+                    if (string.IsNullOrEmpty(container)) container = "?";
+                    TrackArtistText.Text = artist;
+                    TrackCodecText.Text = "- " + container.ToUpperInvariant() + " "
+                        + Core.Audio.TrackDisplay.CodecLabel(_audio.CodecName);
+                    _ = LoadTipCoverAsync(_audio.Cover?.Bytes, key);
+                }
+                TipOpenFileButton.IsEnabled = true;
+                TipExplorerButton.IsEnabled = has;
+                TipVolumeStateButton.IsEnabled = has;
+                TipVolumeSlider.IsEnabled = has;
+            }
+            _syncingTipVolume = true;
+            try
+            {
+                TipVolumeSlider.Value = has ? _audio.VolumePercent : 0;
+            }
+            finally
+            {
+                _syncingTipVolume = false;
+            }
+            UpdateTipVolumeGlyph();
+        }
+
+        private async Task LoadTipCoverAsync(byte[]? bytes, string key)
+        {
+            if (bytes is null || bytes.Length == 0)
+            {
+                TrackCoverArt.Visibility = Visibility.Collapsed;
+                TrackCoverPlaceholder.Visibility = Visibility.Visible;
+                return;
+            }
+            try
+            {
+                var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                await stream.WriteAsync(bytes.AsBuffer());
+                stream.Seek(0);
+                await bitmap.SetSourceAsync(stream);
+                // The track changed while decoding: drop the stale art.
+                if (key != _trackTipKey) return;
+                TrackCoverBrush.ImageSource = bitmap;
+                TrackCoverPlaceholder.Visibility = Visibility.Collapsed;
+                TrackCoverArt.Visibility = Visibility.Visible;
+            }
+            catch
+            {
+                TrackCoverArt.Visibility = Visibility.Collapsed;
+                TrackCoverPlaceholder.Visibility = Visibility.Visible;
+            }
         }
 
         private void OnPlayPauseClick(object sender, RoutedEventArgs e)

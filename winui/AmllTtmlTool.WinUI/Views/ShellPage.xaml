@@ -633,7 +633,7 @@
                     x:Uid="AudioBar_Track"
                     AutomationProperties.AutomationId="TrackButton"
                     AutomationProperties.Name="Track info"
-                    Click="OnLoadAudioClick"
+                    Click="OnTrackButtonClick"
                     IsCompact="True"
                     TabIndex="0"
                     ToolTipService.ToolTip="Track info">
@@ -760,6 +760,135 @@
                 </AppBarToggleButton>
             </Grid>
         </Border>
+
+        <!--
+            Track tip (slice B): cover + title/artist-codec, in-app volume
+            slider, volume-state + Open file + View in Explorer. Targeted at
+            the track button, opens upward. Proportions follow the mockup;
+            the tip's default width/padding are left alone.
+        -->
+        <TeachingTip
+            x:Name="TrackTip"
+            AutomationProperties.AutomationId="TrackTip"
+            IsLightDismissEnabled="False"
+            PreferredPlacement="Top"
+            ShouldConstrainToRootBounds="True"
+            Target="{x:Bind TrackButton}">
+            <TeachingTip.Content>
+                <Grid RowSpacing="8" MinWidth="300" MaxWidth="360">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid Width="64" Height="64">
+                            <Border
+                                x:Name="TrackCoverPlaceholder"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                                <FontIcon
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    FontSize="28"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Glyph="&#xEC4F;" />
+                            </Border>
+                            <Border
+                                x:Name="TrackCoverArt"
+                                CornerRadius="8"
+                                Visibility="Collapsed">
+                                <Border.Background>
+                                    <ImageBrush x:Name="TrackCoverBrush" Stretch="UniformToFill" />
+                                </Border.Background>
+                            </Border>
+                        </Grid>
+                        <StackPanel
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Spacing="2">
+                            <TextBlock
+                                x:Name="TrackTitleText"
+                                AutomationProperties.AutomationId="TrackTitleText"
+                                MaxLines="1"
+                                Style="{StaticResource BodyStrongTextBlockStyle}"
+                                Text="-"
+                                TextTrimming="CharacterEllipsis" />
+                            <Grid ColumnSpacing="6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock
+                                    x:Name="TrackArtistText"
+                                    AutomationProperties.AutomationId="TrackArtistText"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    MaxLines="1"
+                                    Style="{StaticResource BodyTextBlockStyle}"
+                                    Text="-"
+                                    TextTrimming="CharacterEllipsis" />
+                                <TextBlock
+                                    x:Name="TrackCodecText"
+                                    AutomationProperties.AutomationId="TrackCodecText"
+                                    Grid.Column="1"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    MaxLines="1"
+                                    Style="{StaticResource BodyTextBlockStyle}"
+                                    Text="-" />
+                            </Grid>
+                        </StackPanel>
+                    </Grid>
+                    <Slider
+                        x:Name="TipVolumeSlider"
+                        AutomationProperties.AutomationId="TipVolumeSlider"
+                        AutomationProperties.Name="Volume"
+                        Grid.Row="1"
+                        Maximum="100"
+                        Minimum="0"
+                        StepFrequency="1"
+                        Value="50"
+                        ValueChanged="OnTipVolumeChanged" />
+                    <Grid Grid.Row="2" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button
+                            x:Name="TipVolumeStateButton"
+                            AutomationProperties.AutomationId="TipVolumeStateButton"
+                            AutomationProperties.Name="Mute"
+                            Width="40"
+                            Height="36"
+                            Padding="0"
+                            Click="OnTipVolumeStateClick"
+                            ToolTipService.ToolTip="Mute">
+                            <FontIcon x:Name="TipVolumeStateGlyph" FontSize="16" Glyph="&#xE993;" />
+                        </Button>
+                        <Button
+                            x:Name="TipOpenFileButton"
+                            AutomationProperties.AutomationId="TipOpenFileButton"
+                            Grid.Column="1"
+                            HorizontalAlignment="Stretch"
+                            Click="OnTipOpenFileClick"
+                            Content="Open file" />
+                        <Button
+                            x:Name="TipExplorerButton"
+                            AutomationProperties.AutomationId="TipExplorerButton"
+                            Grid.Column="2"
+                            HorizontalAlignment="Stretch"
+                            Click="OnTipExplorerClick"
+                            Content="View in Explorer" />
+                    </Grid>
+                </Grid>
+            </TeachingTip.Content>
+        </TeachingTip>
 
         <Border
             x:Name="DropOverlay"
