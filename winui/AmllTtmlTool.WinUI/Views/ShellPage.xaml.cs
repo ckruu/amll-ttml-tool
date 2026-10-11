@@ -608,8 +608,11 @@ namespace AmllTtmlTool.WinUI.Views
                         {
                             await Task.Delay(800);
                             var win = ((App)Application.Current).MainWindow;
-                            var page = (win.Content as Frame)?.Content as ShellPage ?? this;
-                            await Services.PlayerbarTestCheck.RunAsync(win, _audio, page, playerbarFolder, playerbarReport);
+                            // The page is captured directly: touching
+                            // win.Content here would run on the pool thread
+                            // (RPC_E_WRONG_THREAD). All UI access inside the
+                            // harness goes through OnUiAsync.
+                            await Services.PlayerbarTestCheck.RunAsync(win, _audio, this, playerbarFolder, playerbarReport);
                         }
                         catch (Exception ex)
                         {
