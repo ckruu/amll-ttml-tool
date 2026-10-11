@@ -39,6 +39,25 @@
         <PackageReference Include="SoundTouch.Net" Version="2.3.2" />
         <ProjectReference Include="..\AmllTtmlTool.Core\AmllTtmlTool.Core.csproj" />
     </ItemGroup>
+    <!-- Test-only services (harness host + *Check drivers) are compiled
+         into Debug only. Every call site is already #if DEBUG-guarded, so
+         a Release build both shrinks the binary and proves no production
+         path depends on them: a stray reference fails loudly here. -->
+    <ItemGroup Condition="'$(Configuration)' == 'Release'">
+        <Compile Remove="Services\HarnessHost.cs" />
+        <Compile Remove="Services\AudioTestCheck.cs" />
+        <Compile Remove="Services\ClockTestCheck.cs" />
+        <Compile Remove="Services\DropCheck.cs" />
+        <Compile Remove="Services\FocusTestCheck.cs" />
+        <Compile Remove="Services\GainTestCheck.cs" />
+        <Compile Remove="Services\MinimizeTestCheck.cs" />
+        <Compile Remove="Services\PlayerbarTestCheck.cs" />
+        <Compile Remove="Services\SeekTestCheck.cs" />
+        <Compile Remove="Services\SeekDragCheck.cs" />
+        <Compile Remove="Services\SmtcTestCheck.cs" />
+        <Compile Remove="Services\StretchTestCheck.cs" />
+        <Compile Remove="Services\TitleCenteringCheck.cs" />
+    </ItemGroup>
     <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
         <ProjectCapability Include="Msix" />
     </ItemGroup>
