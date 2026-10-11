@@ -8,6 +8,9 @@ namespace AmllTtmlTool.WinUI
         private Window window = Window.Current;
 
         public Window MainWindow => window;
+#if DEBUG
+        private static int FirstChanceLines;
+#endif
 
         public App()
         {
@@ -20,6 +23,41 @@ namespace AmllTtmlTool.WinUI
 #endif
             this.InitializeComponent();
             this.UnhandledException += OnUnhandledException;
+#if DEBUG
+            // Diagnostic net: FirstChance fires at throw time with full
+            // fidelity, before any WinRT marshalling strips the details.
+            // XAML failures get the full ToString; everything else gets one
+            // line. The handler itself must NEVER throw (and never touch
+            // anything that can throw, e.g. FileInfo.Length on a missing
+            // file): a throwing FirstChance handler recurses into itself
+            // and stack-overflows the process. A plain counter caps output.
+            AppDomain.CurrentDomain.FirstChanceException += (_, e) =>
+            {
+                try
+                {
+                    if (System.Threading.Interlocked.Increment(ref FirstChanceLines) > 400) return;
+                    var ex = e.Exception;
+                    if (ex is null) return;
+                    var log = System.IO.Path.Combine(
+                        System.IO.Path.GetTempPath(), "playerbar-xaml-error.log");
+                    var isXaml = ex is Microsoft.UI.Xaml.Markup.XamlParseException
+                        || (ex.Message?.Contains("XAML") ?? false)
+                        || (ex.Message?.Contains("Resource with the Name/Key") ?? false);
+                    if (isXaml)
+                    {
+                        System.IO.File.AppendAllText(log,
+                            $"FIRSTCHANCE {DateTime.UtcNow:u}: {ex}\nHResult=0x{ex.HResult:X8}\n");
+                    }
+                    else
+                    {
+                        var firstLine = ex.Message?.Split('\n')[0] ?? "";
+                        System.IO.File.AppendAllText(log,
+                            $"firstchance: {ex.GetType().FullName}: {firstLine}\n");
+                    }
+                }
+                catch { }
+            };
+#endif
             // Process-level crash capture: XAML unhandled exceptions don't
             // cover background-thread throws or faulted tasks. All three
             // write exception + stack + UTC timestamp to the same log in the
@@ -48,6 +86,12 @@ namespace AmllTtmlTool.WinUI
                 if (Services.HarnessHost.IsTest)
                 {
                     Services.HarnessHost.WriteLine("HARNESS-ERROR: " + e.Exception);
+                    try
+                    {
+                        Services.HarnessHost.WriteLine(
+                            $"HARNESS-HRESULT: 0x{e.Exception?.HResult ?? 0:X8}");
+                    }
+                    catch { }
                 }
             }
             catch { }

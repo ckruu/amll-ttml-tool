@@ -28,6 +28,18 @@ namespace AmllTtmlTool.WinUI.Views
         private bool _scrubbing;
         private bool _syncingSlider;
         private readonly SmtcService _smtcSvc = new();
+        // True once InitializeComponent has returned. XAML change events
+        // fire DURING the load for initial values that differ from the
+        // default (TipVolumeSlider Value="50", SpeedSlider Value="1"):
+        // fields declared later in the file (TipVolumeStateGlyph, the
+        // presets) are still null then, so every change handler below
+        // bails until the tree is complete. (The old bar survived this
+        // only because VolumeGlyph was declared before VolumeSlider.)
+        private bool _xamlLoaded;
+#if DEBUG
+        internal static string DebugXamlLog { get; } =
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "playerbar-xaml-error.log");
+#endif
         private Services.IFilePickerService? _picker;
         private Services.IShellService? _shell;
         private bool _syncingTipVolume;
@@ -35,7 +47,32 @@ namespace AmllTtmlTool.WinUI.Views
 
         public ShellPage()
         {
+#if DEBUG
+            // Diagnostic trap: a bare "XAML parsing failed." hides the
+            // useful part (missing key, line/position). Log the full chain
+            // with HResult to a temp file, the debugger output, and the
+            // harness report, then rethrow.
+            try
+            {
+                this.InitializeComponent();
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    var text = "INITCOMPONENT-FAIL: " + ex.ToString()
+                        + "\nHResult=0x" + ex.HResult.ToString("X8");
+                    System.IO.File.AppendAllText(DebugXamlLog, text + "\n");
+                    System.Diagnostics.Debug.WriteLine(text);
+                    if (Services.HarnessHost.IsTest && Services.HarnessHost.Report is not null)
+                        System.IO.File.AppendAllText(Services.HarnessHost.Report, text + "\n");
+                }
+                catch { }
+                throw;
+            }
+#else
             this.InitializeComponent();
+#endif
             SetupWindow();
             WireStores();
             ModeNavView.SelectedItem = EditNavItem;
@@ -48,6 +85,7 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void SetupWindow()
         {
+            _xamlLoaded = true;
             var window = ((App)Application.Current).MainWindow;
             _windowHwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
             window.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
@@ -1225,7 +1263,7 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnTipVolumeChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            if (_syncingTipVolume) return;
+            if (!_xamlLoaded || _syncingTipVolume) return;
             // The slider position IS the app's own level (0-100). It is
             // applied as in-app gain only; the OS endpoint volume is never
             // read or written. Dragging while muted unmutes at that level
@@ -1454,7 +1492,7 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnSpeedSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
         {
-            if (_syncingSpeed) return;
+            if (!_xamlLoaded || _syncingSpeed) return;
             _audio.SetPlaybackRate(e.NewValue);
             SyncSpeedUI();
         }
