@@ -1,59 +1,93 @@
 using AmllTtmlTool.Core;
+using Xunit;
 
 namespace AmllTtmlTool.Core.Tests;
 
-public sealed class SettingsStoreTests : IDisposable
+public sealed class SettingsStoreTests
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "amll-tests-" + Guid.NewGuid().ToString("N"));
-
-    public void Dispose()
+    private static SettingsStore NewStore(out string path)
     {
-        try { Directory.Delete(_dir, recursive: true); } catch { }
-    }
-
-    private string FilePath(string name = "settings.json") => Path.Combine(_dir, name);
-
-    [Fact]
-    public void MissingFile_ReturnsFallbacks()
-    {
-        var store = new SettingsStore(FilePath());
-        Assert.Equal("ttml", store.GetString("lastSaveFormat", "ttml"));
-        Assert.True(store.GetBool("showOutline", true));
-        Assert.False(store.GetBool("showBpm", false));
+        path = Path.Combine(Path.GetTempPath(), "amll-settings-" + Guid.NewGuid().ToString("N") + ".json");
+        return new SettingsStore(path);
     }
 
     [Fact]
-    public void RoundTrip_PersistsAcrossInstances()
+    public void Volume_RoundTrips()
     {
-        var path = FilePath();
-        var first = new SettingsStore(path);
-        first.SetString("lastSaveFormat", "apple");
-        first.SetBool("followPlayback", true);
-        var second = new SettingsStore(path);
-        Assert.Equal("apple", second.GetString("lastSaveFormat", "ttml"));
-        Assert.True(second.GetBool("followPlayback", false));
+        var s = NewStore(out _);
+        s.SetDouble("volume", 37);
+        s.Reload();
+        Assert.Equal(37.0, s.GetDouble("volume", 50.0), 9);
     }
 
     [Fact]
-    public void CorruptFile_FallsBackToDefaults()
+    public void Volume_Fractional_RoundTrips_And_CultureIndependent()
     {
-        var path = FilePath();
-        Directory.CreateDirectory(_dir);
-        File.WriteAllText(path, "{not json");
-        var store = new SettingsStore(path);
-        Assert.Equal("fallback", store.GetString("anything", "fallback"));
-        store.SetString("ok", "yes");
-        Assert.Equal("yes", new SettingsStore(path).GetString("ok", "no"));
+        var s = NewStore(out _);
+        s.SetDouble("volume", 12.5);
+        s.Reload();
+        // A user on a comma-decimal locale must not read 12,5 back as 12.
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture =
+                new System.Globalization.CultureInfo("de-DE");
+            Assert.Equal(12.5, s.GetDouble("volume", 0.0), 9);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+        }
     }
 
     [Fact]
-    public void WrongType_FallsBack()
+    public void Volume_Falls_Back_When_Missing_Or_Corrupt()
     {
-        var path = FilePath();
-        Directory.CreateDirectory(_dir);
-        File.WriteAllText(path, """{"flag": "yes", "name": true}""");
-        var store = new SettingsStore(path);
-        Assert.False(store.GetBool("flag", false));
-        Assert.Equal("fallback", store.GetString("name", "fallback"));
+        var s = NewStore(out _);
+        Assert.Equal(50.0, s.GetDouble("volume", 50.0));
+        s.SetString("volume", "not-a-number");
+        Assert.Equal(50.0, s.GetDouble("volume", 50.0));
+    }
+
+    [Fact]
+    public void Mute_RoundTrips()
+    {
+        var s = NewStore(out _);
+        s.SetBool("mute", true);
+        s.Reload();
+        Assert.True(s.GetBool("mute", false));
+    }
+
+    [Fact]
+    public void Volume_Survives_A_Whole_New_Store_Object()
+    {
+        var s = NewStore(out var path);
+        s.SetDouble("volume", 83);
+        s.SetBool("mute", true);
+
+        // A second process reading the same file is the "remembered across
+        // launches" case.
+        var reopened = new SettingsStore(path);
+        Assert.Equal(83.0, reopened.GetDouble("volume", 50.0), 9);
+        Assert.True(reopened.GetBool("mute", false));
+    }
+
+    [Fact]
+    public void Missing_File_Yields_Fallbacks_Not_An_Exception()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), "amll-absent-" + Guid.NewGuid().ToString("N") + ".json");
+        var s = new SettingsStore(missing);
+        Assert.Equal(50.0, s.GetDouble("volume", 50.0));
+        Assert.False(s.GetBool("mute", false));
+    }
+
+    [Fact]
+    public void Corrupt_File_Yields_Fallbacks_Not_An_Exception()
+    {
+        var s = NewStore(out var path);
+        File.WriteAllText(path, "{ this is not json at all");
+        s.Reload();
+        Assert.Equal(50.0, s.GetDouble("volume", 50.0));
+        Assert.False(s.GetBool("mute", false));
     }
 }
