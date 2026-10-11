@@ -47,6 +47,33 @@
                     </VisualState.StateTriggers>
                 </VisualState>
             </VisualStateGroup>
+            <!--
+                BarStates: below 700px the bar compacts (tighter margin,
+                padding and spacing, smaller time labels) so the seek slider
+                keeps its 120px minimum with no overlap or clipping. The
+                labels stay tabular with per-tier constant widths.
+            -->
+            <VisualStateGroup x:Name="BarStates">
+                <VisualState x:Name="BarWide">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="700" />
+                    </VisualState.StateTriggers>
+                </VisualState>
+                <VisualState x:Name="BarNarrow">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="0" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="PlayerBarBorder.Margin" Value="4,4,4,4" />
+                        <Setter Target="PlayerBarBorder.Padding" Value="6,2" />
+                        <Setter Target="BarInnerGrid.ColumnSpacing" Value="2" />
+                        <Setter Target="PositionText.FontSize" Value="12" />
+                        <Setter Target="PositionText.MinWidth" Value="78" />
+                        <Setter Target="DurationText.FontSize" Value="12" />
+                        <Setter Target="DurationText.MinWidth" Value="78" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions>
             <RowDefinition Height="48" />
@@ -621,7 +648,7 @@
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1"
             CornerRadius="8">
-            <Grid ColumnSpacing="4">
+            <Grid x:Name="BarInnerGrid" ColumnSpacing="4">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />

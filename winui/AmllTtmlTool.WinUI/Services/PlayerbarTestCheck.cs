@@ -174,6 +174,9 @@ internal static class PlayerbarTestCheck
     {
         Write(report, "---- volume matrix ----");
         var fails = 0;
+        // The empty-state paint parks the slider at 0; start from 50 so the
+        // first matrix step (0) is a real change that fires the handler.
+        await OnUiAsync(window, () => page.Test_SetTipSlider(50));
         var glyphWant = new (double Level, string Glyph)[]
         {
             (0, "\uE993"), (1, "\uE994"), (33, "\uE994"), (34, "\uE995"),
@@ -281,6 +284,9 @@ internal static class PlayerbarTestCheck
             var playName = ""; var playOn = false;
             await OnUiAsync(window, () =>
             {
+                // A load raises no engine event by itself; the production
+                // open paths refresh the chrome explicitly. Drive the same.
+                page.Test_RefreshChrome();
                 page.Test_OpenTrackTip();
                 title = page.Test_TrackTitle();
                 artist = page.Test_TrackArtist();

@@ -43,7 +43,9 @@ namespace AmllTtmlTool.WinUI.Views
         private Services.IFilePickerService? _picker;
         private Services.IShellService? _shell;
         private bool _syncingTipVolume;
-        private string _trackTipKey = "";
+        // Null until the first paint: the empty-track key is "", so a ""
+        // initial value would skip the first (disabling) paint entirely.
+        private string? _trackTipKey;
 
         public ShellPage()
         {
@@ -1379,7 +1381,7 @@ namespace AmllTtmlTool.WinUI.Views
             UpdateTipVolumeGlyph();
         }
 
-        private async Task LoadTipCoverAsync(byte[]? bytes, string key)
+        private async Task LoadTipCoverAsync(byte[]? bytes, string? key)
         {
             if (bytes is null || bytes.Length == 0)
             {
@@ -1760,7 +1762,13 @@ namespace AmllTtmlTool.WinUI.Views
                 // open still lets a co-dropped audio file through.
                 var openLyric = lyrics.Count > 0 && await ConfirmDirtyAsync("Open");
                 if (openLyric) await _intake.OpenLyricFileAsync(lyrics[0]);
-                if (audios.Count > 0) await _intake.OpenAudioFileAsync(audios[0]);
+                if (audios.Count > 0)
+                {
+                    await _intake.OpenAudioFileAsync(audios[0]);
+                    // A paused drop-open must still light up play/seek/tips:
+                    // the engine raises no event for a load by itself.
+                    RefreshAudioChrome();
+                }
             }
             catch { }
         }
@@ -2390,6 +2398,7 @@ namespace AmllTtmlTool.WinUI.Views
             TrackTip.IsOpen = false;
             SpeedTip.IsOpen = false;
         }
+        internal void Test_RefreshChrome() => RefreshAudioChrome();
         internal bool Test_TrackTipOpen() => TrackTip.IsOpen;
         internal bool Test_SpeedTipOpen() => SpeedTip.IsOpen;
         internal string Test_TrackTitle() => TrackTitleText.Text;
@@ -2439,7 +2448,8 @@ namespace AmllTtmlTool.WinUI.Views
                 }
                 var barW = PlayerBarBorder.ActualWidth;
                 var sliderW = SeekSlider.ActualWidth;
-                var detail = $"bar={barW:F0} slider={sliderW:F0}";
+                var detail = $"bar={barW:F0} slider={sliderW:F0} "
+                    + string.Join(" ", rects.Select(r => $"{r.Name}=[{r.L:F0}-{r.R:F0}]"));
                 if (sliderW < 120) return $"FAIL slider-width {sliderW:F0} < 120 ({detail})";
                 for (var i = 0; i < rects.Count; i++)
                 {
