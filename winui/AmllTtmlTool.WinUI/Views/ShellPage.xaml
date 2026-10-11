@@ -612,6 +612,7 @@
             last.
         -->
         <Border
+            x:Name="PlayerBarBorder"
             Grid.Row="2"
             Margin="8"
             Padding="8,4"
@@ -751,8 +752,7 @@
             AutomationProperties.AutomationId="TrackTip"
             IsLightDismissEnabled="False"
             PreferredPlacement="Top"
-            ShouldConstrainToRootBounds="True"
-            Target="{x:Bind TrackButton}">
+            ShouldConstrainToRootBounds="True">
             <TeachingTip.Content>
                 <Grid RowSpacing="8" MinWidth="300" MaxWidth="360">
                     <Grid.RowDefinitions>
@@ -882,8 +882,7 @@
             Title="Playback speed"
             IsLightDismissEnabled="False"
             PreferredPlacement="Top"
-            ShouldConstrainToRootBounds="True"
-            Target="{x:Bind RateButton}">
+            ShouldConstrainToRootBounds="True">
             <TeachingTip.Content>
                 <Grid RowSpacing="8" MinWidth="280" MaxWidth="340">
                     <Grid.RowDefinitions>

@@ -87,6 +87,11 @@ namespace AmllTtmlTool.WinUI.Views
             // Right click / Shift+F10 / touch long-press on the track button
             // opens the picker immediately (never the tip) and swallows any
             // default context menu.
+            // Tip targets are assigned lazily on first open, not via x:Bind
+            // in XAML and not in SetupWindow: the Target setters were the
+            // only code running at load, and a load-time Target assignment
+            // crashed startup (stowed 0xc000027b / bare XamlParseException),
+            // so they move to first-open when the tree is settled.
             TrackButton.ContextRequested += OnTrackContextRequested;
             // Speed button: right click cycles presets (ContextRequested),
             // middle click resets to 1x. The Button swallows pointer events,
@@ -546,6 +551,54 @@ namespace AmllTtmlTool.WinUI.Views
                             Services.HarnessHost.Finish();
                             win.DispatcherQueue.TryEnqueue(() => win.Close());
                         }
+                    });
+                }
+                // Playerbar-test harness: --playerbar-test <folder>
+                // [reportPath] (self-driving: real controls on the UI thread
+                // via the ShellPage test hooks) and --playerbar-ui-hold
+                // <file> (passive target for the external winapp-ui driver:
+                // loads one file paused at 0 and stays open; the watchdog
+                // closes it). Self-closing / watchdog-closed. DEBUG-only.
+                var playerbarIdx = Array.IndexOf(audioArgs, "--playerbar-test");
+                if (playerbarIdx >= 0)
+                {
+                    var playerbarFolder = playerbarIdx + 1 < audioArgs.Length ? audioArgs[playerbarIdx + 1] : "";
+                    var playerbarReport = playerbarIdx + 2 < audioArgs.Length ? audioArgs[playerbarIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            var page = (win.Content as Frame)?.Content as ShellPage ?? this;
+                            await Services.PlayerbarTestCheck.RunAsync(win, _audio, page, playerbarFolder, playerbarReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.PlayerbarTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
+                var playerbarHoldIdx = Array.IndexOf(audioArgs, "--playerbar-ui-hold");
+                if (playerbarHoldIdx >= 0)
+                {
+                    var playerbarHoldFile = playerbarHoldIdx + 1 < audioArgs.Length ? audioArgs[playerbarHoldIdx + 1] : "";
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(800);
+                        var win = ((App)Application.Current).MainWindow;
+                        await Services.PlayerbarTestCheck.RunHoldAsync(win, _audio, playerbarHoldFile);
                     });
                 }
 #endif
@@ -1129,6 +1182,7 @@ namespace AmllTtmlTool.WinUI.Views
         {
             // Opening one tip closes the other; the trigger toggles. The X
             // and Esc are the tip's own (IsLightDismissEnabled=false).
+            if (TrackTip.Target is null) TrackTip.Target = TrackButton;
             if (!TrackTip.IsOpen) SpeedTip.IsOpen = false;
             TrackTip.IsOpen = !TrackTip.IsOpen;
             if (TrackTip.IsOpen) RefreshTrackTip();
@@ -1347,6 +1401,7 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnSpeedButtonClick(object sender, RoutedEventArgs e)
         {
+            if (SpeedTip.Target is null) SpeedTip.Target = RateButton;
             if (!SpeedTip.IsOpen) TrackTip.IsOpen = false;
             SpeedTip.IsOpen = !SpeedTip.IsOpen;
             if (SpeedTip.IsOpen) RefreshSpeedTip();
@@ -1357,8 +1412,7 @@ namespace AmllTtmlTool.WinUI.Views
             // Right click / Shift+F10 / touch long-press: cycle presets
             // without opening the tip.
             args.Handled = true;
-            _audio.SetPlaybackRate(Core.Audio.SpeedDisplay.CycleFrom(_audio.PlaybackRate));
-            SyncSpeedUI();
+            CycleSpeedPreset();
         }
 
         private void OnSpeedPointerPressed(object sender, PointerRoutedEventArgs e)
@@ -1378,10 +1432,24 @@ namespace AmllTtmlTool.WinUI.Views
             if (at.X >= 0 && at.Y >= 0
                 && at.X <= RateButton.ActualWidth && at.Y <= RateButton.ActualHeight)
             {
-                _audio.SetPlaybackRate(1.0);
-                SyncSpeedUI();
+                ResetSpeedTo1x();
                 e.Handled = true;
             }
+        }
+
+        // Right-click cycle target (same method the pointer, keyboard and
+        // touch paths share, and the test hooks call).
+        private void CycleSpeedPreset()
+        {
+            _audio.SetPlaybackRate(Core.Audio.SpeedDisplay.CycleFrom(_audio.PlaybackRate));
+            SyncSpeedUI();
+        }
+
+        // Middle-click reset (shared by the release handler and the hooks).
+        private void ResetSpeedTo1x()
+        {
+            _audio.SetPlaybackRate(1.0);
+            SyncSpeedUI();
         }
 
         private void OnSpeedSliderChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -2236,6 +2304,132 @@ namespace AmllTtmlTool.WinUI.Views
             if (file is null) return;
             await _intake.SaveToFileAsync(file, formatBox.SelectedIndex == 1);
         }
+
+#if DEBUG
+        // --- player-bar test hooks (DEBUG only) -------------------------------
+        // The self-driving harness drives the REAL controls on the UI thread
+        // through these: the same handlers the pointer/keyboard paths use.
+        internal string Test_PlayName() => AutomationProperties.GetName(PlayButton);
+        internal bool Test_PlayEnabled() => PlayButton.IsEnabled;
+        internal bool Test_RateEnabled() => RateButton.IsEnabled;
+        internal string Test_SpeedText() => RateButton.Content as string ?? "";
+        internal double Test_SpeedWidth() => RateButton.ActualWidth;
+        internal void Test_SetSpeedSlider(double v) => SpeedSlider.Value = v;
+        internal void Test_CycleSpeed() => CycleSpeedPreset();
+        internal void Test_MiddleReset() => ResetSpeedTo1x();
+        internal bool Test_PresetChecked(int i) => PresetAt(i).IsChecked == true;
+        internal bool Test_PresetEnabled(int i) => PresetAt(i).IsEnabled;
+        internal void Test_ClickPreset(int i) =>
+            OnSpeedPresetClick(PresetAt(i), new RoutedEventArgs());
+        internal void Test_SetKeepPitch(bool keep) => SpeedKeepPitch.IsChecked = keep;
+        internal bool Test_KeepPitchChecked() => SpeedKeepPitch.IsChecked == true;
+        internal bool Test_KeepPitchEnabled() => SpeedKeepPitch.IsEnabled;
+        internal bool Test_EngineKeepPitch() => _audio.KeepPitch;
+        internal double Test_EngineRate() => _audio.PlaybackRate;
+        internal double Test_EngineVolume() => _audio.VolumePercent;
+        internal bool Test_EngineMuted() => _audio.IsMuted;
+        internal string Test_VolumeGlyph() => TipVolumeStateGlyph.Glyph;
+        internal void Test_SetTipSlider(double v) => TipVolumeSlider.Value = v;
+        internal double Test_TipSlider() => TipVolumeSlider.Value;
+        internal void Test_ClickVolumeState() =>
+            OnTipVolumeStateClick(TipVolumeStateButton, new RoutedEventArgs());
+        internal void Test_OpenTrackTip()
+        {
+            // Through the real Click path (toggle + close-the-other-tip).
+            Test_CloseTips();
+            OnTrackButtonClick(TrackButton, new RoutedEventArgs());
+        }
+        internal void Test_OpenSpeedTip()
+        {
+            Test_CloseTips();
+            OnSpeedButtonClick(RateButton, new RoutedEventArgs());
+        }
+        internal void Test_CloseTips()
+        {
+            TrackTip.IsOpen = false;
+            SpeedTip.IsOpen = false;
+        }
+        internal bool Test_TrackTipOpen() => TrackTip.IsOpen;
+        internal bool Test_SpeedTipOpen() => SpeedTip.IsOpen;
+        internal string Test_TrackTitle() => TrackTitleText.Text;
+        internal string Test_TrackArtist() => TrackArtistText.Text;
+        internal string Test_TrackCodec() => TrackCodecText.Text;
+        internal bool Test_CoverShown() => TrackCoverArt.Visibility == Visibility.Visible;
+        internal bool Test_TipSliderEnabled() => TipVolumeSlider.IsEnabled;
+        internal bool Test_OpenFileEnabled() => TipOpenFileButton.IsEnabled;
+        internal bool Test_ExplorerEnabled() => TipExplorerButton.IsEnabled;
+        internal bool Test_VolumeStateEnabled() => TipVolumeStateButton.IsEnabled;
+        internal bool Test_SpeedSliderEnabled() => SpeedSlider.IsEnabled;
+        internal void Test_ClickEye() => OnLocateClick(EyeButton, new RoutedEventArgs());
+        internal string Test_EyeName() => AutomationProperties.GetName(EyeButton);
+        internal bool Test_EyeEnabled() => EyeButton.IsEnabled;
+        internal string Test_BarBrush() => PlayerBarBorder.Background switch
+        {
+            Microsoft.UI.Xaml.Media.AcrylicBrush ab =>
+                $"AcrylicBrush tint={ab.TintColor} opacity={ab.TintOpacity} fallback={ab.FallbackColor}",
+            var b => b?.GetType().Name ?? "null",
+        };
+        internal void Test_ResizeWindow(int widthDip)
+        {
+            var window = ((App)Application.Current).MainWindow;
+            var scale = Services.WindowSizing.GetScale(window);
+            if (!(scale > 0)) scale = 1.0;
+            var heightPx = (int)(window.Bounds.Height * scale);
+            window.AppWindow?.Resize(new Windows.Graphics.SizeInt32((int)(widthDip * scale), heightPx));
+        }
+        internal string Test_BarLayout()
+        {
+            // Bounding boxes in bar space: any pairwise overlap fails, the
+            // slider must keep >= 120px, everything must fit inside the bar.
+            try
+            {
+                FrameworkElement[] items =
+                [
+                    TrackButton, PlayButton, PositionText, SeekSlider,
+                    DurationText, EyeButton, RateButton, SpectroToggle,
+                ];
+                var rects = new List<(string Name, double L, double T, double R, double B)>();
+                foreach (var el in items)
+                {
+                    var origin = el.TransformToVisual(PlayerBarBorder)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0));
+                    rects.Add((el.Name, origin.X, origin.Y,
+                        origin.X + el.ActualWidth, origin.Y + el.ActualHeight));
+                }
+                var barW = PlayerBarBorder.ActualWidth;
+                var sliderW = SeekSlider.ActualWidth;
+                var detail = $"bar={barW:F0} slider={sliderW:F0}";
+                if (sliderW < 120) return $"FAIL slider-width {sliderW:F0} < 120 ({detail})";
+                for (var i = 0; i < rects.Count; i++)
+                {
+                    var a = rects[i];
+                    if (a.L < -0.5 || a.R > barW + 0.5)
+                        return $"FAIL {a.Name} outside bar [{a.L:F0},{a.R:F0}] ({detail})";
+                    for (var j = i + 1; j < rects.Count; j++)
+                    {
+                        var b = rects[j];
+                        var overlapX = Math.Min(a.R, b.R) - Math.Max(a.L, b.L);
+                        var overlapY = Math.Min(a.B, b.B) - Math.Max(a.T, b.T);
+                        if (overlapX > 0.5 && overlapY > 0.5)
+                            return $"FAIL overlap {a.Name}/{b.Name} ({detail})";
+                    }
+                }
+                return "OK " + detail;
+            }
+            catch (Exception ex)
+            {
+                return "FAIL harness-error " + ex.GetType().Name;
+            }
+        }
+        private ToggleButton PresetAt(int i) => i switch
+        {
+            0 => SpeedPreset025,
+            1 => SpeedPreset05,
+            2 => SpeedPreset1,
+            3 => SpeedPreset15,
+            _ => SpeedPreset125,
+        };
+#endif
     }
 }
 
