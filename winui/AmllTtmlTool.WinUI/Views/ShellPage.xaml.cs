@@ -361,6 +361,39 @@ namespace AmllTtmlTool.WinUI.Views
                         }
                     });
                 }
+                // Gain-test harness: --gain-test [reportPath]. Offline gain
+                // verification (sine RMS, mute zeros, ramp zipper guard) plus
+                // the read-only proof that the OS endpoint volume is never
+                // touched. Self-closes. DEBUG-only.
+                var gainIdx = Array.IndexOf(audioArgs, "--gain-test");
+                if (gainIdx >= 0)
+                {
+                    var gainReport = gainIdx + 1 < audioArgs.Length ? audioArgs[gainIdx + 1] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.GainTestCheck.RunAsync(win, _audio, gainReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.GainTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
                 // SMTC-test harness: --smtc-test <file> [reportPath].
                 // End-to-end OS transport surface verification via the
                 // system session manager (metadata, status, timeline).
@@ -691,6 +724,7 @@ namespace AmllTtmlTool.WinUI.Views
             RefreshChrome();
             RefreshAudioChrome();
             LoadMasterToggles();
+            ApplyRememberedVolume();
         }
 
         private void Notify(string message)
@@ -962,8 +996,71 @@ namespace AmllTtmlTool.WinUI.Views
             RefreshAudioChrome();
         }
 
-        private void OnVolumeChanged(object sender, RangeBaseValueChangedEventArgs e) =>
-            _audio.SetVolume(e.NewValue);
+        private void OnVolumeChanged(object sender, RangeBaseValueChangedEventArgs e)
+        {
+            // The slider position IS the app's own level (0-100). It is applied
+            // as in-app gain only; the OS endpoint volume is never read or
+            // written, so opening or importing a file cannot move the OS.
+            _audio.SetVolumePercent(e.NewValue);
+            PersistVolume();
+            UpdateVolumeGlyph(e.NewValue);
+        }
+
+        private bool _applyingVolume;
+
+        // Restores the remembered level and mute state. Called once at startup
+        // and re-applied after every audio load: the level belongs to the app,
+        // not to a track, so nothing about opening a file may disturb it.
+        private void ApplyRememberedVolume()
+        {
+            _applyingVolume = true;
+            try
+            {
+                var stored = Services.AppSettings.Volume;
+                var muted = Services.AppSettings.Mute;
+                _audio.SetMuted(false);
+                _audio.SetVolumePercent(stored);
+                _audio.SetMuted(muted);
+                VolumeSlider.Value = stored;
+            }
+            finally
+            {
+                _applyingVolume = false;
+            }
+            UpdateVolumeGlyph(Services.AppSettings.Mute ? 0 : Services.AppSettings.Volume);
+        }
+
+        private void PersistVolume()
+        {
+            // A harness run must never overwrite the user's remembered level.
+            if (Services.AppSettings.SilentMode) return;
+            Services.AppSettings.Volume = Services.AppSettings.Mute
+                ? _audio.VolumePercent
+                : VolumeSlider.Value;
+            Services.AppSettings.Mute = _audio.IsMuted;
+        }
+
+        // Mute is the button: click mutes when playing a level, click un-mutes
+        // back to the level remembered before the mute.
+        private void OnVolumeButtonClick(object sender, RoutedEventArgs e)
+        {
+            var level = VolumeSlider.Value;
+            var muted = !_audio.IsMuted;
+            _audio.SetMuted(muted);
+            if (!muted) level = _audio.VolumePercent;
+            PersistVolume();
+            UpdateVolumeGlyph(muted ? 0 : level);
+        }
+
+        // Segoe Fluent volume set: muted, 0, low, mid, high.
+        private void UpdateVolumeGlyph(double level)
+        {
+            var glyph = level <= 0 ? "&#xE74F;"
+                : level < 34 ? "&#xE993;"
+                : level < 67 ? "&#xE994;"
+                : "&#xE995;";
+            if (VolumeGlyph.Glyph != glyph) VolumeGlyph.Glyph = glyph;
+        }
 
         private void OnRateChanged(object sender, RangeBaseValueChangedEventArgs e)
         {

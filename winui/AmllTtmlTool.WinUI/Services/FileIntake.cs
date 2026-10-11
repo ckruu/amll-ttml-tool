@@ -58,6 +58,10 @@ public sealed class FileIntake(
             var cover = bins is not null ? await TryFfmpegCoverAsync(bins, file.Path) : null;
             audio.Cover = cover ?? await ReadCoverAsync(file);
             await audio.LoadAsync(file.Path);
+            // The playback level belongs to the app, not to this track: opening
+            // or importing a file must never reset it (a used-to reset it to a
+            // fixed value here, which jumped the whole OS).
+            audio.ReassertVolume();
             store.MergeAudioMetadata(AudioMetadata.ToTtmlMetadata(meta));
             // OS transport surface: title/artist/album (+ cover) for the
             // volume OSD and media keys. Best-effort, never blocks the open.

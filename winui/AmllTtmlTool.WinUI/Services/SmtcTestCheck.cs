@@ -45,7 +45,7 @@ internal static class SmtcTestCheck
                 Write(report, $"FILE-ERROR: not found: {file}");
                 return;
             }
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             await audio.LoadAsync(file);
             // Same metadata path as FileIntake: probe tags + file name,
             // cover via FFmpeg when present.

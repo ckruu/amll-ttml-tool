@@ -110,7 +110,7 @@ internal static class MinimizeTestCheck
             Write(report, $"legs={legs} (probes={runProbes} leg1b={run1b} sweep={runSweep})");
             if (runProbes)
             {
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             // Bare-window probes FIRST (no audio loaded, no resize): if the
             // window dies here, audio is innocent and the cause is in window
             // setup (subclass, title bar, backdrop).
@@ -274,7 +274,7 @@ internal static class MinimizeTestCheck
                 || state.StartsWith("narrow", StringComparison.OrdinalIgnoreCase);
             await OnUiAsync(window, () =>
             {
-                audio.SetVolume(0);
+                audio.SilentMode = true;
                 if (playing) audio.Play(); else audio.Pause();
             });
             Write(report, $"  leg state={state} width={width} overflow={overflow} playing={playing}");
@@ -404,7 +404,7 @@ internal static class MinimizeTestCheck
         try
         {
             if (!File.Exists(file)) return;
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             await audio.LoadAsync(file);
             await OnUiAsync(window, () => audio.Play());
             System.Diagnostics.Debug.WriteLine($"MINIMIZE-HOLD READY file={file}");

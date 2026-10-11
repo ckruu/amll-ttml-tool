@@ -90,8 +90,89 @@ public partial class AudioEngine : ObservableObject, IDisposable
     [ObservableProperty]
     private TimeSpan _duration;
 
-    [ObservableProperty]
-    private double _volume = 0.5;
+    // Playback level 0..1 as a linear amplitude, derived from the 0-100
+    // slider position with the perceptual curve amplitude=(v/100)^2 (see
+    // GainSampleProvider). Never touches the OS endpoint volume.
+    private double _gainLevel = 0.5;
+    private GainSampleProvider? _gain;
+
+    // 0-100 slider position the engine keeps for round-tripping (the curve is
+    // applied on the way in, and the UI reads this back for its own slider).
+    private double _volumePercent = 50;
+    private bool _muted;
+    private double _preMutePercent = 50;
+
+    /// <summary>Current slider position 0-100 (survives mute).</summary>
+    public double VolumePercent => _volumePercent;
+
+    /// <summary>True while output is silent by user choice.</summary>
+    public bool IsMuted => _muted;
+
+    // Forced silence for test harnesses: an IN-APP gain override, so a
+    // harness never writes the OS volume and never persists a setting.
+    public bool SilentMode
+    {
+        get => _silentMode;
+        set
+        {
+            if (_silentMode == value) return;
+            _silentMode = value;
+            if (_dispatcher.HasThreadAccess) RecomputeGain();
+            else RunOnUi(RecomputeGain);
+        }
+    }
+
+    private bool _silentMode;
+
+    // Single place the amplitude is derived. Muted/harness-silent are a
+    // target of exactly 0 (true digital silence); everything else follows the
+    // slider curve amplitude=(percent/100)^2. `_gainLevel` is what a freshly
+    // built output starts at, so a rebuild mid-ramp cannot pop.
+    private void RecomputeGain()
+    {
+        var amplitude = _muted || _silentMode
+            ? 0.0
+            : Math.Pow(Math.Max(0, _volumePercent) / 100.0, 2.0);
+        _gainLevel = amplitude;
+        _gain?.SetLevel(amplitude);
+    }
+
+    /// <summary>
+    /// Sets playback level from a 0-100 slider position. App-only: the OS
+    /// endpoint volume is never read or written.
+    /// </summary>
+    public void SetVolumePercent(double percent)
+    {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => SetVolumePercent(percent)); return; }
+        _volumePercent = Math.Clamp(percent, 0, 100);
+        if (_volumePercent > 0) _muted = false;
+        RecomputeGain();
+    }
+
+    // Re-applies the remembered level to the current output. Called after
+    // every load and import: the level belongs to the app, not to a track,
+    // and a new file must never reset it.
+    public void ReassertVolume()
+    {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(RecomputeGain); return; }
+        RecomputeGain();
+    }
+
+    public void SetMuted(bool muted)
+    {
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => SetMuted(muted)); return; }
+        if (muted)
+        {
+            if (_volumePercent > 0) _preMutePercent = _volumePercent;
+            _muted = true;
+        }
+        else
+        {
+            _muted = false;
+            if (_volumePercent == 0 && _preMutePercent > 0) _volumePercent = _preMutePercent;
+        }
+        RecomputeGain();
+    }
 
     [ObservableProperty]
     private double _playbackRate = 1.0;
@@ -162,6 +243,12 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _clock = _dispatcher.CreateTimer();
         _clock.Interval = TimeSpan.FromMilliseconds(250);
         _clock.Tick += (_, _) => OnTick();
+        // Harness-mode silence, read once at construction: an environment
+        // signal (not a command line a launcher might drop or invent) forces
+        // the IN-APP gain to zero. No OS volume is involved, and no setting is
+        // persisted while it is set, so a test run cannot move the machine or
+        // overwrite the user's remembered level.
+        _silentMode = Environment.GetEnvironmentVariable("AMLL_SILENT") is "1" or "true";
         _devices = new MMDeviceEnumerator();
         _watcher = new RenderDeviceWatcher(this);
         try
@@ -342,11 +429,15 @@ public partial class AudioEngine : ObservableObject, IDisposable
 
     public void Seek(double seconds) => SeekTo(seconds);
 
-    public void SetVolume(double volume)
+    // Legacy 0..1 amplitude entry point, kept for the harnesses that silence
+    // playback. In-app gain only - no OS volume is read or written. New code
+    // uses SetVolumePercent / SetMuted / SilentMode.
+    public void SetVolume(double amplitude)
     {
-        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => SetVolume(volume)); return; }
-        Volume = Math.Max(0, Math.Min(1, volume));
-        if (_output is not null) _output.Volume = (float)Volume;
+        if (!_dispatcher.HasThreadAccess) { RunOnUi(() => SetVolume(amplitude)); return; }
+        // Inverted from the slider curve so SetVolume(0) really is silence.
+        var percent = amplitude <= 0 ? 0 : Math.Sqrt(Math.Clamp(amplitude, 0, 1)) * 100.0;
+        SetVolumePercent(percent);
     }
 
     public void SetPlaybackRate(double rate)
@@ -460,6 +551,13 @@ public partial class AudioEngine : ObservableObject, IDisposable
             chain = new ChannelMapSampleProvider(chain, mix.Channels);
         if (chain.WaveFormat.SampleRate != mix.Rate)
             chain = new WdlResamplingSampleProvider(chain, mix.Rate);
+        // App-owned gain, the LAST float stage: after decode, stretch and
+        // resample, before the device sees anything. The OS endpoint volume
+        // is never touched by this app - the session volume stays whatever
+        // the user set, and a harness forces silence through this stage.
+        var gain = new GainSampleProvider(chain, _gainLevel);
+        _gain = gain;
+        chain = gain;
         var attempts = new List<string>();
         WasapiOut? output = null;
         if (mix.BitsPerSample == 32)
@@ -493,7 +591,9 @@ public partial class AudioEngine : ObservableObject, IDisposable
                 $"audio device rejected every candidate format. Device mix: {mix.Desc}. " +
                 $"Attempts: {string.Join(" | ", attempts)}");
         _output = output;
-        _output.Volume = (float)Volume;
+        // NB: no IWavePlayer/endpoint volume assignment exists in this app on
+        // purpose. The endpoint (OS) volume and mute belong to the user; the
+        // app scales its own samples in the gain stage above.
         _output.PlaybackStopped += OnPlaybackStopped;
         LastOutputDescription =
             $"in={DescribeSampleFormat(_source)} chain={DescribeSampleFormat(chain)} tried=[{string.Join(" | ", attempts)}]";
@@ -823,6 +923,9 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _pcm = null;
         _source = null;
         _stretch = null;
+        // The gain provider wraps the chain; a stale one must not be handed to
+        // the next BuildOutput's SetLevel call.
+        _gain = null;
         ClearAudition();
         RunOnUi(() =>
         {

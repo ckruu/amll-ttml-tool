@@ -44,7 +44,7 @@ internal static class ClockTestCheck
                 Write(report, $"FILE-ERROR: not found: {file}");
                 return;
             }
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             await audio.LoadAsync(file);
             Write(report, $"output-latency-budget={audio.OutputLatencySeconds * 1000:F1}ms (stream+buffer+stretcher prime)");
             Write(report, await SnapshotWatchAsync(window, audio));

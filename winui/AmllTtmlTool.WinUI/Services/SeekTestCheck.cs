@@ -114,7 +114,7 @@ internal static class SeekTestCheck
         try
         {
             Write(report, "=== SEEK UI TARGET (self-driving, real handlers) ===");
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             await audio.LoadAsync(file);
             await OnUiAsync(window, () => { audio.SeekTo(0); audio.Pause(); });
             var dur = audio.Duration.TotalSeconds;
@@ -217,7 +217,7 @@ internal static class SeekTestCheck
         });
         try
         {
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             await audio.LoadAsync(file);
             await OnUiAsync(window, () => { audio.SeekTo(0); audio.Pause(); });
             System.Diagnostics.Debug.WriteLine($"SEEK-HOLD READY file={file}");
@@ -277,7 +277,7 @@ internal static class SeekTestCheck
             foreach (var playing in new[] { true, false })
             {
                 var mode = playing ? "playing" : "paused";
-                await OnUiAsync(window, () => audio.SetVolume(0));
+                await OnUiAsync(window, () => audio.SilentMode = true);
                 await audio.LoadAsync(file);
                 await OnUiAsync(window, () =>
                 {
@@ -324,7 +324,7 @@ internal static class SeekTestCheck
             foreach (var playing in new[] { true, false })
             {
                 var mode = playing ? "playing" : "paused";
-                await OnUiAsync(window, () => audio.SetVolume(0));
+                await OnUiAsync(window, () => audio.SilentMode = true);
                 await audio.LoadAsync(file);
                 var dur = audio.Duration.TotalSeconds;
                 if (!(dur > 1.0))
@@ -434,7 +434,7 @@ internal static class SeekTestCheck
 
         // End-of-track fires exactly once.
         {
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             await audio.LoadAsync(file);
             var dur = audio.Duration.TotalSeconds;
             var ended = 0;
@@ -466,7 +466,7 @@ internal static class SeekTestCheck
 
         // 20 rapid seeks in ~1 second end at the last target.
         {
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             await audio.LoadAsync(file);
             var dur = audio.Duration.TotalSeconds;
             await OnUiAsync(window, () => { audio.SetPlaybackRate(1.0); audio.Play(); });
@@ -485,7 +485,7 @@ internal static class SeekTestCheck
 
         // Seek during a speed change.
         {
-            await OnUiAsync(window, () => audio.SetVolume(0));
+            await OnUiAsync(window, () => audio.SilentMode = true);
             await audio.LoadAsync(file);
             var dur = audio.Duration.TotalSeconds;
             await OnUiAsync(window, () => { audio.SetPlaybackRate(1.0); audio.Play(); });

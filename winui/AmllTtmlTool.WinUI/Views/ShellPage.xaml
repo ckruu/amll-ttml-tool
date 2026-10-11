@@ -630,19 +630,21 @@
                     IsEnabled="False"
                     ToolTipService.ToolTip="Play" />
                 <Button
+                    x:Name="VolumeButton"
                     x:Uid="AudioBar_Volume"
                     Grid.Column="2"
-                    ToolTipService.ToolTip="Volume">
-                    <FontIcon Glyph="&#xE7F5;" />
+                    ToolTipService.ToolTip="Volume"
+                    Click="OnVolumeButtonClick">
+                    <FontIcon x:Name="VolumeGlyph" Glyph="&#xE995;" />
                     <Button.Flyout>
                         <Flyout>
                             <Slider
                                 x:Name="VolumeSlider"
                                 Header="Volume"
-                                Maximum="1"
+                                Maximum="100"
                                 Minimum="0"
-                                StepFrequency="0.01"
-                                Value="0.5"
+                                StepFrequency="1"
+                                Value="50"
                                 ValueChanged="OnVolumeChanged"
                                 Width="180" />
                         </Flyout>

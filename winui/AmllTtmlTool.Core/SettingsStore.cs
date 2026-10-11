@@ -72,6 +72,32 @@ public sealed class SettingsStore
         }
     }
 
+    // Invariant culture both ways: a user who travels between locales must
+    // not come back to 12.5 stored as 12,5 read as 12.
+    public double GetDouble(string key, double fallback)
+    {
+        lock (_gate)
+        {
+            if (_data.TryGetPropertyValue(key, out var node)
+                && node is JsonValue value
+                && value.TryGetValue<double>(out var number)
+                && !double.IsNaN(number) && !double.IsInfinity(number))
+            {
+                return number;
+            }
+            return fallback;
+        }
+    }
+
+    public void SetDouble(string key, double value)
+    {
+        lock (_gate)
+        {
+            _data[key] = value;
+            SaveFile();
+        }
+    }
+
     private static JsonObject LoadFile(string path)
     {
         try

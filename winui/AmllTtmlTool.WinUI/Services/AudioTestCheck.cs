@@ -45,6 +45,16 @@ internal static class AudioTestCheck
                 .ToArray();
             Write(report, $"files={files.Length}");
             var table = new List<string>();
+            // BUG: opening or importing a file used to reset the playback level
+            // to a fixed value, which (because level was once the OS session
+            // volume) jumped the whole machine. Level now belongs to the app,
+            // so pin it, load every file, and prove nothing disturbed it.
+            await OnUiAsync(window, () =>
+            {
+                audio.SilentMode = true;
+                audio.SetVolumePercent(37);
+            });
+            var volBefore = await OnUiAsync(window, () => audio.VolumePercent);
             foreach (var file in files)
             {
                 string row;
@@ -52,6 +62,10 @@ internal static class AudioTestCheck
                 catch (Exception ex) { row = $"file={Name(file)} | HARNESS-ERROR {AudioErrorText.MessageOf(ex)}"; }
                 Write(report, row);
                 table.Add(SummaryRow(file, row));
+                var volAfter = await OnUiAsync(window, () => audio.VolumePercent);
+                var ok = Math.Abs(volAfter - volBefore) < 1e-9;
+                Write(report, $"  {(ok ? "ok" : "FAIL")} level after opening {Name(file)}: {volAfter} (pinned at {volBefore})");
+                if (!ok) table[^1] += " | LEVEL-RESET";
             }
             Write(report, "=== TABLE (file | decoder | format | result) ===");
             foreach (var r in table) Write(report, r);
@@ -196,7 +210,7 @@ internal static class AudioTestCheck
             {
                 // Silent playback on the UI thread: the real output path,
                 // volume 0, position must advance.
-                await OnUiAsync(window, () => audio.SetVolume(0));
+                await OnUiAsync(window, () => audio.SilentMode = true);
                 var pos0 = await OnUiAsync(window, () => { audio.Play(); return audio.Position; });
                 await Task.Delay(2000);
                 var pos1 = await OnUiAsync(window, () => audio.Position);

@@ -30,6 +30,11 @@ public static class AppSettings
 
     private static void SetBool(string key, bool value) => Store.SetBool(key, value);
 
+    private static double GetDouble(string key, double fallback) =>
+        Store.GetDouble(key, fallback);
+
+    private static void SetDouble(string key, double value) => Store.SetDouble(key, value);
+
     public static string LastSaveFormat
     {
         get => Get("lastSaveFormat", "ttml");
@@ -83,6 +88,41 @@ public static class AppSettings
         get => GetBool("followPlayback", false);
         set => SetBool("followPlayback", value);
     }
+
+    /// <summary>
+    /// Playback level as a 0-100 slider position (amplitude = (v/100)^2).
+    /// Remembered across launches and across opening or importing new audio
+    /// files, because it belongs to the app rather than to a track.
+    /// </summary>
+    public static double Volume
+    {
+        get => GetDouble("volume", 50.0);
+        set => SetDouble("volume", Math.Clamp(double.IsNaN(value) ? 50 : value, 0, 100));
+    }
+
+    /// <summary>
+    /// Muted state. Unmute restores the level that was set before the mute.
+    /// </summary>
+    public static bool Mute
+    {
+        get => GetBool("mute", false);
+        set => SetBool("mute", value);
+    }
+
+    /// <summary>
+    /// True while a test harness owns the app: the harness forces output
+    /// silence through the in-app gain instead of the OS volume, and no
+    /// setting is written, so a harness run can never persist a 0 or a mute
+    /// over the user's own preferences.
+    /// </summary>
+    public static bool SilentMode
+    {
+        get => _silentMode;
+        set => _silentMode = value;
+    }
+
+    private static bool _silentMode =
+        Environment.GetEnvironmentVariable("AMLL_SILENT") is "1" or "true";
 
     public static void NotifyDisplayChanged() => RaiseDisplayChanged();
 }
