@@ -68,6 +68,10 @@ public partial class AudioEngine : ObservableObject, IDisposable
     private FfmpegPcmProvider? _pcm;
     private TimeStretchProvider? _stretch;
     private readonly DispatcherQueueTimer _clock;
+    // Dedicated snapshot publisher. A System.Threading.Timer fires on the
+    // thread pool, NOT the UI dispatcher, so a busy UI cannot delay the
+    // anchors the display extrapolates from.
+    private readonly System.Threading.Timer _publishTimer;
     private readonly DispatcherQueue _dispatcher;
     private double _pauseAtSeconds = double.NaN;
     private bool _disposed;
@@ -243,6 +247,11 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _clock = _dispatcher.CreateTimer();
         _clock.Interval = TimeSpan.FromMilliseconds(250);
         _clock.Tick += (_, _) => OnTick();
+        // Same cadence as the dispatcher tick above, but off it. This is the
+        // clock's own heartbeat; the dispatcher tick keeps doing the UI-bound
+        // bookkeeping (Position, end-of-track, the startup-gate decision).
+        _publishTimer = new System.Threading.Timer(
+            OnPublishTimer, null, Timeout.Infinite, Timeout.Infinite);
         // Harness-mode silence, read once at construction: an environment
         // signal (not a command line a launcher might drop or invent) forces
         // the IN-APP gain to zero. No OS volume is involved, and no setting is
@@ -366,6 +375,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _output.Play();
         IsPlaying = true;
         _clock.Start();
+        StartPublishTimer(20);
         // Arm the startup gate BEFORE the first snapshot: the playing line
         // must not run until the device provably pulls. The flat snapshot
         // below is synchronously superseded by gated ticks; no frame ever
@@ -373,6 +383,18 @@ public partial class AudioEngine : ObservableObject, IDisposable
         ArmStartGate();
         PublishFlatClock();
     }
+
+    // The dedicated publisher is re-perioded with the startup gate (fast)
+    // and back to the 250ms rebase (normal), exactly like the dispatcher
+    // timer, so anchor cadence matches the UI bookkeeping cadence.
+    private void StartPublishTimer(int intervalMs)
+    {
+        _publishTimer.Change(
+            TimeSpan.FromMilliseconds(intervalMs), TimeSpan.FromMilliseconds(intervalMs));
+    }
+
+    private void StopPublishTimer() =>
+        _publishTimer.Change(Timeout.Infinite, Timeout.Infinite);
 
     public void Pause()
     {
@@ -382,6 +404,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _userPaused = true;
         IsPlaying = false;
         _clock.Stop();
+        StopPublishTimer();
         DisarmStartGate();
         ClearAudition();
         RefreshPosition();
@@ -750,12 +773,10 @@ public partial class AudioEngine : ObservableObject, IDisposable
             FireTrackEndedOnce();
             return;
         }
-        PositionChanged?.Invoke();
-        // Re-anchor the position snapshot every tick (250ms): USB DAC
-        // clocks wander in steps, so no fixed slope stays true — but a
-        // 250ms-old anchor can never be more than ~1ms off, which also
-        // covers QPC-vs-hardware skew without any EWMA machinery. While
-        // the startup gate is armed the ticks run fast and stay flat.
+        // Publish here too: the dispatcher tick keeps the startup-gate
+        // bookkeeping (StartGateSettled decides when the fast 20ms gate is over
+        // and re-periods BOTH timers to the 250ms rebase), so the anchor
+        // cadence the skew learner expects is preserved.
         if (IsPlaying && HasAudio && !_disposed)
         {
             if (_startGate && !StartGateSettled())
@@ -763,6 +784,31 @@ public partial class AudioEngine : ObservableObject, IDisposable
             else
                 PublishClock(PlaybackClockState.Playing);
         }
+        PositionChanged?.Invoke();
+    }
+
+    // The clock snapshot publisher. Runs on a DEDICATED timer (not the UI
+    // dispatcher) so that UI work cannot delay it: the extrapolated display
+    // clock is only as good as the cadence of these anchors, and when they
+    // shared the dispatcher with the UI thread a busy display measurably
+    // degraded the 30s drift. PositionClock.Publish and ReadFedSeconds are
+    // both thread-safe (volatile swap + provider locks), which is exactly why
+    // the publish is the part that can move; every UI-observable write
+    // (Position, IsPlaying, PositionChanged, pause decisions) still happens on
+    // the dispatcher in OnTick.
+    private void PublishFromAnyThread()
+    {
+        if (_source is null || !IsPlaying || !HasAudio || _disposed) return;
+        // While the startup gate is armed the anchor is deliberately flat:
+        // the device may not be pulling yet, so a slope would run ahead.
+        if (_startGate) PublishFlatClock();
+        else PublishClock(PlaybackClockState.Playing);
+    }
+
+    private void OnPublishTimer(object? state)
+    {
+        try { PublishFromAnyThread(); }
+        catch { }
     }
 
     private void ArmStartGate()
@@ -776,6 +822,7 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _clock.Stop();
         _clock.Interval = TimeSpan.FromMilliseconds(20);
         _clock.Start();
+        StartPublishTimer(20);
     }
 
     private void DisarmStartGate()
@@ -788,6 +835,9 @@ public partial class AudioEngine : ObservableObject, IDisposable
             _clock.Interval = TimeSpan.FromMilliseconds(250);
             if (running) _clock.Start();
         }
+        // Both timers return to the 250ms rebase cadence.
+        if (IsPlaying && HasAudio && !_disposed) StartPublishTimer(250);
+        else StopPublishTimer();
     }
 
     // Fast-tick (20ms) startup detection, UI thread only. Fed advance is
@@ -941,6 +991,8 @@ public partial class AudioEngine : ObservableObject, IDisposable
         _disposed = true;
         try { _devices.UnregisterEndpointNotificationCallback(_watcher); } catch { }
         try { _devices.Dispose(); } catch { }
+        StopPublishTimer();
+        _publishTimer.Dispose();
         StopInternal();
     }
 

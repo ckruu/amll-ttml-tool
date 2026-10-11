@@ -304,6 +304,79 @@ internal static class ClockTestCheck
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("---- drift 30s @1x ----");
+        // Optional stress: with AMLL_CLOCK_BUSY=1 the harness deliberately
+        // loads the UI thread at the same rate the unfocused display does
+        // (text writes on every rendered frame, ~200/s) for the whole
+        // measurement. Before the dedicated publish timer this landed UI work
+        // on the same dispatcher as the engine's 250ms tick and measurably
+        // degraded the drift; the clock is now supposed to be immune.
+        var busy = Environment.GetEnvironmentVariable("AMLL_CLOCK_BUSY") is "1" or "true";
+        await OnUiAsync(window, () =>
+        {
+            audio.SetPlaybackRate(1.0);
+            audio.SeekTo(0);
+            audio.Play();
+        });
+        if (busy)
+        {
+            // On the UI thread: Window.Content is UI-thread-only.
+            var label = await OnUiAsync(window, () => PositionTextOf(window));
+            var writes = 0L;
+            void Busy(object? s, object? e)
+            {
+                if (label is null) return;
+                // A real text write per frame, like the display path itself.
+                label.Text = Services.PositionClock.ExtrapolateNow().ToString("mm\\:ss\\.fff");
+                writes++;
+            }
+            sb.AppendLine($"  UI STRESS: on (text writes every rendered frame)");
+            await OnUiAsync(window, () => { writes = 0; CompositionTarget.Rendering += Busy; });
+            var result = await MeasureDriftAsync(window, audio);
+            await OnUiAsync(window, () => CompositionTarget.Rendering -= Busy);
+            sb.AppendLine($"  UI writes during measurement={writes}");
+            sb.Append(result);
+            return sb.ToString().TrimEnd();
+        }
+        return sb.AppendLine().Append(await MeasureDriftAsync(window, audio)).ToString().TrimEnd();
+    }
+
+    // PositionText lives on ShellPage, hosted inside a Frame, so Window.Content
+    // is not the page itself. Runs on the UI thread (callers use OnUiAsync).
+    private static Microsoft.UI.Xaml.Controls.TextBlock? PositionTextOf(Window window)
+    {
+        if (window.Content is AmllTtmlTool.WinUI.Views.ShellPage direct)
+        {
+            return FieldText(direct);
+        }
+        var queue = new Queue<DependencyObject>();
+        if (window.Content is DependencyObject root) queue.Enqueue(root);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (current is AmllTtmlTool.WinUI.Views.ShellPage page) return FieldText(page);
+            if (current is Microsoft.UI.Xaml.Controls.Frame frame && frame.Content is DependencyObject inner)
+            {
+                queue.Enqueue(inner);
+            }
+            var count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(current);
+            for (var i = 0; i < count; i++)
+                queue.Enqueue(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(current, i));
+        }
+        return null;
+    }
+
+    private static Microsoft.UI.Xaml.Controls.TextBlock? FieldText(
+        AmllTtmlTool.WinUI.Views.ShellPage page)
+    {
+        var f = typeof(AmllTtmlTool.WinUI.Views.ShellPage).GetField("PositionText",
+            System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Public);
+        return f?.GetValue(page) as Microsoft.UI.Xaml.Controls.TextBlock;
+    }
+
+    private static async Task<string> MeasureDriftAsync(Window window, AudioEngine audio)
+    {
         await OnUiAsync(window, () =>
         {
             audio.SetPlaybackRate(1.0);
@@ -318,6 +391,7 @@ internal static class ClockTestCheck
         await OnUiAsync(window, () => audio.StopAndUnload());
         var c1 = PositionClock.PublishCount;
         var drift = Math.Abs((e1 - e0) - (p1 - p0));
+        var sb = new System.Text.StringBuilder();
         sb.AppendLine($"  extrapolated-advance={e1 - e0:F3}s engine-advance={p1 - p0:F3}s drift={drift * 1000:F2}ms {(drift < 0.005 ? "OK" : "FAIL")}");
         sb.AppendLine($"  device-skew-estimate={skewPpm:F0}ppm");
         sb.Append($"drift30s={drift * 1000:F2}ms publishes-during-run={c1 - c0} | {(drift < 0.005 ? "OK" : "FAIL")}");

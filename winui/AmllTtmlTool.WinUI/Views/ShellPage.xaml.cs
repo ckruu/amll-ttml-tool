@@ -412,6 +412,56 @@ namespace AmllTtmlTool.WinUI.Views
                         await Services.SeekDragCheck.RunTargetAsync(win, _audio, seekDragFile, seekDragReport);
                     });
                 }
+                // Focus-test harness: --focus-test [reportPath]. Measures how
+                // often the per-frame paint path runs in four window states
+                // (focused / unfocused / covered / minimized) by sampling
+                // CompositionTarget.Rendering callbacks only. DEBUG-only.
+                var focusIdx = Array.IndexOf(audioArgs, "--focus-test");
+                if (focusIdx >= 0)
+                {
+                    // Two forms:
+                    //   --focus-test [reportPath]            four-state cadence
+                    //   --focus-test rate <secs> [reportPath] unfocused text rate
+                    // The runner appends the report path last (via env), so in
+                    // "rate" mode it lands AFTER the seconds number, never right
+                    // after the mode flag.
+                    var rateMode = focusIdx + 1 < audioArgs.Length &&
+                        audioArgs[focusIdx + 1] == "rate";
+                    var focusReport = rateMode
+                        ? (focusIdx + 3 < audioArgs.Length ? audioArgs[focusIdx + 3] : null)
+                        : (focusIdx + 1 < audioArgs.Length ? audioArgs[focusIdx + 1] : null);
+                    var secs = 10;
+                    if (rateMode && focusIdx + 2 < audioArgs.Length &&
+                        int.TryParse(audioArgs[focusIdx + 2], out var parsedSecs)) secs = parsedSecs;
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            if (rateMode)
+                                await Services.FocusTestCheck.RunUnfocusedAsync(win, _audio, focusReport, secs);
+                            else
+                                await Services.FocusTestCheck.RunAsync(win, _audio, focusReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.FocusTestCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
                 // SMTC-test harness: --smtc-test <file> [reportPath].
                 // End-to-end OS transport surface verification via the
                 // system session manager (metadata, status, timeline).
@@ -794,22 +844,24 @@ namespace AmllTtmlTool.WinUI.Views
         // thumb write costs layout). Gated work only; allocations happen on
         // actual change, never per frame.
         //
-        // THIS is the painter while the window is composited. It must stay
-        // gated on focus: a deactivated window still raises Rendering, and
-        // painting 200 frames/second into an invisible surface both wastes the
-        // UI thread and — measured over 30s — perturbs the clock drift by
-        // competing with the engine's own 250ms tick on the same dispatcher
-        // (1.4ms clean vs 5-10ms when ungated). Without focus the engine's
-        // PositionChanged leg is the painter instead; the two never overlap.
-        // Per-frame position display. UNCHANGED from the pre-fix code on
-        // purpose: this is the only painter while the window is focused (and a
-        // drag implies focus), so its work profile stays exactly what the
-        // --clock-test 30s drift leg was validated against. The scrub branch
-        // paints the thumb so the counter tracks the drag before release; the
-        // unfocused path lives entirely in the PositionChanged leg below.
+        // Per-frame position display. Measured: CompositionTarget.Rendering
+        // fires at ~200/s whether the window is focused, merely unfocused,
+        // fully covered, or minimized, so it is the ONLY painter in every
+        // state and no focus gate is needed for correctness. The gate that
+        // used to sit here (_windowActive) is what throttled the text to 4
+        // updates/second without focus; the unfocused PositionChanged leg
+        // below stays as a cheap fallback for platforms where Rendering does
+        // stop, and both write through the same anchors so they cannot fight.
+        //
+        // Painting at full rate in every state does add UI-thread work, which
+        // historically perturbed the 30s clock drift when the engine's 250ms
+        // tick shared this dispatcher. That is fixed at the source rather than
+        // by throttling the display: the engine tick now runs on a dedicated
+        // thread (see AudioEngine), so UI work can no longer touch snapshot
+        // cadence.
         private void OnRendering(object? sender, object? e)
         {
-            if (!_windowActive || !_audio.HasAudio) return;
+            if (!_audio.HasAudio) return;
             var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             Services.RenderStats.Frames++;
             // A drag in flight is painted straight from the thumb, never from
@@ -848,18 +900,37 @@ namespace AmllTtmlTool.WinUI.Views
                 PositionText.Text = Stamp(pos);
                 Services.RenderStats.TextUpdates++;
             }
-            // A real seek backwards also re-anchors the thumb gate, or the
-            // 100ms interval check below stays negative and the thumb keeps
-            // showing the pre-seek position for as long as the seek was long.
-            if (steppedBack) _lastSliderMs = ms - 100;
-            if (ms - _lastSliderMs >= 100 && !_scrubbing && _audio.Duration > TimeSpan.Zero)
+            // Thumb: write it only when its rounded DEVICE-PIXEL position
+            // actually changes, in either focus state. On a 4-minute track
+            // across ~800px that is ~4px/second, so this is ~4 writes/second
+            // instead of one per frame - the thumb needs no ms precision and
+            // every write costs a layout pass. Computing it from geometry
+            // (rather than a fixed 100ms interval) means the write happens
+            // exactly when the visible position would change, never sooner.
+            if (!_scrubbing && _audio.Duration > TimeSpan.Zero && ms != _lastShownMs)
             {
-                _lastSliderMs = ms;
-                _syncingSlider = true;
-                SeekSlider.Value = Math.Clamp(ms, 0, _audio.Duration.TotalMilliseconds);
-                _syncingSlider = false;
+                var pixel = ThumbPixel(ms);
+                if (pixel != _lastThumbPixel)
+                {
+                    _lastThumbPixel = pixel;
+                    _syncingSlider = true;
+                    SeekSlider.Value = ms;
+                    _syncingSlider = false;
+                }
             }
             Services.RenderStats.HandlerTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        }
+
+        private int _lastThumbPixel = -1;
+
+        // Rounded track-pixel position of a time. -1 when unmeasurable, which
+        // makes the caller treat the next value as a change.
+        private int ThumbPixel(long ms)
+        {
+            var width = SeekSlider.ActualWidth;
+            var total = _audio.Duration.TotalMilliseconds;
+            if (!(width > 0) || !(total > 0)) return -1;
+            return (int)Math.Round(ms / total * width);
         }
 
         // Text only, for the unfocused case. Writing SeekSlider.Value while the
