@@ -52,6 +52,7 @@ internal static class PlayerbarTestCheck
             fails += await VolumeMatrixAsync(window, audio, page, report);
             fails += await SettingsMatrixAsync(report);
             fails += await FilesMatrixAsync(window, audio, page, folder, report);
+            fails += await ThumbMatrixAsync(window, audio, page, folder, report);
             fails += await SpeedMatrixAsync(window, audio, page, report);
             fails += await LayoutMatrixAsync(window, page, report);
             fails += await BrushReportAsync(window, page, report);
@@ -103,6 +104,164 @@ internal static class PlayerbarTestCheck
     {
         Write(report, $"  {(ok ? "ok" : "FAIL")} {name} {detail}");
         if (!ok) fails++;
+    }
+
+    // --- seek-thumb matrix (item 1) ---------------------------------------
+    // Plays at in-app gain 0 (SilentMode is already on), seeks to fixed
+    // fractions, plays 1.5s, then asserts the VISIBLE bar slider Value and
+    // the live thumb-center x against the position clock. The thumb center
+    // travels [trackLeft+halfW, trackRight-halfW], so:
+    //   thumbX == trackLeft + halfW + (posMs/durMs) * (trackWidth - thumbW)
+    // within 1.5px, and |Value - posMs| within the same 1.5px in ms.
+    private static async Task<int> ThumbMatrixAsync(
+        Window window, AudioEngine audio, Views.ShellPage page, string folder, string report)
+    {
+        Write(report, "---- seek-thumb matrix ----");
+        var fails = 0;
+        var files = System.IO.Directory.Exists(folder)
+            ? System.IO.Directory.GetFiles(folder)
+                .Where(f => AudioExtensions.Contains(
+                    System.IO.Path.GetExtension(f).TrimStart('.').ToLowerInvariant()))
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+            : [];
+        if (files.Length == 0)
+        {
+            Write(report, "  SKIP no audio files");
+            return fails;
+        }
+        var file = files[0];
+        try
+        {
+            await audio.LoadAsync(file);
+        }
+        catch (Exception ex)
+        {
+            Check(report, "thumb-load", false, AudioErrorText.MessageOf(ex), ref fails);
+            return fails;
+        }
+        await OnUiAsync(window, () => page.Test_RefreshChrome());
+        double durMs = 0;
+        await OnUiAsync(window, () => durMs = audio.Duration.TotalMilliseconds);
+        if (!(durMs > 0))
+        {
+            Check(report, "thumb-duration", false, $"durMs={durMs}", ref fails);
+            return fails;
+        }
+        await OnUiAsync(window, () => audio.Play());
+        foreach (var frac in new[] { 0.10, 0.50, 0.90 })
+        {
+            await OnUiAsync(window, () => audio.SeekTo(frac * durMs / 1000.0));
+            await Task.Delay(1500);
+            fails += await CheckThumbAsync(window, page, durMs, $"seek {frac:P0}", report);
+        }
+        // After a speed change (slope + re-anchor).
+        await OnUiAsync(window, () => audio.SetPlaybackRate(1.5));
+        await OnUiAsync(window, () => audio.SeekTo(0.50 * durMs / 1000.0));
+        await Task.Delay(1500);
+        fails += await CheckThumbAsync(window, page, durMs, "rate 1.5x @50%", report);
+        // Unfocused interplay at the new rate: hammer the background-only
+        // text path while the per-frame painter runs; Value and thumb must
+        // still track the clock (no fighting between the two paths).
+        await Task.Delay(1000);
+        for (var i = 0; i < 5; i++)
+        {
+            await OnUiAsync(window, () => page.Test_PaintUnfocused());
+            await Task.Delay(250);
+        }
+        fails += await CheckThumbAsync(window, page, durMs, "unfocused-path @1.5x", report);
+        await OnUiAsync(window, () => audio.SetPlaybackRate(1.0));
+        // Second file: Maximum updates, thumb resets to the start.
+        var file2 = files.Length > 1 ? files[1] : files[0];
+        try
+        {
+            await audio.LoadAsync(file2);
+        }
+        catch (Exception ex)
+        {
+            Check(report, "thumb-reload", false, AudioErrorText.MessageOf(ex), ref fails);
+            return fails;
+        }
+        await OnUiAsync(window, () => page.Test_RefreshChrome());
+        await Task.Delay(500);
+        double dur2Ms = 0;
+        string geo = "";
+        await OnUiAsync(window, () =>
+        {
+            dur2Ms = audio.Duration.TotalMilliseconds;
+            geo = page.Test_ThumbGeometry();
+        });
+        if (TryParseGeo(geo, out var g2))
+        {
+            Check(report, "reload-maximum", Math.Abs(g2.Max - dur2Ms) < 1.0,
+                $"max={g2.Max:F1} dur={dur2Ms:F1} [{geo}]", ref fails);
+            var tolMs = g2.TrackWidth > 0 ? 1.5 * dur2Ms / g2.TrackWidth : double.MaxValue;
+            Check(report, "reload-value-reset", Math.Abs(g2.Value) <= tolMs,
+                $"value={g2.Value:F1} tol={tolMs:F1}ms [{geo}]", ref fails);
+            Check(report, "reload-thumb-reset",
+                Math.Abs(g2.ThumbX - (g2.TrackLeft + g2.ThumbW / 2)) <= 1.5,
+                $"thumbX={g2.ThumbX:F1} trackLeft={g2.TrackLeft:F1} thumbW={g2.ThumbW:F1} [{geo}]", ref fails);
+        }
+        else
+        {
+            Check(report, "reload-geometry", false, geo, ref fails);
+        }
+        await OnUiAsync(window, () => audio.Pause());
+        return fails;
+    }
+
+    private static async Task<int> CheckThumbAsync(
+        Window window, Views.ShellPage page, double durMs, string label, string report)
+    {
+        var fails = 0;
+        string geo = "";
+        double posMs = 0;
+        await OnUiAsync(window, () =>
+        {
+            geo = page.Test_ThumbGeometry();
+            posMs = PositionClock.ExtrapolateNow().TotalMilliseconds;
+        });
+        if (!TryParseGeo(geo, out var g))
+        {
+            Check(report, $"thumb {label}", false, geo, ref fails);
+            return fails;
+        }
+        var expectedX = g.TrackLeft + g.ThumbW / 2
+            + (durMs > 0 ? posMs / durMs * (g.TrackWidth - g.ThumbW) : 0);
+        Check(report, $"thumb {label}", Math.Abs(g.ThumbX - expectedX) <= 1.5,
+            $"thumbX={g.ThumbX:F1} want={expectedX:F1} pos={posMs:F0}ms [{geo}]", ref fails);
+        var tolMs = g.TrackWidth > 0 && durMs > 0 ? 1.5 * durMs / g.TrackWidth : double.MaxValue;
+        Check(report, $"value {label}", Math.Abs(g.Value - posMs) <= tolMs,
+            $"value={g.Value:F1} pos={posMs:F0}ms tol={tolMs:F1}ms [{geo}]", ref fails);
+        return fails;
+    }
+
+    private sealed record ThumbGeo(
+        double Value, double Max, double TrackLeft, double TrackWidth, double ThumbX, double ThumbW);
+
+    private static bool TryParseGeo(string geo, out ThumbGeo g)
+    {
+        g = new ThumbGeo(0, 0, 0, 0, double.NaN, double.NaN);
+        try
+        {
+            var map = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            foreach (var part in geo.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = part.Split('=');
+                if (kv.Length == 2 && double.TryParse(kv[1],
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var v))
+                    map[kv[0]] = v;
+            }
+            g = new ThumbGeo(map["value"], map["max"], map["trackleft"],
+                map["trackwidth"], map["thumbx"], map["thumbw"]);
+            return !(double.IsNaN(g.ThumbX) || double.IsNaN(g.ThumbW)
+                || g.TrackWidth <= 0 || g.ThumbW <= 0);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     // --- empty state (no track) -------------------------------------------

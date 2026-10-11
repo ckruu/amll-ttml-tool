@@ -93,6 +93,13 @@ function Element-Rect {
     return @{ x = [int]$el.x; y = [int]$el.y; width = [int]$el.width; height = [int]$el.height }
 }
 
+function Parse-Stamp {
+    param([string]$Text)
+    $m = [regex]::Match($Text, '(\d+):(\d+)\.(\d+)')
+    if (-not $m.Success) { throw "unparsable position text '$Text'" }
+    return [int]$m.Groups[1].Value * 60000 + [int]$m.Groups[2].Value * 1000 + [int]$m.Groups[3].Value
+}
+
 function Assert-Alive {
     $p = Get-Text 'PositionText'
     if (-not ($p -match '\d+:\d+\.\d+')) { throw "app looks dead (PositionText='$p')" }
@@ -363,6 +370,40 @@ try {
         Invoke-Ui @('wait-for', 'PlayButton', '--value', 'Pause', '-t', '3000') | Out-Null
         Invoke-Ui @('invoke', 'PlayButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'PlayButton', '--value', 'Play', '-t', '3000') | Out-Null
+    }
+
+    Test-UI 'position advances while unfocused (after speed change)' {
+        # Preset to 1.5x through the real tip path, then defocus with
+        # notepad (proven pattern): the clock/text must keep advancing and
+        # thumb geometry under unfocus is covered in-harness, where the
+        # template part is reachable (UIA exposes no Thumb node/Value here).
+        Ensure-NoPopup
+        Invoke-Ui @('invoke', 'RateButton') -Window $hwnd | Out-Null
+        Invoke-Ui @('wait-for', 'SpeedPreset05', '-t', '3000') | Out-Null
+        Invoke-Ui @('invoke', 'SpeedPreset15') | Out-Null
+        Wait-ButtonText 'RateButton' '1.5x'
+        Invoke-TipClose 'SpeedPreset05'
+        $a0 = Parse-Stamp (Get-Text 'PositionText')
+        Start-Sleep -Milliseconds 400
+        $a1 = Parse-Stamp (Get-Text 'PositionText')
+        if ($a1 -le $a0) { Invoke-Ui @('invoke', 'PlayButton') -Window $hwnd | Out-Null }
+        Start-Sleep -Milliseconds 1200
+        $other = Start-Process -FilePath 'notepad.exe' -PassThru
+        try {
+            Start-Sleep -Milliseconds 1500
+            $u1 = Parse-Stamp (Get-Text 'PositionText')
+            Start-Sleep -Seconds 2
+            $u2 = Parse-Stamp (Get-Text 'PositionText')
+        } finally {
+            try { Stop-Process -Id $other.Id -Force -ErrorAction SilentlyContinue } catch { }
+        }
+        Write-Host "  unfocused $u1 -> $u2 at 1.5x"
+        if ($u2 -le $u1 + 300) { throw "position stalled while unfocused ($u1 -> $u2)" }
+        # Back to 1x, paused, for the layout legs.
+        $r = Element-Rect 'RateButton'
+        & (Join-Path $Repo 'scripts\middle-click.ps1') -X ($r.x + [int]($r.width / 2)) -Y ($r.y + [int]($r.height / 2))
+        Wait-ButtonText 'RateButton' '1x' -TimeoutMs 5000
+        Invoke-Ui @('invoke', 'PlayButton') -Window $hwnd | Out-Null
     }
 
     Test-UI 'layout widths keep slider >= 120px' {

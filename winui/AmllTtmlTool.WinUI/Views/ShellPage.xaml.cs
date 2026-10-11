@@ -970,14 +970,28 @@ namespace AmllTtmlTool.WinUI.Views
                 // nothing is lost to rounding or to a per-pixel scale.
                 SeekSlider.Maximum = _audio.Duration.TotalMilliseconds;
             }
+            // New track (or unload): deterministic reset. The engine raises
+            // no event for a load by itself, so without this the old Value
+            // and anchors linger until the next thumb-pixel change paints
+            // over them.
+            var chromePath = _audio.HasAudio ? _audio.AudioPath : "";
+            if (chromePath != _lastChromePath)
+            {
+                _lastChromePath = chromePath;
+                _lastShownMs = -1;
+                _lastThumbPixel = -1;
+                _syncingSlider = true;
+                SeekSlider.Value = 0;
+                _syncingSlider = false;
+            }
             RefreshTrackTip();
             RefreshSpeedTip();
             UpdateSmtc();
         }
 
         private long _lastShownMs = -1;
-        private long _lastSliderMs = -1;
         private bool _windowActive = true;
+        private string _lastChromePath = "\0";
 
         // Per-frame position display: extrapolate the published snapshot,
         // repaint only when the millisecond text actually changes. The thumb
@@ -1042,16 +1056,22 @@ namespace AmllTtmlTool.WinUI.Views
                 Services.RenderStats.TextUpdates++;
             }
             // Thumb: write it only when its rounded DEVICE-PIXEL position
-            // actually changes, in either focus state. On a 4-minute track
-            // across ~800px that is ~4px/second, so this is ~4 writes/second
-            // instead of one per frame - the thumb needs no ms precision and
-            // every write costs a layout pass. Computing it from geometry
-            // (rather than a fixed 100ms interval) means the write happens
-            // exactly when the visible position would change, never sooner.
-            if (!_scrubbing && _audio.Duration > TimeSpan.Zero && ms != _lastShownMs)
+            // actually changes, in every window state (focused, unfocused,
+            // covered, minimized — Rendering fires in all of them). On a
+            // 4-minute track across ~800px that is ~4px/second, so this is
+            // ~4 writes/second instead of one per frame - the thumb needs no
+            // ms precision and every write costs a layout pass. Computing it
+            // from geometry (rather than a fixed 100ms interval) means the
+            // write happens exactly when the visible position would change,
+            // never sooner.
+            // NOTE: this block must NOT reuse the `ms != _lastShownMs` text
+            // gate above. The text anchor is already settled there, so that
+            // condition is always false here — sharing it froze the thumb
+            // at 0 while the text kept moving.
+            if (!_scrubbing && _audio.Duration > TimeSpan.Zero)
             {
                 var pixel = ThumbPixel(ms);
-                if (pixel != _lastThumbPixel)
+                if (pixel >= 0 && pixel != _lastThumbPixel)
                 {
                     _lastThumbPixel = pixel;
                     _syncingSlider = true;
@@ -1112,7 +1132,6 @@ namespace AmllTtmlTool.WinUI.Views
             if (thumbMs != _lastShownMs)
             {
                 _lastShownMs = thumbMs;
-                _lastSliderMs = thumbMs;
                 PositionText.Text = Stamp(TimeSpan.FromMilliseconds(thumbMs));
                 Services.RenderStats.TextUpdates++;
             }
@@ -2411,6 +2430,9 @@ namespace AmllTtmlTool.WinUI.Views
             SpeedTip.IsOpen = false;
         }
         internal void Test_RefreshChrome() => RefreshAudioChrome();
+        // Drives the unfocused fallback paint directly: it must advance the
+        // text without fighting the per-frame thumb writes.
+        internal void Test_PaintUnfocused() => RefreshPositionDisplayUnfocused();
         internal bool Test_TrackTipOpen() => TrackTip.IsOpen;
         internal bool Test_SpeedTipOpen() => SpeedTip.IsOpen;
         internal string Test_TrackTitle() => TrackTitleText.Text;
@@ -2492,6 +2514,49 @@ namespace AmllTtmlTool.WinUI.Views
             3 => SpeedPreset15,
             _ => SpeedPreset125,
         };
+        // Seek-thumb geometry for the thumb matrix: slider Value/Maximum plus
+        // track origin/width and live thumb-center x, all in PlayerBarBorder
+        // space. Finds the VISIBLE bar slider by AutomationId (there is
+        // exactly one) and its Thumb template part by type.
+        internal string Test_ThumbGeometry()
+        {
+            try
+            {
+                var origin = SeekSlider.TransformToVisual(PlayerBarBorder)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0));
+                var trackLeft = origin.X;
+                var trackWidth = SeekSlider.ActualWidth;
+                var thumb = FindThumb(SeekSlider);
+                var thumbX = double.NaN;
+                var thumbW = double.NaN;
+                if (thumb is not null)
+                {
+                    var to = thumb.TransformToVisual(PlayerBarBorder)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0));
+                    thumbW = thumb.ActualWidth;
+                    thumbX = to.X + thumbW / 2;
+                }
+                return $"value={SeekSlider.Value:F1} max={SeekSlider.Maximum:F1} "
+                    + $"trackLeft={trackLeft:F1} trackWidth={trackWidth:F1} thumbX={thumbX:F1} thumbW={thumbW:F1}";
+            }
+            catch (Exception ex)
+            {
+                return "FAIL harness-error " + ex.GetType().Name;
+            }
+        }
+        private static Microsoft.UI.Xaml.Controls.Primitives.Thumb? FindThumb(DependencyObject root)
+        {
+            var queue = new Queue<DependencyObject>();
+            queue.Enqueue(root);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                if (current is Microsoft.UI.Xaml.Controls.Primitives.Thumb thumb) return thumb;
+                var count = VisualTreeHelper.GetChildrenCount(current);
+                for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+            }
+            return null;
+        }
 #endif
     }
 }
