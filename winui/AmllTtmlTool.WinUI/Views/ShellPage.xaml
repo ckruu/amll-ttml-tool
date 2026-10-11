@@ -667,6 +667,7 @@
                     Click="OnTrackButtonClick"
                     IsCompact="True"
                     TabIndex="0"
+                    Width="44"
                     ToolTipService.ToolTip="Track info">
                     <AppBarButton.Icon>
                         <FontIcon Glyph="&#xEC4F;" />
@@ -682,6 +683,7 @@
                     IsCompact="True"
                     IsEnabled="False"
                     TabIndex="1"
+                    Width="44"
                     ToolTipService.ToolTip="Play" />
                 <TextBlock
                     x:Name="PositionText"
@@ -732,6 +734,7 @@
                     Click="OnLocateClick"
                     IsCompact="True"
                     TabIndex="3"
+                    Width="44"
                     ToolTipService.ToolTip="Jump to current lyric line">
                     <AppBarButton.Icon>
                         <FontIcon Glyph="&#xE890;" />
@@ -760,6 +763,7 @@
                     Click="OnSpectroClick"
                     IsCompact="True"
                     TabIndex="5"
+                    Width="44"
                     ToolTipService.ToolTip="Spectrogram">
                     <AppBarToggleButton.Icon>
                         <FontIcon Glyph="&#xE70D;" />
