@@ -855,7 +855,16 @@ namespace AmllTtmlTool.WinUI.Views
             // PositionText and the slider thumb move on every rendered frame
             // (OnRendering, same clock); everything else here changes rarely.
             DurationText.Text = Stamp(_audio.Duration);
+            // Single source of truth: the engine's playback state (which also
+            // drives the Windows media controls) owns the glyph, the tooltip
+            // and the automation name. Paused/stopped/ended -> Play; playing
+            // -> Pause. No global Space binding: Space is reserved for word
+            // stamping. Media-key presses land here through the SMTC
+            // ButtonPressed -> play()/pause() -> RefreshAudioChrome path.
             PlayButton.Icon = new SymbolIcon(_audio.IsPlaying ? Symbol.Pause : Symbol.Play);
+            var playName = _audio.IsPlaying ? "Pause" : "Play";
+            ToolTipService.SetToolTip(PlayButton, playName);
+            AutomationProperties.SetName(PlayButton, playName);
             PlayButton.IsEnabled = _audio.HasAudio;
             SeekSlider.IsEnabled = _audio.HasAudio;
             if (_audio.HasAudio && _audio.Duration > TimeSpan.Zero)
@@ -1118,6 +1127,9 @@ namespace AmllTtmlTool.WinUI.Views
         // arrives via ContextRequested and goes straight to the picker.
         private void OnTrackButtonClick(object sender, RoutedEventArgs e)
         {
+            // Opening one tip closes the other; the trigger toggles. The X
+            // and Esc are the tip's own (IsLightDismissEnabled=false).
+            if (!TrackTip.IsOpen) SpeedTip.IsOpen = false;
             TrackTip.IsOpen = !TrackTip.IsOpen;
             if (TrackTip.IsOpen) RefreshTrackTip();
         }
@@ -1335,6 +1347,7 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnSpeedButtonClick(object sender, RoutedEventArgs e)
         {
+            if (!SpeedTip.IsOpen) TrackTip.IsOpen = false;
             SpeedTip.IsOpen = !SpeedTip.IsOpen;
             if (SpeedTip.IsOpen) RefreshSpeedTip();
         }
@@ -1552,8 +1565,18 @@ namespace AmllTtmlTool.WinUI.Views
             _audio.SeekTo(SeekSlider.Value / 1000.0);
         }
 
-        private void OnLocateClick(object sender, RoutedEventArgs e) =>
+        // Eye button ("Jump to current lyric line"): the hook for later.
+        // The handler a future lyric list adds will receive the current
+        // source-time from the position clock. No subscribers today, so the
+        // invoke is a no-op; the stub notice below keeps current behavior and
+        // no lyric lookup/scroll/selection is built here.
+        public event Action<TimeSpan>? JumpToCurrentLineRequested;
+
+        private void OnLocateClick(object sender, RoutedEventArgs e)
+        {
+            JumpToCurrentLineRequested?.Invoke(Services.PositionClock.GetPositionNow());
             Notify("Line locate arrives with the lyric list.");
+        }
 
         private void OnSpectroClick(object sender, RoutedEventArgs e)
         {
