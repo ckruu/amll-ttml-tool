@@ -127,12 +127,12 @@ namespace AmllTtmlTool.WinUI.Views
             // Right click / Shift+F10 / touch long-press on the track button
             // opens the picker immediately (never the tip) and swallows any
             // default context menu.
-            // Tip targets are assigned lazily on first open, not via x:Bind
-            // in XAML and not in SetupWindow: the Target setters were the
-            // only code running at load, and a load-time Target assignment
-            // crashed startup (stowed 0xc000027b / bare XamlParseException),
-            // so they move to first-open when the tree is settled.
             TrackButton.ContextRequested += OnTrackContextRequested;
+            // Esc closes either tip from any focus (tunneling PreviewKeyDown
+            // so a focused slider/button can't swallow it). Verified by UIA:
+            // with IsLightDismissEnabled=false the tip does NOT close on Esc
+            // by itself.
+            RootGrid.PreviewKeyDown += OnRootPreviewKeyDown;
             // Speed button: right click cycles presets (ContextRequested),
             // middle click resets to 1x. The Button swallows pointer events,
             // so the middle-button pair registers handledEventsToo and acts
@@ -1217,10 +1217,6 @@ namespace AmllTtmlTool.WinUI.Views
         private Task CopyWithFormatAsync(string format) =>
             _intake?.CopyTtmlAsync(format == "apple") ?? Task.CompletedTask;
 
-        // --- track tip ----------------------------------------------------
-        // Left click (and Enter/Space on the focused button, which raise
-        // Click) toggles the tip. Right click / Shift+F10 / touch long-press
-        // arrives via ContextRequested and goes straight to the picker.
         private void OnTrackButtonClick(object sender, RoutedEventArgs e)
         {
             // Opening one tip closes the other; the trigger toggles. The X
@@ -1235,6 +1231,17 @@ namespace AmllTtmlTool.WinUI.Views
         {
             args.Handled = true;
             _ = OpenAudioViaPickerAsync();
+        }
+
+        private void OnRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape
+                && (TrackTip.IsOpen || SpeedTip.IsOpen))
+            {
+                TrackTip.IsOpen = false;
+                SpeedTip.IsOpen = false;
+                e.Handled = true;
+            }
         }
 
         private async Task OpenAudioViaPickerAsync()
@@ -1527,6 +1534,11 @@ namespace AmllTtmlTool.WinUI.Views
             var rate = _audio.PlaybackRate;
             var text = Core.Audio.SpeedDisplay.Format(rate);
             if ((RateButton.Content as string) != text) RateButton.Content = text;
+            // The automation name carries the live text (a Button exposes no
+            // ValuePattern, so a static Name would hide the state from UIA).
+            var spoken = "Playback speed " + text;
+            if (AutomationProperties.GetName(RateButton) != spoken)
+                AutomationProperties.SetName(RateButton, spoken);
             ToolTipService.SetToolTip(SpeedSlider, text);
             if (Math.Abs(SpeedSlider.Value - rate) > 0.0005)
             {

@@ -93,14 +93,73 @@ function Element-Rect {
     return @{ x = [int]$el.x; y = [int]$el.y; width = [int]$el.width; height = [int]$el.height }
 }
 
-function Tip-Is-Open {
-    param([string]$TextId)
+function Assert-Alive {
+    $p = Get-Text 'PositionText'
+    if (-not ($p -match '\d+:\d+\.\d+')) { throw "app looks dead (PositionText='$p')" }
+    if ($proc.HasExited) { throw "app process exited (code $($proc.ExitCode))" }
+}
+
+# A closed tip leaves no app-wide trace (toggle-close passes --gone and
+# the marker vanishes), so app-wide MATCH == visibly open. NOTE: a bare
+# `inspect <id>` returns the window node when nothing matches, so presence
+# must check the automationId, not mere non-null!
+function TipPresent {
+    param([string]$Marker)
     try {
-        $el = (Invoke-Ui @('inspect', $TextId, '--json') | ConvertFrom-Json).windows[0].elements[0]
-        return ($null -ne $el)
+        $j = (Invoke-Ui @('inspect', $Marker, '--json') | ConvertFrom-Json)
+        foreach ($w in $j.windows) {
+            foreach ($e in $w.elements) {
+                if ($e.automationId -eq $Marker) { return $true }
+            }
+        }
+        return $false
     } catch {
         return $false
     }
+}
+
+# Buttons expose no ValuePattern: poll the accessible name, which carries
+# the live text (e.g. "Playback speed 1.5x").
+function Wait-ButtonText {
+    param([string]$Id, [string]$Want, [int]$TimeoutMs = 4000)
+    $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+    $last = ''
+    while ((Get-Date) -lt $deadline) {
+        try { $last = Get-Text $Id } catch { }
+        if ($last -match [regex]::Escape($Want)) { return }
+        Start-Sleep -Milliseconds 200
+    }
+    throw "button '$Id' text never contained '$Want' (last='$last')"
+}
+
+function Invoke-TipClose {
+    param([string]$Marker)
+    # The tip X is the template's AlternateCloseButton (unique automation
+    # id; the caption Close must never be touched — it kills the app and
+    # later --gone checks pass vacuously). Found app-wide: popup HWNDs
+    # churn and -w popup scopes don't resolve.
+    $tree = Invoke-Ui @('inspect', '--interactive', '--json') | ConvertFrom-Json
+    function Get-Nodes($nodes) {
+        foreach ($n in $nodes) { if ($null -ne $n) { $n; Get-Nodes $n.children } }
+    }
+    $all = @(Get-Nodes @($tree.windows | ForEach-Object { $_.elements }))
+    $close = @($all | Where-Object { $_.automationId -eq 'AlternateCloseButton' }) | Select-Object -First 1
+    if (-not $close) { throw 'tip X (AlternateCloseButton) not found in the interactive tree' }
+    Invoke-Ui @('invoke', 'AlternateCloseButton') | Out-Null
+    Invoke-Ui @('wait-for', $Marker, '--gone', '-t', '3000') | Out-Null
+    if (TipPresent $Marker) { throw 'tip content still present after X' }
+    Assert-Alive
+}
+
+function Ensure-NoPopup {
+    $deadline = (Get-Date).AddSeconds(12)
+    while ((Get-Date) -lt $deadline) {
+        $m = if (TipPresent 'TrackTitleText') { 'TrackTitleText' }
+             elseif (TipPresent 'SpeedPreset05') { 'SpeedPreset05' }
+             else { return }
+        Invoke-TipClose $m
+    }
+    throw 'tip popup did not clear'
 }
 
 $AppPid = 0
@@ -143,6 +202,7 @@ try {
     }
 
     Test-UI 'left click opens track tip with contents' {
+        Ensure-NoPopup
         Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
         $t = Get-Text 'TrackTitleText'; $a = Get-Text 'TrackArtistText'; $c = Get-Text 'TrackCodecText'
@@ -154,125 +214,134 @@ try {
 
     Test-UI 'track tip screenshot delivered' {
         $p = Join-Path $Artifacts '02-track-tip.png'
-        Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+        Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
         if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or (Get-Item -LiteralPath $p).Length -eq 0) {
             throw "screenshot not delivered: $p"
         }
     }
 
-    Test-UI 'X closes the tip' {
-        if (-not (Tip-Is-Open 'TrackTitleText')) {
-            Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
-            Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
-        }
-        $tree = Invoke-Ui @('inspect', '--interactive', '--json') -Window $hwnd | ConvertFrom-Json
-        function Get-Nodes($nodes) {
-            foreach ($n in $nodes) { if ($null -ne $n) { $n; Get-Nodes $n.children } }
-        }
-        $all = @(Get-Nodes @($tree.windows | ForEach-Object { $_.elements }))
-        $close = @($all | Where-Object { $_.type -match 'Button' -and $_.name -match '^(Close|CloseButton)$' }) | Select-Object -First 1
-        if (-not $close) { throw 'X (Close) button not found in the open tip tree' }
-        if ($close.automationId) { Invoke-Ui @('invoke', $close.automationId) -Window $hwnd | Out-Null }
-        else { Invoke-Ui @('invoke', $close.name) -Window $hwnd | Out-Null }
-        Invoke-Ui @('wait-for', 'TrackTitleText', '--gone', '-t', '3000') | Out-Null
+    Test-UI 'X closes the tip (and the app stays alive)' {
+        Ensure-NoPopup
+        Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
+        Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
+        Invoke-TipClose 'TrackTitleText'
     }
 
     Test-UI 'Esc closes the tip' {
+        Ensure-NoPopup
         Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
         Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'TrackTitleText', '--gone', '-t', '3000') | Out-Null
+        if (TipPresent 'TrackTitleText') { throw 'tip popup still present after Esc' }
+        Assert-Alive
     }
 
     Test-UI 'trigger toggles the tip' {
+        Ensure-NoPopup
         Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
         Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'TrackTitleText', '--gone', '-t', '3000') | Out-Null
+        if (TipPresent 'TrackTitleText') { throw 'tip popup still present after toggle' }
+        Assert-Alive
     }
 
     Test-UI 'right click opens picker once, no tip, loads stub file' {
+        Ensure-NoPopup
         $before = Get-Text 'DurationText'
+        $picksBefore = @(Get-Content -LiteralPath $StubLog -ErrorAction SilentlyContinue | Where-Object { $_ -like 'picker|*' }).Count
         Invoke-Ui @('click', 'TrackButton', '--right') -Window $hwnd | Out-Null
         Start-Sleep -Seconds 4
-        if (Tip-Is-Open 'TrackTitleText') { throw 'tip opened on right click' }
+        if (TipPresent 'TrackTitleText') { throw 'tip popup appeared on right click' }
+        # Positive control: the predicate must see a deliberately opened tip.
+        Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
+        Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
+        if (-not (TipPresent 'TrackTitleText')) { throw 'presence predicate blind to an open tip' }
+        Invoke-TipClose 'TrackTitleText'
         $after = Get-Text 'DurationText'
         Write-Host "  duration $before -> $after"
         if ($after -eq $before) { throw 'stub file did not load (duration unchanged)' }
         if (-not (Test-Path -LiteralPath $StubLog)) { throw 'stub log missing: picker never called' }
         $picks = @(Get-Content -LiteralPath $StubLog | Where-Object { $_ -like 'picker|*' })
-        if ($picks.Count -ne 1) { throw "picker called $($picks.Count)x, want exactly 1" }
-        if ($picks[0] -ne "picker|$StubFile") { throw "picker logged '$($picks[0])'" }
+        if ($picks.Count -ne ($picksBefore + 1)) { throw "picker calls went $($picksBefore)->$($picks.Count), want exactly one more" }
+        if ($picks[-1] -ne "picker|$StubFile") { throw "picker logged '$($picks[-1])'" }
     }
 
     Test-UI 'View in Explorer calls shell stub with the file path' {
+        Ensure-NoPopup
         Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'TipExplorerButton', '-t', '3000') | Out-Null
-        Invoke-Ui @('invoke', 'TipExplorerButton') -Window $hwnd | Out-Null
+        Invoke-Ui @('invoke', 'TipExplorerButton') | Out-Null
         Start-Sleep -Seconds 2
         $hits = @(Get-Content -LiteralPath $StubLog | Where-Object { $_ -eq "explorer|$StubFile" })
         if ($hits.Count -lt 1) { throw "shell stub missing explorer|$StubFile" }
-        Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
+        Invoke-TipClose 'TrackTitleText'
     }
 
     Test-UI 'speed preset click sets button text, tip stays open' {
+        Ensure-NoPopup
         Invoke-Ui @('invoke', 'RateButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'SpeedPreset05', '-t', '3000') | Out-Null
-        Invoke-Ui @('invoke', 'SpeedPreset15') -Window $hwnd | Out-Null
-        Invoke-Ui @('wait-for', 'RateButton', '--value', '1.5x', '-t', '3000') | Out-Null
-        if (-not (Tip-Is-Open 'SpeedPreset05')) { throw 'speed tip closed after preset click' }
+        Invoke-Ui @('invoke', 'SpeedPreset15') | Out-Null
+        Wait-ButtonText 'RateButton' '1.5x'
+        if (-not (TipPresent 'SpeedPreset05')) { throw 'speed tip closed after preset click' }
         $p = Join-Path $Artifacts '03-speed-tip.png'
-        Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+        Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
     }
 
     Test-UI 'right click cycles presets without opening the tip' {
-        Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
-        Invoke-Ui @('invoke', 'SpeedPreset15') -Window $hwnd | Out-Null
-        Invoke-Ui @('wait-for', 'RateButton', '--value', '1.5x', '-t', '3000') | Out-Null
-        Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
+        Ensure-NoPopup
+        Invoke-Ui @('invoke', 'RateButton') -Window $hwnd | Out-Null
+        Invoke-Ui @('wait-for', 'SpeedPreset05', '-t', '3000') | Out-Null
+        Invoke-Ui @('invoke', 'SpeedPreset15') | Out-Null
+        Wait-ButtonText 'RateButton' '1.5x'
+        Invoke-TipClose 'SpeedPreset05'
         foreach ($want in @('1.25x', '.25x', '.5x', '1x', '1.5x')) {
             Invoke-Ui @('click', 'RateButton', '--right') -Window $hwnd | Out-Null
-            Invoke-Ui @('wait-for', 'RateButton', '--value', $want, '-t', '3000') | Out-Null
+            Wait-ButtonText 'RateButton' $want
         }
-        if (Tip-Is-Open 'SpeedPreset05') { throw 'speed tip opened during right-click cycle' }
+        if (TipPresent 'SpeedPreset05') { throw 'speed tip popup appeared during right-click cycle' }
     }
 
     Test-UI 'middle click resets to 1x without opening the tip' {
+        Ensure-NoPopup
         Invoke-Ui @('invoke', 'RateButton') -Window $hwnd | Out-Null
-        Invoke-Ui @('wait-for', 'SpeedPreset15', '-t', '3000') | Out-Null
-        Invoke-Ui @('invoke', 'SpeedPreset15') -Window $hwnd | Out-Null
-        Invoke-Ui @('wait-for', 'RateButton', '--value', '1.5x', '-t', '3000') | Out-Null
-        Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
+        Invoke-Ui @('wait-for', 'SpeedPreset05', '-t', '3000') | Out-Null
+        Invoke-Ui @('invoke', 'SpeedPreset15') | Out-Null
+        Wait-ButtonText 'RateButton' '1.5x'
+        Invoke-TipClose 'SpeedPreset05'
         $r = Element-Rect 'RateButton'
         $cx = $r.x + [int]($r.width / 2); $cy = $r.y + [int]($r.height / 2)
         & (Join-Path $Repo 'scripts\middle-click.ps1') -X $cx -Y $cy
         if ($LASTEXITCODE -ne 0) { throw 'middle-click helper failed' }
-        Invoke-Ui @('wait-for', 'RateButton', '--value', '1x', '-t', '4000') | Out-Null
-        if (Tip-Is-Open 'SpeedPreset05') { throw 'speed tip opened on middle click' }
+        Wait-ButtonText 'RateButton' '1x' -TimeoutMs 5000
+        if (TipPresent 'SpeedPreset05') { throw 'speed tip popup appeared on middle click' }
     }
 
     Test-UI 'keep-pitch checkbox toggles' {
+        Ensure-NoPopup
         Invoke-Ui @('invoke', 'RateButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'SpeedKeepPitch', '-t', '3000') | Out-Null
-        Invoke-Ui @('invoke', 'SpeedKeepPitch') -Window $hwnd | Out-Null
+        Invoke-Ui @('invoke', 'SpeedKeepPitch') | Out-Null
         Invoke-Ui @('wait-for', 'SpeedKeepPitch', '--value', 'Off', '-t', '3000') | Out-Null
-        Invoke-Ui @('invoke', 'SpeedKeepPitch') -Window $hwnd | Out-Null
+        Invoke-Ui @('invoke', 'SpeedKeepPitch') | Out-Null
         Invoke-Ui @('wait-for', 'SpeedKeepPitch', '--value', 'On', '-t', '3000') | Out-Null
-        Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
+        Invoke-TipClose 'SpeedPreset05'
     }
 
     Test-UI 'Enter/Space toggle the tips, Shift+F10 triggers context actions' {
+        Ensure-NoPopup
         Invoke-Ui @('send-keys', 'enter', '--target', 'TrackButton', '--via', 'send-input') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
-        Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
-        Invoke-Ui @('wait-for', 'TrackTitleText', '--gone', '-t', '3000') | Out-Null
-        Invoke-Ui @('send-keys', 'text= ', '--target', 'RateButton', '--via', 'send-input') -Window $hwnd | Out-Null
+        Invoke-TipClose 'TrackTitleText'
+        Invoke-Ui @('send-keys', 'space', '--target', 'RateButton', '--via', 'send-input') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'SpeedPreset05', '-t', '3000') | Out-Null
-        Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
+        Invoke-TipClose 'SpeedPreset05'
         $before = Get-Text 'DurationText'
         Invoke-Ui @('send-keys', 'shift+f10', '--target', 'TrackButton', '--via', 'send-input') -Window $hwnd | Out-Null
         Start-Sleep -Seconds 4
-        if (Tip-Is-Open 'TrackTitleText') { throw 'Shift+F10 opened the tip instead of the picker' }
+        if (TipPresent 'TrackTitleText') { throw 'Shift+F10 opened the tip instead of the picker' }
         $after = Get-Text 'DurationText'
         Write-Host "  Shift+F10 duration $before -> $after"
     }
@@ -327,10 +396,11 @@ finally {
     } catch { }
     try {
         if ($proc -and -not $proc.HasExited) {
-            # Bounded wait, then kill on timeout (hard rule).
-            if (-not $proc.WaitForExit(90000)) {
+            # The hold target never exits by itself: short grace wait, then
+            # kill on timeout (bounded wait + kill, per the hard rule).
+            if (-not $proc.WaitForExit(5000)) {
                 Stop-Process -Id $AppPid -Force
-                Write-Host 'KILL-ON-TIMEOUT: app did not exit within 90s'
+                Write-Host 'KILL-ON-TIMEOUT: hold target did not exit within 5s'
             }
         }
     } catch { }
