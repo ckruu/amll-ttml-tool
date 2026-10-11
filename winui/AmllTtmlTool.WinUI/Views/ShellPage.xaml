@@ -601,19 +601,22 @@
         <!--
             Floating player bar (slice A): it lives in the content row with
             bottom alignment and a margin, so page content extends beneath
-            it. Slice E gives scrolling pages bottom padding plus the
-            acrylic background. Order: track, play, elapsed, seek (all
-            remaining width, >=120px), total, eye, speed, spectrogram. The
-            speaker button's volume functions move into the track tip
-            (slice B); the pin slot is now the eye button (same stub
-            behavior); the chevron (spectrogram) is unchanged, last.
+            it. Scrolling pages must reserve bottom padding for the bar
+            clearance (bar height + margin, ~76px) so the last item can
+            scroll above it; the bar background stays transparent to that
+            content (in-app acrylic, slice E). Order: track, play, elapsed,
+            seek (all remaining width, >=120px), total, eye, speed,
+            spectrogram. The speaker button's volume functions move into
+            the track tip (slice B); the pin slot is now the eye button
+            (same stub behavior); the chevron (spectrogram) is unchanged,
+            last.
         -->
         <Border
             Grid.Row="2"
             Margin="8"
             Padding="8,4"
             VerticalAlignment="Bottom"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1"
             CornerRadius="8">
