@@ -34,6 +34,12 @@ TestResults/
 
 !winui/*.sln
 .vs/
+# Local FFmpeg binaries for the WinUI app (~900MB total, see
+# winui/libs/ffmpeg/README.md for sources + hashes). Too large to push:
+# every collaborator/CI downloads them locally instead. README.md and
+# LGPL-3.0.txt stay tracked; everything else under ffmpeg/ is ignored.
+winui/libs/ffmpeg/x64/
+winui/libs/ffmpeg/arm64/
 winui/libs/ffmpeg/dl/
 
 # harness evidence artifacts
