@@ -2539,6 +2539,26 @@ namespace AmllTtmlTool.WinUI.Views
             }
         }
         internal void Test_ClickEye() => OnLocateClick(EyeButton, new RoutedEventArgs());
+        // Item 3 row edges (element bounds, not text extents): title row,
+        // slider row, buttons row, all in tip space.
+        internal string Test_TipRowEdges()
+        {
+            try
+            {
+                string Box(FrameworkElement el)
+                {
+                    var o = el.TransformToVisual(TrackTip)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0));
+                    return $"{o.X:F1}-{o.X + el.ActualWidth:F1}";
+                }
+                return $"titlerow=[{Box(TipTitleRow)}] sliderrow=[{Box(TipVolumeSlider)}] "
+                    + $"buttonsrow=[{Box(TipButtonsRow)}]";
+            }
+            catch (Exception ex)
+            {
+                return "FAIL harness-error " + ex.GetType().Name;
+            }
+        }
         internal string Test_EyeName() => AutomationProperties.GetName(EyeButton);
         internal bool Test_EyeEnabled() => EyeButton.IsEnabled;
         internal string Test_BarBrush() => PlayerBarBorder.Background switch

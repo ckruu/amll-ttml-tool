@@ -407,6 +407,23 @@ try {
         if ($art.width -gt $cap + 2) { throw "artist overflows cap: $($art.width) > $cap" }
         if (($art.x + $art.width) -gt ($root.x + $root.width) + 2) { throw 'artist overflows content' }
         if ($cod.width -le 0) { throw 'codec has no width' }
+        # Item 3 (foreground): the buttons row structure — order, 8px gaps,
+        # equal Open/Explorer widths, 36px heights, square state. (Grid panels
+        # are UIA-invisible — inspect falls back to the window node — so row
+        # edges + fill are asserted in-harness at 1px via Test_TipRowEdges
+        # across every synthetic case and the empty state; buttons expose
+        # exact UIA rects and are the foreground proxies.)
+        $stb = Element-Rect 'TipVolumeStateButton'
+        $opb = Element-Rect 'TipOpenFileButton'
+        $exb = Element-Rect 'TipExplorerButton'
+        $gap1 = $opb.x - $stb.x - $stb.width
+        $gap2 = $exb.x - $opb.x - $opb.width
+        Write-Host "  buttons state=$($stb.width)x$($stb.height) open=$($opb.width)x$($opb.height) explorer=$($exb.width)x$($exb.height) gaps=$gap1/$gap2"
+        if ([Math]::Abs($opb.width - $exb.width) -gt 2) { throw "open/explorer widths differ: $($opb.width) vs $($exb.width)" }
+        if ([Math]::Abs($gap1 - 8) -gt 2) { throw "state/open gap is not 8px: $gap1" }
+        if ([Math]::Abs($gap2 - 8) -gt 2) { throw "open/explorer gap is not 8px: $gap2" }
+        if ($stb.width -ne 36 -or $stb.height -ne 36) { throw "state button is not 36x36: $($stb.width)x$($stb.height)" }
+        if ($opb.height -ne 36 -or $exb.height -ne 36) { throw "button heights are not 36: $($opb.height)/$($exb.height)" }
         Invoke-TipClose 'TrackTitleText'
     }
 

@@ -336,6 +336,14 @@ internal static class PlayerbarTestCheck
             Check(report, $"tip {c.Label} fits-cap",
                 b.RootW <= 310 && b.RootL >= 11,
                 $"rootW={b.RootW:F1} rootL={b.RootL:F1} [{bounds}]", ref fails);
+            // Item 3: the three rows share edges within 1px (element bounds,
+            // not text extents), and Open/Explorer are equal widths.
+            string rowEdges = "";
+            await OnUiAsync(window, () => rowEdges = page.Test_TipRowEdges());
+            CheckRowEdges(rowEdges, c.Label, report, ref fails);
+            Check(report, $"tip {c.Label} equal-buttons",
+                Math.Abs((b.OpenR - b.OpenL) - (b.ExplorerR - b.ExplorerL)) <= 1.0,
+                $"open={(b.OpenR - b.OpenL):F1} explorer={(b.ExplorerR - b.ExplorerL):F1} [{bounds}]", ref fails);
             string loadedSizes = "";
             await OnUiAsync(window, () => loadedSizes = page.Test_TipButtonSizes());
             CheckTipButtonSizes(loadedSizes, c.Label, report, ref fails);
@@ -463,6 +471,53 @@ internal static class PlayerbarTestCheck
         catch
         {
             return false;
+        }
+    }
+
+    // Item 3: row-edge geometry — title/slider/buttons rows share L/R
+    // within 1px. Callers pass Test_TipRowEdges read while OPEN.
+    private static bool TryRowEdges(string s,
+        out (double L, double R) title, out (double L, double R) slider,
+        out (double L, double R) buttons)
+    {
+        title = slider = buttons = (double.NaN, double.NaN);
+        try
+        {
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                s ?? "", @"(\w+row)=\[(-?[0-9.]+)-(-?[0-9.]+)\]"))
+            {
+                if (!double.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var l)
+                    || !double.TryParse(m.Groups[3].Value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var r))
+                    continue;
+                switch (m.Groups[1].Value.ToLowerInvariant())
+                {
+                    case "titlerow": title = (l, r); break;
+                    case "sliderrow": slider = (l, r); break;
+                    case "buttonsrow": buttons = (l, r); break;
+                }
+            }
+            return !double.IsNaN(title.L) && !double.IsNaN(slider.L) && !double.IsNaN(buttons.L);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void CheckRowEdges(string edges, string label, string report, ref int fails)
+    {
+        if (TryRowEdges(edges, out var tr, out var sr, out var br))
+        {
+            Check(report, $"tip {label} row-edges",
+                Math.Abs(tr.L - sr.L) <= 1 && Math.Abs(sr.L - br.L) <= 1
+                    && Math.Abs(tr.R - sr.R) <= 1 && Math.Abs(sr.R - br.R) <= 1,
+                $"title=[{tr.L:F1}-{tr.R:F1}] slider=[{sr.L:F1}-{sr.R:F1}] buttons=[{br.L:F1}-{br.R:F1}]", ref fails);
+        }
+        else
+        {
+            Check(report, $"tip {label} row-edges", false, edges, ref fails);
         }
     }
 
@@ -594,7 +649,13 @@ internal static class PlayerbarTestCheck
             });
             if (sizesEmpty.Length == 0) await Task.Delay(200);
         }
-        await OnUiAsync(window, () => page.Test_CloseTips());
+        string edgesEmpty = "";
+        await OnUiAsync(window, () =>
+        {
+            if (!page.Test_TrackTipOpen()) page.Test_OpenTrackTip();
+            edgesEmpty = page.Test_TipRowEdges();
+            page.Test_CloseTips();
+        });
         Check(report, "track-empty-lines", title == "-" && artist == "-" && codec == "-",
             $"title='{title}' artist='{artist}' codec='{codec}'", ref fails);
         Check(report, "track-empty-slider", !sliderOn && sliderVal == 0,
@@ -603,6 +664,7 @@ internal static class PlayerbarTestCheck
             $"open={openOn} explorer={explorerOn} state={stateOn}", ref fails);
         Check(report, "track-empty-cover", !coverShown, $"coverShown={coverShown}", ref fails);
         CheckTipButtonSizes(sizesEmpty, "empty", report, ref fails);
+        CheckRowEdges(edgesEmpty, "empty-state", report, ref fails);
 
         var speedOn = true; var keepChecked = true; var keepOn = true;
         var presetOn = true;

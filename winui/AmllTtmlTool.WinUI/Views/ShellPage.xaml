@@ -35,7 +35,7 @@
         <Style x:Key="TipButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
             <Setter Property="Height" Value="36" />
             <Setter Property="MinHeight" Value="36" />
-            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Padding" Value="6,4" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
@@ -818,7 +818,9 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <Grid ColumnSpacing="12">
+                    <Grid x:Name="TipTitleRow"
+                          HorizontalAlignment="Stretch"
+                          ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
@@ -882,6 +884,11 @@
                             </StackPanel>
                         </StackPanel>
                     </Grid>
+                    <!-- MinWidth pins the content at the tip's content cap
+                         (294: the TeachingTip arranges at most that, wider
+                         desires clip). Exact fit = no clipping; the * buttons
+                         below then split (294-36-16)/2 = 121 each. Guarded by
+                         fits-cap, row-edges and equal-buttons asserts. -->
                     <Slider
                         x:Name="TipVolumeSlider"
                         AutomationProperties.AutomationId="TipVolumeSlider"
@@ -889,20 +896,22 @@
                         Grid.Row="1"
                         Maximum="100"
                         Minimum="0"
+                        MinWidth="294"
                         StepFrequency="1"
                         Value="50"
                         ValueChanged="OnTipVolumeChanged" />
-                    <Grid Grid.Row="2" ColumnSpacing="8">
+                    <Grid x:Name="TipButtonsRow"
+                          Grid.Row="2"
+                          HorizontalAlignment="Stretch"
+                          ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
-                            <!-- Auto + MinWidths (never *): star distribution
-                                 with minimums overflowed this row by ~5px.
-                                 MinWidths cover measured text (81/123) with
-                                 3px headroom; the row is narrower than the
-                                 content and left-aligns. Guarded by the
-                                 buttons-fit harness assert. -->
+                            <!-- Auto for the square state button; * shares the
+                                 rest equally between Open and Explorer so the
+                                 row fills the tip. MinWidths are floors only;
+                                 the no-overlap asserts guard the sum. -->
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Button
                             x:Name="TipVolumeStateButton"
@@ -923,16 +932,17 @@
                             Click="OnTipOpenFileClick"
                             Style="{StaticResource TipButtonStyle}"
                             Content="Open file" />
-                        <!-- MinWidth covers the measured 123px text width:
-                             the *-shared row starved this button to 119px
-                             and clipped "View in Explorer". Guarded by the
-                             buttons-fit harness assert. -->
+                        <!-- Floor 120: measured text ~107 + 12 padding = 119,
+                             + 1px insurance. Must stay <= the * share 121
+                             ((294-36-16)/2) so the min never binds and Open /
+                             Explorer stay equal. Total min 36+84+120+16 = 256
+                             <= 294. Guarded by buttons-fit + equal-buttons. -->
                         <Button
                             x:Name="TipExplorerButton"
                             AutomationProperties.AutomationId="TipExplorerButton"
                             Grid.Column="2"
                             HorizontalAlignment="Stretch"
-                            MinWidth="124"
+                            MinWidth="120"
                             Click="OnTipExplorerClick"
                             Style="{StaticResource TipButtonStyle}"
                             Content="View in Explorer" />
