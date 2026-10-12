@@ -24,7 +24,8 @@ internal static class TitleCenteringCheck
         [1400, 1116, 1100, 1050, 1000, 900, 850, 800, 760, 750, 720, 700, 680, 672, 640, 600];
 
     public static string ReportFile { get; } =
-        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "title-center-check.txt");
+        System.Environment.GetEnvironmentVariable("AMLL_HARNESS_REPORT")
+        ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "title-center-check.txt");
 
     public static async Task RunAsync(Window window, TitleProbe probe)
     {
@@ -107,6 +108,7 @@ internal static class TitleCenteringCheck
             await RunRoundTripAsync(window, probe, leftCluster, appWindow, scale);
             await RunGapTableAsync(window, probe, leftCluster, appWindow, scale);
             await RunFileNameDriftAsync(window, probe, leftCluster, appWindow, scale);
+            WriteLine("layout-test | OK");
         }
         catch (Exception ex)
         {
