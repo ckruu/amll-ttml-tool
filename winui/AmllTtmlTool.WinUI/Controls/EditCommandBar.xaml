@@ -182,11 +182,11 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="LineStartLabel" x:Uid="Ribbon_LineStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" ToolTipService.ToolTip="Start" />
-            <TextBox x:Name="LineStartBox" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Start" />
+            <TextBox x:Name="LineStartBox" AutomationProperties.AutomationId="LineStartBox" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Start" />
             <ToggleButton x:Name="BgToggle" Grid.Column="2" Content="BG" MinHeight="28" MinWidth="56" />
             <ToggleButton x:Name="DuetToggle" Grid.Column="3" Content="V2" MinHeight="28" MinWidth="56" />
             <TextBlock x:Name="LineEndLabel" x:Uid="Ribbon_LineEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" ToolTipService.ToolTip="End" />
-            <TextBox x:Name="LineEndBox" Grid.Row="1" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="End" />
+            <TextBox x:Name="LineEndBox" AutomationProperties.AutomationId="LineEndBox" Grid.Row="1" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="End" />
             <ToggleButton x:Name="IgnoreSyncToggle" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Ignore Sync" HorizontalAlignment="Stretch" MinHeight="28" />
         </Grid>
 
@@ -209,11 +209,11 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="WordStartLabel" x:Uid="Ribbon_WordStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" ToolTipService.ToolTip="Start" />
-            <TextBox x:Name="WordStartBox" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Start" />
+            <TextBox x:Name="WordStartBox" AutomationProperties.AutomationId="WordStartBox" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Start" />
             <TextBlock x:Name="WordContentLabel" x:Uid="Ribbon_WordContentLabel" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Content" ToolTipService.ToolTip="Content" />
-            <TextBox x:Name="WordContentBox" Grid.Column="3" Width="120" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Content" />
+            <TextBox x:Name="WordContentBox" AutomationProperties.AutomationId="WordContentBox" Grid.Column="3" Width="120" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Content" />
             <TextBlock x:Name="WordEndLabel" x:Uid="Ribbon_WordEndLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" ToolTipService.ToolTip="End" />
-            <TextBox x:Name="WordEndBox" Grid.Row="1" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="End" />
+            <TextBox x:Name="WordEndBox" AutomationProperties.AutomationId="WordEndBox" Grid.Row="1" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="End" />
             <TextBlock x:Name="ObsceneLabel" x:Uid="Ribbon_ObsceneLabel" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" ToolTipService.ToolTip="Obscene" />
             <ToggleButton x:Name="ObsceneToggle" Grid.Row="1" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="28" MinWidth="120" />
         </Grid>
@@ -275,9 +275,9 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="TransLabel" x:Uid="Ribbon_TransLabel" Style="{StaticResource RibbonFieldLabel}" Text="Translation" ToolTipService.ToolTip="Translation" />
-            <TextBox x:Name="TransBox" Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="120" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Translation" />
+            <TextBox x:Name="TransBox" AutomationProperties.AutomationId="TransBox" Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="120" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Translation" />
             <TextBlock x:Name="RomanLabel" x:Uid="Ribbon_RomanLabel" Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="Romanization" ToolTipService.ToolTip="Romanization" />
-            <TextBox x:Name="RomanBox" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="120" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Romanization" />
+            <TextBox x:Name="RomanBox" AutomationProperties.AutomationId="RomanBox" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" MinWidth="120" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Romanization" />
         </Grid>
         <Button x:Name="SecondaryOverflowButton"
                 Grid.Column="6"

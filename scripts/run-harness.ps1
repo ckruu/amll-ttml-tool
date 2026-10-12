@@ -7,7 +7,8 @@
 # AMLL_HARNESS_REPORT / AMLL_HARNESS_TIMEOUT). The env vars are the
 # authoritative path: `winapp run ... -- <args>` and Start-Process both
 # forward args, but launcher wrapping has proven unreliable in this
-# project, so the app reads env first. This script launches the built
+# project, so the app reads env first. File paths additionally travel via
+# AMLL_HARNESS_FILE (exact, spaces/specials intact). This script launches the built
 # exe directly (no launcher) so exit codes and stdout/stderr are ours.
 #
 # The run is controlled from OUTSIDE: the in-app harness is never trusted
@@ -50,6 +51,16 @@ if (-not (Test-Path -LiteralPath $Exe)) {
 }
 if (-not $ReportPath) { $ReportPath = Join-Path $env:TEMP "$Mode-report.txt" }
 
+# File args via env (authoritative for file-first modes): Start-Process
+# -ArgumentList arrays join with bare spaces and `powershell -File` re-parses
+# its command line, so a spaced path passed as -Args arrives SPLIT
+# ('a b.ttml' -> 'a', 'b.ttml'); the run then fails as a silent timeout with
+# a stray relative report (observed: report=Poi!.ttml). Callers set
+# AMLL_HARNESS_FILE (exact value, spaces/specials intact); -Args is fallback.
+if ($env:AMLL_HARNESS_FILE -and ($Mode -in @('lyrics-test', 'load-lyrics'))) {
+    $Args = @($env:AMLL_HARNESS_FILE)
+}
+
 # Item 4: never hand a D:\Audio original to the app (read-only test data;
 # a report was once appended INTO an .m4a). Stage a temp copy first:
 #   Import-Module (Join-Path $Repo 'scripts\TestAudio.psm1')
@@ -81,14 +92,19 @@ if ($Detach) {
     $outerReport = $ReportPath
     $outerMode = $Mode
     $outerTimeout = $TimeoutSec
-    $argText = ($Args | ForEach-Object { "'$_'" }) -join ' '
+    $argText = ($Args | ForEach-Object { "'" + ($_ -replace "'", "''") + "'" }) -join ' '
+    # Prefer the env channel for the file arg: as a variable it arrives as
+    # exactly ONE argv element no matter what it contains (spaces, !, $).
+    $innerFileArg = if ($env:AMLL_HARNESS_FILE) { '$env:AMLL_HARNESS_FILE' } else { $argText }
+    $innerEnvFile = if ($env:AMLL_HARNESS_FILE) { "`$env:AMLL_HARNESS_FILE = '" + ($env:AMLL_HARNESS_FILE -replace "'", "''") + "'" } else { '' }
     $inner = Join-Path $env:TEMP "run-harness-inner-$([guid]::NewGuid().ToString('N')).ps1"
     $body = @"
 `$ErrorActionPreference = 'Stop'
 `$env:AMLL_HARNESS_MODE = '$outerMode'
 `$env:AMLL_HARNESS_REPORT = '$outerReport'
 `$env:AMLL_HARNESS_TIMEOUT = '$outerTimeout'
-& '$outerExe' --$outerMode $argText
+$innerEnvFile
+& '$outerExe' --$outerMode $innerFileArg
 "@
     Set-Content -LiteralPath $inner -Value $body -Encoding utf8
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -107,7 +123,7 @@ $startedAt = Get-Date
 $env:AMLL_HARNESS_MODE = $Mode
 $env:AMLL_HARNESS_REPORT = $ReportPath
 $env:AMLL_HARNESS_TIMEOUT = "$TimeoutSec"
-$argList = @("--$Mode") + $Args
+$argList = @("--$Mode") + @($Args | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' })
 
 function Stop-AppTree {
     param([string]$Reason, [int]$Code)

@@ -95,6 +95,141 @@ namespace AmllTtmlTool.WinUI.Views
             return container is null ? -1 : LineList.IndexFromContainer(container);
         }
 
+        // --- Step-5 test helpers (driven by Test_ hooks, UI thread) --------
+
+        internal int RealizedLineCount()
+        {
+            var n = 0;
+            for (var i = 0; i < LineList.Items.Count; i++)
+                if (LineList.ContainerFromIndex(i) is not null) n++;
+            return n;
+        }
+
+        internal int RealizedTextBoxCount()
+        {
+            var n = 0;
+            for (var i = 0; i < LineList.Items.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not DependencyObject root) continue;
+                n += CountTextBoxes(root);
+            }
+            return n;
+        }
+
+        private static int CountTextBoxes(DependencyObject root)
+        {
+            var n = root is TextBox ? 1 : 0;
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+                n += CountTextBoxes(VisualTreeHelper.GetChild(root, i));
+            return n;
+        }
+
+        internal void ScrollLineIntoView(int index)
+        {
+            if (index < 0 || index >= LineList.Items.Count) return;
+            LineList.ScrollIntoView(LineList.Items[index]);
+            LineList.UpdateLayout();
+        }
+
+        // which: 0 = translation row, 1 = romanization row, 2 = first chip's
+        // romaji box. Returns (int)Visibility or -1 when not realized.
+        internal int RowVisibility(int line, int which)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return -1;
+            if (container.ContentTemplateRoot is not Grid card) return -1;
+            FrameworkElement? el = which switch
+            {
+                0 => (card.FindName("TransLabel") as FrameworkElement) ?? card.FindName("TransBox") as FrameworkElement,
+                1 => (card.FindName("RomanLabel") as FrameworkElement) ?? card.FindName("RomanBox") as FrameworkElement,
+                _ => FirstChipRoman(card),
+            };
+            return el is null ? -1 : (int)el.Visibility;
+        }
+
+        private static FrameworkElement? FirstChipRoman(Grid card)
+        {
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return null;
+            foreach (var child in panel.Children)
+            {
+                if (child is Grid chip && chip.Children.Count >= 2
+                    && chip.Children[1] is FrameworkElement roman)
+                    return roman;
+            }
+            return null;
+        }
+
+        internal string ChipWidths(int line, int word)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            if (word < 0 || word >= panel.Children.Count) return "norow";
+            if (panel.Children[word] is not Grid chip || chip.Children.Count < 2) return "nochip";
+            var tw = (chip.Children[0] as FrameworkElement)?.ActualWidth ?? double.NaN;
+            var rw = (chip.Children[1] as FrameworkElement)?.ActualWidth ?? double.NaN;
+            return $"{tw:F2},{rw:F2}";
+        }
+
+        internal bool ToggleState(string which) => _viewState is not null && which switch
+        {
+            "trans" => _viewState.ShowTranslation,
+            "roman" => _viewState.ShowRomanization,
+            "wordroman" => _viewState.ShowWordRomanization,
+            _ => throw new ArgumentException($"Unknown toggle: {which}"),
+        };
+
+        // Flips a toggle through the service (same path as the pills) and
+        // returns the synchronous UI-thread cost in ms.
+        internal long FlipToggle(string which)
+        {
+            if (_viewState is null) throw new InvalidOperationException("No view state.");
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            switch (which)
+            {
+                case "trans": _viewState.ShowTranslation = !_viewState.ShowTranslation; break;
+                case "roman": _viewState.ShowRomanization = !_viewState.ShowRomanization; break;
+                case "wordroman": _viewState.ShowWordRomanization = !_viewState.ShowWordRomanization; break;
+                default: throw new ArgumentException($"Unknown toggle: {which}");
+            }
+            sw.Stop();
+            return sw.ElapsedMilliseconds;
+        }
+
+        // Samples CompositionTarget.Rendering around a service flip.
+        // Returns "frames=N median=X p95=Y max=Z over13_9=A over2xmedian=B".
+        internal async Task<string> SampleToggleFramesAsync(string which, int durationMs)
+        {
+            var stamps = new List<TimeSpan>();
+            void Handler(object? sender, object args)
+            {
+                if (args is Microsoft.UI.Xaml.Media.RenderingEventArgs re)
+                    stamps.Add(re.RenderingTime);
+            }
+            CompositionTarget.Rendering += Handler;
+            try
+            {
+                FlipToggle(which);
+                await Task.Delay(durationMs);
+            }
+            finally
+            {
+                CompositionTarget.Rendering -= Handler;
+            }
+            if (stamps.Count < 2) return $"frames={stamps.Count} median=0 p95=0 max=0 over13_9=0 over2xmedian=0";
+            var deltas = new List<double>();
+            for (var i = 1; i < stamps.Count; i++)
+                deltas.Add((stamps[i] - stamps[i - 1]).TotalMilliseconds);
+            deltas.Sort();
+            var median = deltas[deltas.Count / 2];
+            var p95 = deltas[(int)(deltas.Count * 0.95)];
+            var max = deltas[^1];
+            var over13_9 = deltas.Count(d => d > 13.9);
+            var over2xmedian = deltas.Count(d => d > 2 * median);
+            return $"frames={stamps.Count} median={median:F2} p95={p95:F2} max={max:F2} over13_9={over13_9} over2xmedian={over2xmedian}";
+        }
+
         private void OnStoreChanged()
         {
             if (DispatcherQueue.HasThreadAccess) RefreshEmptyState();
@@ -142,6 +277,20 @@ namespace AmllTtmlTool.WinUI.Views
             panel.Children.Add(add);
             if (card.FindName("DeleteButton") is Button delete)
                 AutomationProperties.SetName(delete, $"Delete line {index + 1}");
+            // Stable per-line automation identities for the row boxes: the
+            // UI-verification driver addresses rows by direct AutomationId
+            // lookup (tree walks omit nodes), and an explicit Name keeps the
+            // label association deterministic across documents.
+            if (card.FindName("TransBox") is FrameworkElement transBox)
+            {
+                AutomationProperties.SetAutomationId(transBox, $"TransBox{index + 1}");
+                AutomationProperties.SetName(transBox, "Translation");
+            }
+            if (card.FindName("RomanBox") is FrameworkElement romanBox)
+            {
+                AutomationProperties.SetAutomationId(romanBox, $"RomanBox{index + 1}");
+                AutomationProperties.SetName(romanBox, "Romanization");
+            }
             // Rows snap to the current toggle state on realization;
             // off-screen lines never animate (AnimateToggleStates covers
             // only realized containers).
@@ -163,6 +312,11 @@ namespace AmllTtmlTool.WinUI.Views
             if (_store is null || _viewState is null) return;
             if (animate && !AnimationsOn()) animate = false;
             if (animate) _toggleVersion++;
+            // Snapshot BEFORE mutating: measuring after the change observes a
+            // steady state and compensates nothing (observed: dy=32px on
+            // toggle-off). The deferred-collapse shift is compensated again
+            // in HideAfterAsync.
+            var anchor = SnapshotSelected();
             var showTrans = _viewState.ShowTranslation;
             var showRoman = _viewState.ShowRomanization;
             var showWordRoman = _viewState.ShowWordRomanization;
@@ -172,7 +326,7 @@ namespace AmllTtmlTool.WinUI.Views
                 if (container.ContentTemplateRoot is not Grid card) continue;
                 ApplyCardVisibility(card, showTrans, showRoman, showWordRoman, animate, collapseNow: false);
             }
-            AnchorSelected(animate: false);
+            CompensateSelected(anchor);
             if (animate) StartShowAnimations();
         }
 
@@ -262,8 +416,26 @@ namespace AmllTtmlTool.WinUI.Views
         {
             await Task.Delay(160);
             if (version != _toggleVersion) return;
+            // Measure BEFORE collapsing: the fade-out rows still occupy layout,
+            // so AnchorSelected (called earlier) saw no shift and compensated
+            // nothing. The collapse below moves the selected card; compensate
+            // that shift here or it would visibly jump (observed: dy=32px).
+            double beforeY = double.NaN;
+            ListViewItem? anchorContainer = null;
+            if (LineList.SelectedItem is EditLine selected
+                && LineList.ContainerFromItem(selected) is ListViewItem c)
+            {
+                anchorContainer = c;
+                beforeY = c.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            }
             foreach (var el in hiding) el.Visibility = Visibility.Collapsed;
-            AnchorSelected(animate: false);
+            if (anchorContainer is not null && !double.IsNaN(beforeY))
+            {
+                LineList.UpdateLayout();
+                var afterY = anchorContainer.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                if (FindScroller() is ScrollViewer sv && Math.Abs(afterY - beforeY) > 0.5)
+                    sv.ChangeView(null, sv.VerticalOffset + (afterY - beforeY), null, true);
+            }
         }
 
         private ScrollViewer? _scroller;
@@ -301,6 +473,23 @@ namespace AmllTtmlTool.WinUI.Views
             var after = container.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
             if (FindScroller() is ScrollViewer sv && Math.Abs(after - before) > 0.5)
                 sv.ChangeView(null, sv.VerticalOffset + (after - before), null, true);
+        }
+
+        private (ListViewItem? Container, double Y) SnapshotSelected()
+        {
+            if (LineList.SelectedItem is EditLine selected
+                && LineList.ContainerFromItem(selected) is ListViewItem container)
+                return (container, container.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y);
+            return (null, double.NaN);
+        }
+
+        private void CompensateSelected((ListViewItem? Container, double Y) anchor)
+        {
+            if (anchor.Container is null || double.IsNaN(anchor.Y)) return;
+            LineList.UpdateLayout();
+            var after = anchor.Container.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            if (FindScroller() is ScrollViewer sv && Math.Abs(after - anchor.Y) > 0.5)
+                sv.ChangeView(null, sv.VerticalOffset + (after - anchor.Y), null, true);
         }
 
         private Grid BuildChip(EditWord word, int index)

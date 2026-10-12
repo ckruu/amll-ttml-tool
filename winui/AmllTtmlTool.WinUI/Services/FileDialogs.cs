@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using AmllTtmlTool.Core.Lyrics;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
@@ -79,35 +80,40 @@ public static class FileDialogs
         UIElement content;
         if (string.IsNullOrWhiteSpace(details))
         {
-            content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
+            var plain = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
+            // Automation: unnamed dialog content is invisible to UIA clients
+            // (verified: only Title + buttons surfaced). Name it for readers
+            // and the UI-verification driver.
+            AutomationProperties.SetName(plain, message);
+            content = plain;
         }
         else
         {
             // Readable sentence up front, full technical cause one click away.
+            var messageBlock = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap };
+            AutomationProperties.SetName(messageBlock, message);
+            var expander = new Expander
+            {
+                Header = "Details",
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Content = new ScrollViewer
+                {
+                    Content = new TextBlock
+                    {
+                        Text = details,
+                        TextWrapping = TextWrapping.Wrap,
+                        FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
+                        FontSize = 12,
+                    },
+                    MaxHeight = 320,
+                },
+            };
+            AutomationProperties.SetName(expander, "Details");
             content = new StackPanel
             {
                 Spacing = 8,
-                Children =
-                {
-                    new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
-                    new Expander
-                    {
-                        Header = "Details",
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        HorizontalContentAlignment = HorizontalAlignment.Left,
-                        Content = new ScrollViewer
-                        {
-                            Content = new TextBlock
-                            {
-                                Text = details,
-                                TextWrapping = TextWrapping.Wrap,
-                                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"),
-                                FontSize = 12,
-                            },
-                            MaxHeight = 320,
-                        },
-                    },
-                },
+                Children = { messageBlock, expander },
             };
         }
         var dialog = new ContentDialog

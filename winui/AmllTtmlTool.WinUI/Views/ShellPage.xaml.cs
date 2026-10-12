@@ -691,6 +691,40 @@ namespace AmllTtmlTool.WinUI.Views
                             await Services.LyricsCheck.RunHoldAsync(win, _intake, _store, lyricFile);
                     });
                 }
+                // Self-driving lyrics verification: --lyrics-test <file>
+                // [report]. Imports, asserts model/combos/widths/errors/perf,
+                // writes the verdict, self-closes. DEBUG-only.
+                var lyricsTestIdx = Array.IndexOf(audioArgs, "--lyrics-test");
+                if (lyricsTestIdx >= 0)
+                {
+                    var lyricsTestFile = lyricsTestIdx + 1 < audioArgs.Length ? audioArgs[lyricsTestIdx + 1] : "";
+                    var lyricsTestReport = lyricsTestIdx + 2 < audioArgs.Length ? audioArgs[lyricsTestIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            if (_intake is not null)
+                                await Services.LyricsCheck.RunAsync(win, this, _store, _intake, lyricsTestFile, lyricsTestReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.LyricsCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
 #endif
             };
         }
@@ -2320,7 +2354,17 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnPillCheckChanged(object sender, RoutedEventArgs e)
         {
-            if (sender is ToggleButton tb) PaintPillToggle(tb, tb.IsChecked == true);
+            if (sender is not ToggleButton tb) return;
+            PaintPillToggle(tb, tb.IsChecked == true);
+            // UIA TogglePattern flips raise Checked/Unchecked but NOT Click:
+            // without this mirror, a pattern-driven flip changes only the
+            // pill's IsChecked while the service (and the rows) stay stale
+            // (observed: pills On, card rows hidden, no error). Idempotent
+            // (service setters early-out on equal), so no loop with Click.
+            var on = tb.IsChecked == true;
+            if (tb == RomanToggle) _viewState.ShowRomanization = on;
+            else if (tb == TransToggle) _viewState.ShowTranslation = on;
+            else if (tb == WordRomanToggle) _viewState.ShowWordRomanization = on;
         }
 
         private Compositor? _compositor;
@@ -2548,6 +2592,48 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.IsEmptyStateVisible == true;
         internal void Test_SelectLine(int index) => _attachedEditPage?.SelectLineAt(index);
         internal int Test_SelectedLine() => _attachedEditPage?.SelectedLineIndex() ?? -1;
+        internal int Test_RealizedLineCount() => _attachedEditPage?.RealizedLineCount() ?? -1;
+        internal int Test_RealizedTextBoxCount() => _attachedEditPage?.RealizedTextBoxCount() ?? -1;
+        internal void Test_ScrollLineIntoView(int index) => _attachedEditPage?.ScrollLineIntoView(index);
+        internal int Test_RowVisibility(int line, int which) =>
+            _attachedEditPage?.RowVisibility(line, which) ?? -1;
+        internal string Test_ChipWidths(int line, int word) =>
+            _attachedEditPage?.ChipWidths(line, word) ?? "nopage";
+        internal bool Test_ToggleState(string which) => which switch
+        {
+            "trans" => _viewState.ShowTranslation,
+            "roman" => _viewState.ShowRomanization,
+            "wordroman" => _viewState.ShowWordRomanization,
+            _ => throw new ArgumentException($"Unknown toggle: {which}"),
+        };
+        internal long Test_FlipToggle(string which)
+        {
+            // Flip through the service (pill path) and time the sync UI work.
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            switch (which)
+            {
+                case "trans": _viewState.ShowTranslation = !_viewState.ShowTranslation; break;
+                case "roman": _viewState.ShowRomanization = !_viewState.ShowRomanization; break;
+                case "wordroman": _viewState.ShowWordRomanization = !_viewState.ShowWordRomanization; break;
+                default: throw new ArgumentException($"Unknown toggle: {which}");
+            }
+            sw.Stop();
+            return sw.ElapsedMilliseconds;
+        }
+        internal Task<string> Test_FrameStats(string which, int durationMs) =>
+            _attachedEditPage is null
+                ? throw new InvalidOperationException("No edit page.")
+                : _attachedEditPage.SampleToggleFramesAsync(which, durationMs);
+        internal void Test_SetToggle(string which, bool value)
+        {
+            switch (which)
+            {
+                case "trans": _viewState.ShowTranslation = value; break;
+                case "roman": _viewState.ShowRomanization = value; break;
+                case "wordroman": _viewState.ShowWordRomanization = value; break;
+                default: throw new ArgumentException($"Unknown toggle: {which}");
+            }
+        }
         internal bool Test_ImportBusyVisible() =>
             ImportProgress.Visibility == Visibility.Visible;
         // --- player-bar test hooks (DEBUG only) -------------------------------

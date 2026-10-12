@@ -18,6 +18,11 @@ public sealed class FileIntake(
     Action<bool>? setBusy = null,
     Action<EditDocument>? onImported = null)
 {
+    // Self-driving runs (Step-5 --lyrics-test) must never block on a modal
+    // dialog: when set, errors are recorded here instead of shown, so a
+    // failing import becomes a fast FAIL verdict, not a watchdog timeout.
+    public Action<string, string, string?>? ErrorRecorder { get; set; }
+
     // Single import funnel: picker, drop, startup file, --load-lyrics hook
     // and paste all land here. Bytes -> decode -> parse OFF the UI thread ->
     // apply ON the UI thread (ObservableCollections). Never throws: every
@@ -56,6 +61,7 @@ public sealed class FileIntake(
         }
         // Slow parses (>200ms) show the indeterminate indicator; fast ones
         // never flash it.
+        var parseSw = System.Diagnostics.Stopwatch.StartNew();
         var parseTask = Task.Run(() => LyricStore.ParseLyricText(importer, text, fileName));
         var slow = await Task.WhenAny(parseTask, Task.Delay(200)) != parseTask;
         if (slow) SetBusy(true);
@@ -78,11 +84,14 @@ public sealed class FileIntake(
                     $"Could not parse {fileName}.", ex.Message);
                 return;
             }
+            var parseMs = parseSw.ElapsedMilliseconds;
+            var applySw = System.Diagnostics.Stopwatch.StartNew();
             await OnUiAsync(() =>
             {
                 store.ApplyImportResult(result, fileName, displayName);
                 onImported?.Invoke(store.Document);
             });
+            WriteTiming($"import-timing file={fileName} parseMs={parseMs} applyMs={applySw.ElapsedMilliseconds}");
         }
         finally
         {
@@ -90,8 +99,27 @@ public sealed class FileIntake(
         }
     }
 
-    private Task ShowErrorAsync(string title, string message, string? details) =>
-        OnUiAsync(() => FileDialogs.ShowErrorAsync(anchor, title, message, details));
+    // Phase/timing telemetry for the Step-5 perf tests. Test runs only
+    // (HarnessHost.Report set); zero production impact otherwise.
+    private static void WriteTiming(string line)
+    {
+        try
+        {
+            if (HarnessHost.IsTest && HarnessHost.Report is string report)
+                System.IO.File.AppendAllText(report, line + "\n");
+        }
+        catch { }
+    }
+
+    private Task ShowErrorAsync(string title, string message, string? details)
+    {
+        if (ErrorRecorder is not null)
+        {
+            ErrorRecorder(title, message, details);
+            return Task.CompletedTask;
+        }
+        return OnUiAsync(() => FileDialogs.ShowErrorAsync(anchor, title, message, details));
+    }
 
     private void SetBusy(bool busy)
     {

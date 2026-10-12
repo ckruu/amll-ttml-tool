@@ -14,6 +14,7 @@ public sealed class LyricViewStateService
         {
             if (value == AppSettings.ShowTranslation) return;
             AppSettings.ShowTranslation = value;
+            AppSettings.NotifyDisplayChanged();
             Changed?.Invoke();
         }
     }
@@ -25,6 +26,7 @@ public sealed class LyricViewStateService
         {
             if (value == AppSettings.ShowRomanization) return;
             AppSettings.ShowRomanization = value;
+            AppSettings.NotifyDisplayChanged();
             Changed?.Invoke();
         }
     }
@@ -36,6 +38,7 @@ public sealed class LyricViewStateService
         {
             if (value == AppSettings.ShowWordRomanization) return;
             AppSettings.ShowWordRomanization = value;
+            AppSettings.NotifyDisplayChanged();
             Changed?.Invoke();
         }
     }

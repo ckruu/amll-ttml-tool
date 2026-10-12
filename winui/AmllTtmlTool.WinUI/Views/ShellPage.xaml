@@ -331,6 +331,8 @@
                 <FontIcon VerticalAlignment="Center" Glyph="&#xE8B7;" FontSize="14" />
                 <TextBlock
                     x:Name="FileNameText"
+                    AutomationProperties.AutomationId="FileNameText"
+                    AutomationProperties.Name="File name"
                     Grid.Column="1"
                     VerticalAlignment="Center"
                     MaxLines="1"
