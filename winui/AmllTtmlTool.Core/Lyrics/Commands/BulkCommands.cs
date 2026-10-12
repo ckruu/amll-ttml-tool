@@ -154,3 +154,29 @@ public sealed class ReplaceWordTextCommand : LyricCommand
         foreach (var (word, before) in _changed) word.Text = before;
     }
 }
+
+// Whole-metadata replacement (audio-metadata merge). Lines untouched;
+// revert restores the exact previous list.
+public sealed class SetMetadataCommand : LyricCommand
+{
+    private readonly List<EditMetadata> _metadata;
+    private List<EditMetadata>? _before;
+
+    public SetMetadataCommand(List<EditMetadata> metadata) => _metadata = metadata;
+
+    public override string Description => "Set metadata";
+
+    public override void Apply(EditDocument document)
+    {
+        _before = document.Metadata.ToList();
+        document.Metadata.Clear();
+        foreach (var m in _metadata) document.Metadata.Add(m);
+    }
+
+    public override void Revert(EditDocument document)
+    {
+        if (_before is null) return;
+        document.Metadata.Clear();
+        foreach (var m in _before) document.Metadata.Add(m);
+    }
+}

@@ -50,6 +50,11 @@ public sealed class TtmlImporter : ILyricImporter
             throw new LyricImportException(
                 $"TTML parse failed ({sourceName}): {parsed.Error!.Message}");
         var (repairedRecords, fixes) = LegacyTtml.RepairLegacyImport(parsed.Data!, text);
+        var notices = new List<string>(fixes);
+        // The legacy notice heads the list (useFileOpener behavior).
+        var detection = LegacyTtml.DetectLegacyTtml(text);
+        if (detection.IsLegacy)
+            notices.Insert(0, LegacyTtml.GetLegacyFixNotice(detection.Reasons));
         var norm = TtmlNormalize.ApplyImportRenames(repairedRecords);
         var lang = LegacyTtml.ExtractXmlLang(text);
         if (lang is not null && !norm.Metadata.Any(m =>
@@ -61,7 +66,7 @@ public sealed class TtmlImporter : ILyricImporter
             };
         }
         var doc = LyricAdapters.FromRecords(norm, sourceName);
-        return new LyricImportResult(doc, fixes);
+        return new LyricImportResult(doc, notices);
     }
 }
 
