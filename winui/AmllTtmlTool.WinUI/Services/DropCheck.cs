@@ -104,8 +104,11 @@ internal static class DropCheck
                 ? "TitleBarArea missing"
                 : "present; OS caption-region drops cannot be verified headless — see manual matrix (title bar row)");
         lines.AppendLine(fails.Count == 0
-            ? "DROP-RESULT: PASS (structural; behavior matrix is manual — see report)"
+            ? "DROP-RESULT: PASS (structural; behavior matrix is manual - see report)"
             : $"DROP-RESULT: VERIFY-FAIL [{string.Join("; ", fails)}]");
+        // Machine verdict for HarnessHost.Finish (last non-empty line must
+        // end with OK): without this the suite always reports FAIL.
+        lines.AppendLine(fails.Count == 0 ? "drop-test | OK" : "drop-test | FAIL");
         return lines.ToString().TrimEnd();
     }
 
