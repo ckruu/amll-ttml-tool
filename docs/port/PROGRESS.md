@@ -160,3 +160,66 @@ ORIGINAL `src/utils/parse-lrc.ts` in node with only imports rewired).
   broken legacy (88 lines, `itunes:key` reason), standard LRC (22 lines).
   Elsewhere those 4 tests vacuous-pass; the 18 committed goldens still pin
   behavior everywhere.
+
+---
+
+# Phase 2 progress — Edit tab (import + render + toggles + tests)
+
+Commits (one per brief step): `de60011` M1 (Core `LyricStore` facade over
+`EditDocument`), `b0f727e` M2 (consumers onto Core store, old store deleted),
+`39b0b6d` step 1 (import funnel, empty state, `--load-lyrics`),
+`ea4376c` step 2 (line list, custom `LyricWrapPanel`, `SelectionService`),
+`338ef8a` step 3 (persisted `LyricViewStateService`, pills, animations,
+anchor), `12ddf7c` step 4 (ribbon mirrors selection, read-only mm:ss.mmm),
+`1cf380e` step 5 (this step: `ui-lyrics.ps1` driver + harness/test fixes).
+
+Results (all green, same binaries): Core **406/406**, selftest PASS,
+`ui-tests` **13/13**, `ui-tests-playerbar` **24/24**, layout-test PASS
+(~300 s), `ui-lyrics.ps1` **30/30** (9 self-driving incl. real spaced-name
+files, 21 hold/UIA asserts). Test data stays read-only (`D:\Lyrics`,
+`D:\Audio`); runners stage temp copies only.
+
+## Step-5 findings (locked)
+
+1. **Spaced argv splits.** `Start-Process -ArgumentList` arrays join with
+   bare spaces and `powershell -File` re-parses, so `a b.ttml` arrives as
+   two argv (observed: `report=Poi!.ttml`, stray `name.ttml`/`Subete.lrc` in
+   repo root, 600 s silent timeouts). File paths now travel via
+   `AMLL_HARNESS_FILE` env (exact); `-Args` is fallback, both ends quote.
+2. **Dual-tree UIA reads.** `inspect --interactive` drops containers
+   (`LineList`), TextBlocks (`FileNameText`, empty state, dialog titles);
+   full dumps omit data-bound chip names. Driver uses full tree for
+   structure + interactive tree for `Word N:`/`Romanization of word N`.
+3. **Per-line row IDs.** Card `TransBox`/`RomanBox` have no stable tree
+   presence (visible on screen, missing from dumps), so
+   `OnLineContainerChanging` now sets `TransBoxN`/`RomanBoxN` (+ explicit
+   Names); combo asserts use direct lookup.
+4. **Pill Checked mirror.** UIA TogglePattern flips raise Checked/Unchecked
+   but not Click; `OnPillCheckChanged` now also writes the view-state
+   service (idempotent, loop-free), so rows follow every flip path.
+5. **Anchor needs snapshot-first + scroll slack.** Measuring after mutation
+   sees a steady state (dy=32); `ApplyToggleStates` snapshots before
+   mutating and `HideAfterAsync` compensates the deferred collapse. At
+   scroll offset 0 a hide-above cannot be compensated (geometry, not a
+   bug), so the anchor test uses a 40-line doc with line 20 selected.
+6. **Budgets tolerate load.** Toggle budget is median-of-3 per toggle
+   (single congested sample flaked at 137 ms); driver budgets are 120/180/
+   300 s per fixture size with a 15 s heartbeat line (waits are never
+   blank); app `HarnessHost` watchdog follows the same timeout.
+7. **Dialog content is UIA-invisible.** Only Title + buttons surface, so the
+   malformed test asserts title + screenshot (`error-dialog.png`) +
+   dismiss flow; message/Details stay covered by self-driving error-cases
+   (typed exceptions logged). Dialog nodes got explicit
+   `AutomationProperties` names regardless (accessibility).
+8. **No-foreground driving.** Mouse click / send-keys need foreground
+   (flaky while the machine is in use); driver selects via
+   SelectionItemPattern slugs and invokes via TogglePattern. Real arrow-key
+   routing is framework behavior, covered manually (below).
+
+## Manual checks remaining
+
+- Arrow keys move selection end-to-end on a loaded doc (driver covers the
+  selection→ribbon pipeline via pattern-select).
+- Narrator spot-check: line cards, pills, error dialog.
+- `error-dialog.png` + `combo-all-on.png` eyeball in
+  `%TEMP%\lyrics-ui-artifacts\`.
