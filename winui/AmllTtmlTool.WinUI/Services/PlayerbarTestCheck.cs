@@ -588,10 +588,12 @@ internal static class PlayerbarTestCheck
         // The empty-state paint parks the slider at 0; start from 50 so the
         // first matrix step (0) is a real change that fires the handler.
         await OnUiAsync(window, () => page.Test_SetTipSlider(50));
+        // Verified by rendering (glyph-chart screenshot): E74F mute,
+        // E993 one wave, E994 two, E995 three. Mirrors VolumeGlyphTests.
         var glyphWant = new (double Level, string Glyph)[]
         {
-            (0, "\uE993"), (1, "\uE994"), (33, "\uE994"), (34, "\uE995"),
-            (66, "\uE995"), (67, "\uE992"), (100, "\uE992"),
+            (0, "\uE74F"), (1, "\uE993"), (33, "\uE993"), (34, "\uE994"),
+            (66, "\uE994"), (67, "\uE995"), (100, "\uE995"),
         };
         foreach (var (level, glyph) in glyphWant)
         {
@@ -610,7 +612,7 @@ internal static class PlayerbarTestCheck
         await OnUiAsync(window, () => page.Test_ClickVolumeState());
         var muted = false; var g1 = "";
         await OnUiAsync(window, () => { muted = audio.IsMuted; g1 = page.Test_VolumeGlyph(); });
-        Check(report, "mute", muted && g1 == "\uE993", $"muted={muted} glyph='{Esc(g1)}'", ref fails);
+        Check(report, "mute", muted && g1 == "\uE74F", $"muted={muted} glyph='{Esc(g1)}'", ref fails);
         await OnUiAsync(window, () => page.Test_ClickVolumeState());
         var vol = -1.0; var stillMuted = true;
         await OnUiAsync(window, () => { vol = audio.VolumePercent; stillMuted = audio.IsMuted; });

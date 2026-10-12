@@ -1367,19 +1367,15 @@ namespace AmllTtmlTool.WinUI.Views
             UpdateTipVolumeGlyph();
         }
 
-        // Segoe Fluent volume set: muted, low, mid, high. These are REAL
-        // Unicode codepoints ("\uE993"), never XAML entities ("&#xE993;"):
-        // Glyph is a string property, and assigning the entity text paints
-        // the literal characters as tofu boxes.
+        // Glyph comes from Core.Audio.VolumeGlyph (pure, unit-tested). The
+        // mapping was VERIFIED BY RENDERING (glyph-chart screenshot), not by
+        // doc names: E74F mute, E993 one wave, E994 two, E995 three. Glyph is
+        // a string property — assign REAL codepoints, never XAML entities.
         private void UpdateTipVolumeGlyph()
         {
-            var level = _audio.IsMuted ? 0 : _audio.VolumePercent;
-            var glyph = level <= 0 ? "\uE993"
-                : level < 34 ? "\uE994"
-                : level < 67 ? "\uE995"
-                : "\uE992";
+            var glyph = Core.Audio.VolumeGlyph.ForLevel(_audio.VolumePercent, _audio.IsMuted);
             if (TipVolumeStateGlyph.Glyph != glyph) TipVolumeStateGlyph.Glyph = glyph;
-            var muted = level <= 0;
+            var muted = _audio.IsMuted || _audio.VolumePercent <= 0;
             ToolTipService.SetToolTip(TipVolumeStateButton, muted ? "Unmute" : "Mute");
             AutomationProperties.SetName(TipVolumeStateButton, muted ? "Unmute" : "Mute");
         }

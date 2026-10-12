@@ -901,7 +901,7 @@
                             Padding="0"
                             Click="OnTipVolumeStateClick"
                             ToolTipService.ToolTip="Mute">
-                            <FontIcon x:Name="TipVolumeStateGlyph" FontSize="16" Glyph="&#xE993;" />
+                            <FontIcon x:Name="TipVolumeStateGlyph" FontSize="16" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE993;" />
                         </Button>
                         <Button
                             x:Name="TipOpenFileButton"

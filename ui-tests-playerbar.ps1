@@ -40,10 +40,53 @@ public static class W32Win2 {
     [DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h, System.IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);
+    [DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint pid);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint from, uint to, bool attach);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
     $null = Add-Type -TypeDefinition $src
+}
+
+# Input verbs that winapp gates on foreground (send-keys --via send-input,
+# click, hover, drag): retry with re-foregrounding when refusal is transient
+# (e.g. the user clicked elsewhere mid-run). Reads/invokes/screenshots are
+# background-safe and bypass this wrapper.
+function Invoke-UiInput {
+    param([string[]]$Arguments)
+    for ($i = 0; $i -lt 3; $i++) {
+        try {
+            Invoke-Ui $Arguments -Window $hwnd | Out-Null
+            return
+        } catch {
+            if ("$_" -notmatch 'not in the foreground' -or $i -eq 2) { throw }
+        }
+        Ensure-Foreground $hwnd
+        Start-Sleep -Milliseconds 500
+    }
+}
+function Ensure-Foreground {
+    param($h)
+    $h = [System.IntPtr]$h
+    [W32Win2]::ShowWindow($h, 9) | Out-Null
+    if ([W32Win2]::GetForegroundWindow() -eq $h) { return }
+    $us = [W32Win2]::GetCurrentThreadId()
+    $fg = [W32Win2]::GetForegroundWindow()
+    $fgTid = 0; $fgPid = 0
+    if ($fg -ne [System.IntPtr]::Zero) { $fgTid = [W32Win2]::GetWindowThreadProcessId($fg, [ref]$fgPid) }
+    $appPid = 0
+    $appTid = [W32Win2]::GetWindowThreadProcessId($h, [ref]$appPid)
+    try {
+        if ($fgTid) { [W32Win2]::AttachThreadInput($us, $fgTid, $true) | Out-Null }
+        [W32Win2]::AttachThreadInput($us, $appTid, $true) | Out-Null
+        [W32Win2]::SetForegroundWindow($h) | Out-Null
+    } finally {
+        try { [W32Win2]::AttachThreadInput($us, $appTid, $false) | Out-Null } catch { }
+        try { if ($fgTid) { [W32Win2]::AttachThreadInput($us, $fgTid, $false) | Out-Null } } catch { }
+    }
+    Start-Sleep -Milliseconds 500
 }
 
 $env:WINAPP_UI_WORKFLOW_ID = [guid]::NewGuid().ToString('N')
@@ -215,6 +258,7 @@ try {
     }
     $launchFailures = 0
     Write-Host "WINDOW: hwnd=$hwnd"
+    Ensure-Foreground $hwnd
 
     Test-UI 'bar controls enabled, duration loaded' {
         Invoke-Ui @('wait-for', 'PlayButton', '-p', 'IsEnabled', '--value', 'True', '-t', '5000')
@@ -256,6 +300,37 @@ try {
         }
     }
 
+    Test-UI 'volume screenshots at 0/20/50/80/100 and muted' {
+        Ensure-NoPopup
+        Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
+        Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
+        foreach ($v in @(0, 20, 50, 80, 100)) {
+            Invoke-Ui @('set-value', 'TipVolumeSlider', "$v") | Out-Null
+            Start-Sleep -Milliseconds 400
+            $p = Join-Path $Artifacts "vol-$v.png"
+            try {
+                Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+            } catch {
+                Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+            }
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or (Get-Item -LiteralPath $p).Length -eq 0) {
+                throw "screenshot not delivered: $p"
+            }
+        }
+        Invoke-Ui @('invoke', 'TipVolumeStateButton') | Out-Null
+        Start-Sleep -Milliseconds 400
+        $p = Join-Path $Artifacts 'vol-muted.png'
+        try {
+            Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+        } catch {
+            Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+        }
+        if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or (Get-Item -LiteralPath $p).Length -eq 0) {
+            throw "screenshot not delivered: $p"
+        }
+        Invoke-TipClose 'TrackTitleText'
+    }
+
     Test-UI 'X closes the tip (and the app stays alive)' {
         Ensure-NoPopup
         Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
@@ -267,7 +342,7 @@ try {
         Ensure-NoPopup
         Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
         Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
-        Invoke-Ui @('send-keys', 'esc', '--via', 'send-input') -Window $hwnd | Out-Null
+        Invoke-UiInput @('send-keys', 'esc', '--via', 'send-input')
         Invoke-Ui @('wait-for', 'TrackTitleText', '--gone', '-t', '3000') | Out-Null
         if (TipPresent 'TrackTitleText') { throw 'tip popup still present after Esc' }
         Assert-Alive
@@ -287,7 +362,7 @@ try {
         Ensure-NoPopup
         $before = Get-Text 'DurationText'
         $picksBefore = @(Get-Content -LiteralPath $StubLog -ErrorAction SilentlyContinue | Where-Object { $_ -like 'picker|*' }).Count
-        Invoke-Ui @('click', 'TrackButton', '--right') -Window $hwnd | Out-Null
+        Invoke-UiInput @('click', 'TrackButton', '--right')
         Start-Sleep -Seconds 4
         if (TipPresent 'TrackTitleText') { throw 'tip popup appeared on right click' }
         # Positive control: the predicate must see a deliberately opened tip.
@@ -454,8 +529,9 @@ try {
         Invoke-Ui @('invoke', 'SpeedPreset15') | Out-Null
         Wait-ButtonText 'RateButton' '1.5x'
         Invoke-TipClose 'SpeedPreset05'
+        Ensure-Foreground $hwnd
         foreach ($want in @('1.25x', '.25x', '.5x', '1x', '1.5x')) {
-            Invoke-Ui @('click', 'RateButton', '--right') -Window $hwnd | Out-Null
+            Invoke-UiInput @('click', 'RateButton', '--right')
             Wait-ButtonText 'RateButton' $want
         }
         if (TipPresent 'SpeedPreset05') { throw 'speed tip popup appeared during right-click cycle' }
@@ -469,6 +545,7 @@ try {
         Wait-ButtonText 'RateButton' '1.5x'
         Invoke-TipClose 'SpeedPreset05'
         $r = Element-Rect 'RateButton'
+        Ensure-Foreground $hwnd
         $cx = $r.x + [int]($r.width / 2); $cy = $r.y + [int]($r.height / 2)
         & (Join-Path $Repo 'scripts\middle-click.ps1') -X $cx -Y $cy
         if ($LASTEXITCODE -ne 0) { throw 'middle-click helper failed' }
@@ -489,14 +566,15 @@ try {
 
     Test-UI 'Enter/Space toggle the tips, Shift+F10 triggers context actions' {
         Ensure-NoPopup
-        Invoke-Ui @('send-keys', 'enter', '--target', 'TrackButton', '--via', 'send-input') -Window $hwnd | Out-Null
+        Ensure-Foreground $hwnd
+        Invoke-UiInput @('send-keys', 'enter', '--target', 'TrackButton', '--via', 'send-input')
         Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
         Invoke-TipClose 'TrackTitleText'
-        Invoke-Ui @('send-keys', 'space', '--target', 'RateButton', '--via', 'send-input') -Window $hwnd | Out-Null
+        Invoke-UiInput @('send-keys', 'space', '--target', 'RateButton', '--via', 'send-input')
         Invoke-Ui @('wait-for', 'SpeedPreset05', '-t', '3000') | Out-Null
         Invoke-TipClose 'SpeedPreset05'
         $before = Get-Text 'DurationText'
-        Invoke-Ui @('send-keys', 'shift+f10', '--target', 'TrackButton', '--via', 'send-input') -Window $hwnd | Out-Null
+        Invoke-UiInput @('send-keys', 'shift+f10', '--target', 'TrackButton', '--via', 'send-input')
         Start-Sleep -Seconds 4
         if (TipPresent 'TrackTitleText') { throw 'Shift+F10 opened the tip instead of the picker' }
         $after = Get-Text 'DurationText'
@@ -551,6 +629,7 @@ try {
         if ($u2 -le $u1 + 300) { throw "position stalled while unfocused ($u1 -> $u2)" }
         # Back to 1x, paused, for the layout legs.
         $r = Element-Rect 'RateButton'
+        Ensure-Foreground $hwnd
         & (Join-Path $Repo 'scripts\middle-click.ps1') -X ($r.x + [int]($r.width / 2)) -Y ($r.y + [int]($r.height / 2))
         Wait-ButtonText 'RateButton' '1x' -TimeoutMs 5000
         Invoke-Ui @('invoke', 'PlayButton') -Window $hwnd | Out-Null
@@ -579,7 +658,8 @@ try {
     }
 
     Test-UI 'speed hover screenshot delivered' {
-        Invoke-Ui @('hover', 'RateButton') -Window $hwnd | Out-Null
+        Ensure-Foreground $hwnd
+        Invoke-UiInput @('hover', 'RateButton')
         Start-Sleep -Milliseconds 400
         $p = Join-Path $Artifacts '04-speed-hover.png'
         Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
