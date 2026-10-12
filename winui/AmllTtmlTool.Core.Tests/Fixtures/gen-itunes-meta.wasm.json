@@ -1,0 +1,28 @@
+{
+ "lyricLines": [
+  {
+   "words": [
+    {
+     "startTime": 0,
+     "endTime": 500,
+     "word": "a",
+     "romanWord": "r"
+    }
+   ],
+   "translatedLyric": "T",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 0,
+   "endTime": 500
+  }
+ ],
+ "metadata": [
+  {
+   "key": "songwriter",
+   "value": [
+    "W"
+   ]
+  }
+ ]
+}

@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <None Include="Fixtures\*.xml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\*.wasm.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

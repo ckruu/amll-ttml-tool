@@ -52,7 +52,14 @@ public static partial class LegacyTtml
         var metadata = lyric.Metadata.Select(m => m with { Value = m.Value.ToList() }).ToList();
         var result = lyric with { LyricLines = lines, Metadata = metadata };
 
-        var agentIds = AgentAttr().Matches(rawText).Select(m => m.Groups[1].Value).ToList();
+        // Agent per <p> in document order (null when absent), mirroring the
+        // original's per-line agentIds from rawParseTtml. A flat agent-attr
+        // regex would SHIFT every later line when one <p> lacks the attr.
+        var agentIds = PTag().Matches(rawText).Select(m =>
+        {
+            var a = AgentAttr().Match(m.Value);
+            return a.Success ? a.Groups[1].Value : null;
+        }).ToList();
         var pIndex = 0;
         string? currentAgent = agentIds.Count > 0 ? agentIds[0] : null;
         var duetFixed = 0;
@@ -155,4 +162,7 @@ public static partial class LegacyTtml
 
     [GeneratedRegex("ttm:agent\\s*=\\s*[\"']([^\"']+)[\"']")]
     private static partial Regex AgentAttr();
+
+    [GeneratedRegex("<p\\b[^>]*>", RegexOptions.Singleline)]
+    private static partial Regex PTag();
 }

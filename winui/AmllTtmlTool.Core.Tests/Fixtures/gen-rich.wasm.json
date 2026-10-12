@@ -1,0 +1,69 @@
+{
+ "lyricLines": [
+  {
+   "words": [
+    {
+     "startTime": 1000,
+     "endTime": 1500,
+     "word": "Hello",
+     "romanWord": "he-ro",
+     "ruby": [
+      {
+       "startTime": 1000,
+       "endTime": 1500,
+       "word": "x"
+      }
+     ]
+    },
+    {
+     "startTime": 0,
+     "endTime": 0,
+     "word": " "
+    },
+    {
+     "startTime": 1600,
+     "endTime": 2200,
+     "word": "world",
+     "obscene": true,
+     "emptyBeat": 2
+    }
+   ],
+   "translatedLyric": "你好世界",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 1000,
+   "endTime": 2200
+  },
+  {
+   "words": [
+    {
+     "startTime": 2300,
+     "endTime": 2800,
+     "word": "(hey)"
+    }
+   ],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": true,
+   "isDuet": false,
+   "startTime": 2300,
+   "endTime": 2800
+  }
+ ],
+ "metadata": [
+  {
+   "key": "musicName",
+   "value": [
+    "Song"
+   ]
+  },
+  {
+   "key": "artists",
+   "value": [
+    "A",
+    "B"
+   ]
+  }
+ ]
+}

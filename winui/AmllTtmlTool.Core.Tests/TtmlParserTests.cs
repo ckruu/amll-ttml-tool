@@ -117,19 +117,44 @@ public sealed class TtmlParserTests
         Assert.Equal("F", ParseOk(Doc(inner), new("JA", null)).LyricLines[0].TranslatedLyric);
     }
 
+    // Duet baseline (WASM-probed): a line is duet iff its agent differs
+    // from the FIRST <p>'s agent in document order — not "== v2".
+    // Single-line docs therefore never parse as duet (repair restores the
+    // first-line flag on import when its agent is non-v1).
     [Fact]
-    public void Parse_AgentIsExactV2()
+    public void Parse_DuetBaselineIsFirstLineAgent()
     {
-        foreach (var (agent, duet) in new[] { ("v2", true), ("v1", false), ("V2", false), ("v3", false), ("", false) })
+        string Line(string agentAttr, string word) =>
+            $"<p begin=\"0.000\" end=\"1.000\"{agentAttr}>" +
+            $"<span begin=\"0.000\" end=\"1.000\">{word}</span></p>";
+        // Single line: own agent is the baseline -> never duet.
+        foreach (var agent in new[] { "v2", "v1", "V2", "v3", "" })
         {
-            var lyric = ParseOk(Doc(
-                $"<p begin=\"0.000\" end=\"1.000\" ttm:agent=\"{agent}\">" +
-                "<span begin=\"0.000\" end=\"1.000\">a</span></p>"));
-            Assert.Equal(duet, lyric.LyricLines[0].IsDuet);
+            var lyric = ParseOk(Doc(Line($" ttm:agent=\"{agent}\"", "a")));
+            Assert.False(lyric.LyricLines[0].IsDuet);
         }
-        var missing = ParseOk(Doc(
-            "<p begin=\"0.000\" end=\"1.000\"><span begin=\"0.000\" end=\"1.000\">a</span></p>"));
+        var missing = ParseOk(Doc(Line("", "a")));
         Assert.False(missing.LyricLines[0].IsDuet);
+        // First line sets the baseline; later lines differ -> duet.
+        var two = ParseOk(Doc(
+            Line(" ttm:agent=\"v2\"", "a") + Line(" ttm:agent=\"v1\"", "b")));
+        Assert.False(two.LyricLines[0].IsDuet);
+        Assert.True(two.LyricLines[1].IsDuet);
+        var custom = ParseOk(Doc(
+            Line(" ttm:agent=\"v3\"", "a") + Line(" ttm:agent=\"v1\"", "b")));
+        Assert.False(custom.LyricLines[0].IsDuet);
+        Assert.True(custom.LyricLines[1].IsDuet);
+        // A missing agent defaults to "v1" (WASM-probed); explicitly empty
+        // stays distinct.
+        var missingFirst = ParseOk(Doc(Line("", "a") + Line(" ttm:agent=\"v2\"", "b")));
+        Assert.False(missingFirst.LyricLines[0].IsDuet);
+        Assert.True(missingFirst.LyricLines[1].IsDuet);
+        var missingSecond = ParseOk(Doc(Line(" ttm:agent=\"v1\"", "a") + Line("", "b")));
+        Assert.False(missingSecond.LyricLines[0].IsDuet);
+        Assert.False(missingSecond.LyricLines[1].IsDuet);
+        var emptyFirst = ParseOk(Doc(Line(" ttm:agent=\"\"", "a") + Line("", "b")));
+        Assert.False(emptyFirst.LyricLines[0].IsDuet);
+        Assert.True(emptyFirst.LyricLines[1].IsDuet);
     }
 
     [Fact]

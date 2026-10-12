@@ -15,6 +15,9 @@ public static partial class TtmlParser
     public static Result<TtmlLyric> Parse(string xml, TtmlParseOptions? options = null)
     {
         options ??= new TtmlParseOptions();
+        // The original accepts a leading BOM (verified WASM behavior); strip
+        // it before anything else (deliberate: no other normalization).
+        xml = xml.TrimStart('﻿');
         if (string.IsNullOrWhiteSpace(xml) || !xml.Contains('<'))
         {
             return Result<TtmlLyric>.Ok(new TtmlLyric([], []));
@@ -55,6 +58,7 @@ public static partial class TtmlParser
         var songwriters = new List<string>();
         var rawRest = new List<TtmlMetadata>();
         var lineTranslations = new Dictionary<string, List<(string? Lang, string Text)>>();
+        var lineRomans = new Dictionary<string, List<(double Begin, double End, string Text)>>();
 
         var head = root.Elements().FirstOrDefault(e => Is("head", e));
         var metadataEl = head?.Elements().FirstOrDefault(e => Is("metadata", e));
@@ -109,18 +113,66 @@ public static partial class TtmlParser
                         }
                     }
                 }
+                // Per-word romanization: <transliteration><text for="L1">
+                // spans attach to the word in the keyed line whose span
+                // matches exactly (verified WASM behavior; first match wins,
+                // non-matching spans and unknown keys are dropped).
+                var transliterationsEl = itunesMeta.Elements().FirstOrDefault(e => Is("transliterations", e));
+                if (transliterationsEl is not null)
+                {
+                    foreach (var tr in transliterationsEl.Elements().Where(e => Is("transliteration", e)))
+                    {
+                        foreach (var text in tr.Elements().Where(e => Is("text", e)))
+                        {
+                            var forKey = text.Attribute("for")?.Value ?? string.Empty;
+                            if (!lineRomans.TryGetValue(forKey, out var list))
+                            {
+                                list = [];
+                                lineRomans[forKey] = list;
+                            }
+                            foreach (var span in text.Elements().Where(e => Is("span", e)))
+                            {
+                                var bAttr = Attr(span, "begin");
+                                var eAttr = Attr(span, "end");
+                                if (bAttr is null || eAttr is null) continue;
+                                if (!TryParseTimestamp(bAttr, out var b)) continue;
+                                if (!TryParseTimestamp(eAttr, out var e)) continue;
+                                list.Add((b, e, span.Value));
+                            }
+                        }
+                    }
+                }
             }
         }
 
         var lines = new List<LyricLine>();
         var body = root.Elements().FirstOrDefault(e => Is("body", e));
+        // Duet baseline (verified WASM behavior): a line is duet iff its
+        // agent differs from the FIRST <p>'s agent in document order —
+        // not "== v2". A MISSING agent defaults to "v1" (an explicitly
+        // empty agent stays distinct). Missing == missing, "" == "".
+        string? baselineAgent = null;
+        var baselineFound = false;
         if (body is not null)
         {
             foreach (var div in body.Elements().Where(e => Is("div", e)))
             {
                 foreach (var p in div.Elements().Where(e => Is("p", e)))
                 {
-                    var parsed = ParseParagraph(p, options, lineTranslations, cursor);
+                    baselineAgent = Attr(p, "agent") ?? "v1";
+                    baselineFound = true;
+                    break;
+                }
+                if (baselineFound) break;
+            }
+        }
+        if (body is not null)
+        {
+            foreach (var div in body.Elements().Where(e => Is("div", e)))
+            {
+                foreach (var p in div.Elements().Where(e => Is("p", e)))
+                {
+                    var parsed = ParseParagraph(p, options, lineTranslations, lineRomans, baselineAgent, cursor);
                     if (!parsed.Success) return Result<TtmlLyric>.Fail(parsed.Error!);
                     lines.AddRange(parsed.Data!);
                 }
@@ -145,6 +197,8 @@ public static partial class TtmlParser
         XElement p,
         TtmlParseOptions options,
         Dictionary<string, List<(string? Lang, string Text)>> lineTranslations,
+        Dictionary<string, List<(double Begin, double End, string Text)>> lineRomans,
+        string? baselineAgent,
         Cursor cursor)
     {
         var stack = new List<string> { "tt", "body", "div", "p" };
@@ -160,8 +214,8 @@ public static partial class TtmlParser
         if (!TryParseTimestamp(endAttr, out var pEnd))
             return Fail<List<LyricLine>>("InvalidTimestamp", $"Invalid timestamp format: {endAttr}", pOffset, stack, "end", endAttr);
 
-        var agent = Attr(p, "agent");
-        var pDuet = agent == "v2";
+        var agent = Attr(p, "agent") ?? "v1";
+        var pDuet = agent != baselineAgent;
         var key = Attr(p, "key");
 
         var words = new List<LyricWord>();
@@ -243,24 +297,59 @@ public static partial class TtmlParser
         roman ??= string.Empty;
 
         var result = new List<LyricLine>();
-        if (!hasTimedWord && translations.Count == 0 && roman == string.Empty && bgGroups.Count == 0)
+        // A main line ALWAYS carries at least one word: timed words when
+        // present, else the direct text (trimmed, or "" when blank) as one
+        // [pBegin, pEnd] word — verified WASM behavior for empty, x-bg-only,
+        // translation-only, and mixed text+BG paragraphs.
+        List<LyricWord> mainWords;
+        if (hasTimedWord)
+        {
+            mainWords = words;
+        }
+        else
         {
             var direct = string.Concat(p.Nodes().OfType<XText>().Select(t => t.Value));
             var text = string.IsNullOrWhiteSpace(direct) ? string.Empty : direct.Trim();
-            result.Add(NewLine(pBegin, pEnd, false, pDuet, [NewWord(pBegin, pEnd, text)]));
-            return Result<List<LyricLine>>.Ok(result);
+            mainWords = [NewWord(pBegin, pEnd, text)];
         }
+        AttachRoman(key, mainWords, lineRomans);
 
-        result.Add(NewLine(pBegin, pEnd, false, pDuet, words, translated, roman));
+        result.Add(NewLine(pBegin, pEnd, false, pDuet, mainWords, translated, roman));
 
         foreach (var (wrapper, wAgent) in bgGroups)
         {
-            var bg = ParseBgWrapper(wrapper, pBegin, pEnd, wAgent ?? agent, cursor, stack);
+            var bg = ParseBgWrapper(wrapper, pBegin, pEnd, wAgent ?? agent, baselineAgent, cursor, stack);
             if (!bg.Success) return Result<List<LyricLine>>.Fail(bg.Error!);
             result.Add(bg.Data!);
         }
 
         return Result<List<LyricLine>>.Ok(result);
+    }
+
+    private static void AttachRoman(
+        string? key,
+        List<LyricWord> words,
+        Dictionary<string, List<(double Begin, double End, string Text)>> lineRomans)
+    {
+        if (key is null || !lineRomans.TryGetValue(key, out var spans)) return;
+        var unused = spans.ToList();
+        for (var i = 0; i < words.Count; i++)
+        {
+            var at = unused.FindIndex(s => s.Begin == words[i].StartTime && s.End == words[i].EndTime);
+            if (at < 0) continue;
+            words[i] = words[i] with { RomanWord = unused[at].Text };
+            unused.RemoveAt(at);
+        }
+    }
+
+    // BG paren convention: the parser strips exactly one paren layer per end
+    // (ASCII or fullwidth, each end independent; main lines untouched) —
+    // verified WASM behavior. The generator and legacy repair re-add them.
+    private static string StripBgParens(string s)
+    {
+        if (s.Length > 0 && (s[0] == '(' || s[0] == '（')) s = s[1..];
+        if (s.Length > 0 && (s[^1] == ')' || s[^1] == '）')) s = s[..^1];
+        return s;
     }
     private static string? SelectByLang(List<(string? Lang, string Text)> items, string? want)
     {
@@ -321,7 +410,7 @@ public static partial class TtmlParser
     }
 
     private static Result<LyricLine> ParseBgWrapper(
-        XElement wrapper, double pBegin, double pEnd, string? agent, Cursor cursor, List<string> stack)
+        XElement wrapper, double pBegin, double pEnd, string? agent, string? baselineAgent, Cursor cursor, List<string> stack)
     {
         var wBeginAttr = Attr(wrapper, "begin");
         var wEndAttr = Attr(wrapper, "end");
@@ -371,7 +460,7 @@ public static partial class TtmlParser
             var b = bAttr is not null && TryParseTimestamp(bAttr, out var tb) ? tb : 0.0;
             var e = eAttr is not null && TryParseTimestamp(eAttr, out var te) ? te : 0.0;
             var obscene = string.Equals(Attr(el, "obscene"), "true", StringComparison.OrdinalIgnoreCase);
-            words.Add(NewWord(b, e, el.Value, obscene));
+            words.Add(NewWord(b, e, StripBgParens(el.Value), obscene));
             lastWasTimedWord = true;
         }
 
@@ -390,7 +479,7 @@ public static partial class TtmlParser
                 ReplaceWord(words, currentLast, currentLast.Word[..^1]);
         }
 
-        return Result<LyricLine>.Ok(NewLine(begin, end, true, agent == "v2", words));
+        return Result<LyricLine>.Ok(NewLine(begin, end, true, (agent ?? "v1") != baselineAgent, words));
     }
 
     private static void ReplaceWord(List<LyricWord> words, LyricWord target, string word)
@@ -417,6 +506,10 @@ public static partial class TtmlParser
     private static string? Attr(XElement el, string localName) =>
         el.Attributes().FirstOrDefault(a => a.Name.LocalName == localName)?.Value;
 
+    // Verified WASM behavior: timestamps truncate toward zero to whole ms
+    // (0.0019s -> 1ms, 0.0009s -> 0ms). Integer/decimal arithmetic throughout
+    // so float noise can never straddle the truncation (41.138s -> 41138,
+    // never 41137.999...). Colon form allows at most 3 frac digits.
     internal static bool TryParseTimestamp(string s, out double ms)
     {
         ms = 0;
@@ -425,34 +518,33 @@ public static partial class TtmlParser
         {
             var parts = s.Split(':');
             if (parts.Length is < 2 or > 3) return false;
-            if (!TryParseSec(parts[^1], out var sec)) return false;
+            if (!TryParseSecMs(parts[^1], out var secMs)) return false;
             if (!int.TryParse(parts[^2], out var min)) return false;
             var hour = 0;
             if (parts.Length == 3 && !int.TryParse(parts[0], out hour)) return false;
-            ms = ((hour * 60L + min) * 60 + sec) * 1000;
+            ms = ((hour * 60L + min) * 60 * 1000) + secMs;
             return true;
         }
-        if (!double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds))
+        if (!decimal.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds))
             return false;
-        ms = seconds * 1000;
+        ms = (double)decimal.Truncate(seconds * 1000);
         return true;
     }
 
-    private static bool TryParseSec(string s, out double sec)
+    private static bool TryParseSecMs(string s, out long ms)
     {
-        sec = 0;
+        ms = 0;
         var dot = s.IndexOf('.');
-        if (dot < 0) return int.TryParse(s, out var whole) && SetSec(ref sec, whole);
+        if (dot < 0)
+        {
+            if (!int.TryParse(s, out var whole)) return false;
+            ms = whole * 1000L;
+            return true;
+        }
         if (!int.TryParse(s[..dot], out var w)) return false;
         var fracStr = s[(dot + 1)..];
         if (fracStr.Length == 0 || fracStr.Length > 3 || !fracStr.All(char.IsDigit)) return false;
-        sec = w + double.Parse("0." + fracStr, System.Globalization.CultureInfo.InvariantCulture);
-        return true;
-    }
-
-    private static bool SetSec(ref double sec, int whole)
-    {
-        sec = whole;
+        ms = w * 1000L + long.Parse(fracStr.PadRight(3, '0'));
         return true;
     }
 
@@ -476,12 +568,22 @@ public static partial class TtmlParser
     private sealed class Cursor(string xml)
     {
         private int _index;
+        private int _lastFound;
+        private long _bytes;
+
         public long Take(string tag)
         {
             var found = xml.IndexOf("<" + tag, _index, StringComparison.Ordinal);
             if (found < 0) found = _index;
+            // Incremental byte counting: searches only move forward, so
+            // encode just the delta (was O(n) per word -> O(n^2) total).
+            if (found > _lastFound)
+            {
+                _bytes += Encoding.UTF8.GetByteCount(xml[_lastFound..found]);
+                _lastFound = found;
+            }
             _index = found + 1;
-            return Encoding.UTF8.GetByteCount(xml[..found]);
+            return _bytes;
         }
     }
 }

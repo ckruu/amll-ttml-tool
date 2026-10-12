@@ -1,0 +1,42 @@
+{
+ "lyricLines": [
+  {
+   "words": [
+    {
+     "startTime": 0,
+     "endTime": 500,
+     "word": "la"
+    }
+   ],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 0,
+   "endTime": 500
+  },
+  {
+   "words": [
+    {
+     "startTime": 500,
+     "endTime": 1000,
+     "word": "lu"
+    }
+   ],
+   "translatedLyric": "",
+   "romanLyric": "lu-lu",
+   "isBG": false,
+   "isDuet": true,
+   "startTime": 500,
+   "endTime": 1000
+  }
+ ],
+ "metadata": [
+  {
+   "key": "musicName",
+   "value": [
+    "S"
+   ]
+  }
+ ]
+}

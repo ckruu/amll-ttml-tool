@@ -1,0 +1,44 @@
+{
+ "lyricLines": [
+  {
+   "words": [],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 0,
+   "endTime": 100
+  },
+  {
+   "words": [
+    {
+     "startTime": 200,
+     "endTime": 300,
+     "word": "(bg)"
+    }
+   ],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": true,
+   "isDuet": false,
+   "startTime": 200,
+   "endTime": 300
+  },
+  {
+   "words": [
+    {
+     "startTime": 400,
+     "endTime": 500,
+     "word": "m"
+    }
+   ],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 400,
+   "endTime": 500
+  }
+ ],
+ "metadata": []
+}

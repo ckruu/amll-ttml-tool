@@ -1,0 +1,20 @@
+{
+ "lyricLines": [
+  {
+   "words": [
+    {
+     "startTime": 200,
+     "endTime": 300,
+     "word": "bg"
+    }
+   ],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": true,
+   "startTime": 0,
+   "endTime": 900
+  }
+ ],
+ "metadata": []
+}

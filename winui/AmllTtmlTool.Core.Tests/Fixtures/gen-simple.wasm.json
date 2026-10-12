@@ -1,0 +1,44 @@
+{
+ "lyricLines": [
+  {
+   "words": [
+    {
+     "startTime": 1000,
+     "endTime": 1500,
+     "word": "Hello"
+    },
+    {
+     "startTime": 0,
+     "endTime": 0,
+     "word": " "
+    },
+    {
+     "startTime": 1600,
+     "endTime": 2200,
+     "word": "world"
+    }
+   ],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 1000,
+   "endTime": 2200
+  }
+ ],
+ "metadata": [
+  {
+   "key": "musicName",
+   "value": [
+    "Song"
+   ]
+  },
+  {
+   "key": "artists",
+   "value": [
+    "A",
+    "B"
+   ]
+  }
+ ]
+}

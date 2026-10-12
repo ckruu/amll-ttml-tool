@@ -1,0 +1,29 @@
+{
+ "lyricLines": [
+  {
+   "words": [],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 0,
+   "endTime": 100
+  },
+  {
+   "words": [
+    {
+     "startTime": 200,
+     "endTime": 300,
+     "word": "m"
+    }
+   ],
+   "translatedLyric": "",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 200,
+   "endTime": 300
+  }
+ ],
+ "metadata": []
+}

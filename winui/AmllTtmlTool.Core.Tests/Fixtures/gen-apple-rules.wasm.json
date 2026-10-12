@@ -1,0 +1,27 @@
+{
+ "lyricLines": [
+  {
+   "words": [
+    {
+     "startTime": 0,
+     "endTime": 500,
+     "word": "a"
+    }
+   ],
+   "translatedLyric": "T",
+   "romanLyric": "",
+   "isBG": false,
+   "isDuet": false,
+   "startTime": 0,
+   "endTime": 500
+  }
+ ],
+ "metadata": [
+  {
+   "key": "musicName",
+   "value": [
+    "S"
+   ]
+  }
+ ]
+}
