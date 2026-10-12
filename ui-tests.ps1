@@ -29,14 +29,43 @@ $env:WINAPP_UI_WORKFLOW_ID = [guid]::NewGuid().ToString('N')
 $results = [Collections.Generic.List[object]]::new()
 
 # ShowWindow P/Invoke for the minimize/restore legs of the UI tests.
+# Foreground helpers: winapp refuses focus/drag input when our window is not
+# foreground (e.g. the user is in another app). AttachThreadInput bridges
+# the foreground lock so the test window can take focus for its run.
 if (-not ('W32Win' -as [type])) {
     $src = @"
 using System.Runtime.InteropServices;
 public static class W32Win {
     [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);
+    [DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(System.IntPtr h, out uint pid);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint from, uint to, bool attach);
 }
 "@
     $null = Add-Type -TypeDefinition $src
+}
+
+function Foreground-App {
+    param([System.IntPtr]$h)
+    [W32Win]::ShowWindow($h, 9) | Out-Null
+    $fg = [W32Win]::GetForegroundWindow()
+    if ($fg -eq $h) { return }
+    $us = [W32Win]::GetCurrentThreadId()
+    $fgTid = 0; $fgPid = 0
+    if ($fg -ne [System.IntPtr]::Zero) { $fgTid = [W32Win]::GetWindowThreadProcessId($fg, [ref]$fgPid) }
+    $appPid = 0
+    $appTid = [W32Win]::GetWindowThreadProcessId($h, [ref]$appPid)
+    try {
+        if ($fgTid) { [W32Win]::AttachThreadInput($us, $fgTid, $true) | Out-Null }
+        [W32Win]::AttachThreadInput($us, $appTid, $true) | Out-Null
+        [W32Win]::SetForegroundWindow($h) | Out-Null
+    } finally {
+        try { [W32Win]::AttachThreadInput($us, $appTid, $false) | Out-Null } catch { }
+        try { if ($fgTid) { [W32Win]::AttachThreadInput($us, $fgTid, $false) | Out-Null } } catch { }
+    }
+    Start-Sleep -Milliseconds 500
 }
 
 function Invoke-WinAppChecked {
@@ -117,6 +146,9 @@ try {
     if ($maxMs -le 0) { throw "duration not loaded yet ($($dur.text))" }
 
     # Bring the window up and focus it so real input lands on the app.
+    # Foreground first: winapp refuses focus/drag on a background window,
+    # and the desktop may belong to another app (e.g. the user's music).
+    Foreground-App ([System.IntPtr]$hwnd)
     Invoke-Ui @('focus', 'SeekSlider') -Window $hwnd | Out-Null
 
     function Get-Engine {
