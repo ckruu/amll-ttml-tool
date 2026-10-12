@@ -598,7 +598,9 @@ namespace AmllTtmlTool.WinUI.Views
                 // via the ShellPage test hooks) and --playerbar-ui-hold
                 // <file> (passive target for the external winapp-ui driver:
                 // loads one file paused at 0 and stays open; the watchdog
-                // closes it). Self-closing / watchdog-closed. DEBUG-only.
+                // closes it) plus --playerbar-synth-hold <case> (synthetic
+                // track, tip left open for screenshots). Self-closing /
+                // watchdog-closed. DEBUG-only.
                 var playerbarIdx = Array.IndexOf(audioArgs, "--playerbar-test");
                 if (playerbarIdx >= 0)
                 {
@@ -642,6 +644,20 @@ namespace AmllTtmlTool.WinUI.Views
                         await Task.Delay(800);
                         var win = ((App)Application.Current).MainWindow;
                         await Services.PlayerbarTestCheck.RunHoldAsync(win, _audio, playerbarHoldFile);
+                    });
+                }
+                // Synthetic tip hold for screenshots: --playerbar-synth-hold
+                // <caseIndex> loads a synthetic track (no files) and leaves
+                // the track tip open. DEBUG-only.
+                var playerbarSynthIdx = Array.IndexOf(audioArgs, "--playerbar-synth-hold");
+                if (playerbarSynthIdx >= 0)
+                {
+                    var synthArg = playerbarSynthIdx + 1 < audioArgs.Length ? audioArgs[playerbarSynthIdx + 1] : "0";
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(800);
+                        var win = ((App)Application.Current).MainWindow;
+                        await Services.PlayerbarTestCheck.RunSynthHoldAsync(win, _audio, this, synthArg);
                     });
                 }
 #endif
@@ -1243,7 +1259,11 @@ namespace AmllTtmlTool.WinUI.Views
             if (TrackTip.Target is null) TrackTip.Target = TrackButton;
             if (!TrackTip.IsOpen) SpeedTip.IsOpen = false;
             TrackTip.IsOpen = !TrackTip.IsOpen;
-            if (TrackTip.IsOpen) RefreshTrackTip();
+            if (TrackTip.IsOpen)
+            {
+                RefreshTrackTip();
+                EnqueueArtistFit();
+            }
         }
 
         private void OnTrackContextRequested(UIElement sender, ContextRequestedEventArgs args)
@@ -1388,6 +1408,7 @@ namespace AmllTtmlTool.WinUI.Views
                     TrackArtistText.Text = artist;
                     TrackCodecText.Text = "- " + container.ToUpperInvariant() + " "
                         + Core.Audio.TrackDisplay.CodecLabel(_audio.CodecName);
+                    FitArtistLine();
                     _ = LoadTipCoverAsync(_audio.Cover?.Bytes, key);
                 }
                 TipOpenFileButton.IsEnabled = true;
@@ -1405,6 +1426,59 @@ namespace AmllTtmlTool.WinUI.Views
                 _syncingTipVolume = false;
             }
             UpdateTipVolumeGlyph();
+        }
+
+        // Artist/codec hug: the artist ellipsizes to a computed MaxWidth so
+        // the codec sits right after it and stays fully visible. Two-phase:
+        // phase 1 caps to a safe 80px so the first layout pass can never
+        // overflow the 336px-capped presenter; phase 2 (one layout pass
+        // later) measures the real content width and opens the cap to fit.
+        // No SizeChanged watcher and no per-frame work: the window min
+        // width is 600px, so the capped tip always fits and only the track
+        // change (plus tip open) matters.
+        private double _lastArtistMax = double.NaN;
+
+        private void FitArtistLine()
+        {
+            TrackArtistText.MaxWidth = 80;
+            _lastArtistMax = 80;
+            EnqueueArtistFit();
+        }
+
+        private void EnqueueArtistFit()
+        {
+            var key = _trackTipKey;
+            _ = DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    if (key != _trackTipKey) return;
+                    // Synchronous layout first: without this the read below
+                    // can see pre-text widths and the cap sticks too small
+                    // (the next track then inherits a starved artist box).
+                    TipContentRoot.UpdateLayout();
+                    ApplyArtistMax(TipContentRoot.ActualWidth);
+                }
+                catch { }
+            });
+        }
+
+        // Shared computation: cap the artist so artist + 6px gap + codec
+        // fit the measured content width minus cover column (64 + 12 gap).
+        // Returns false when there is nothing to apply yet (not laid out).
+        private bool ApplyArtistMax(double rootW)
+        {
+            if (!(rootW > 0)) return false;
+            TrackCodecText.Measure(new Windows.Foundation.Size(
+                double.PositiveInfinity, double.PositiveInfinity));
+            var max = Math.Max(40, rootW - 64.0 - 12.0 - 6.0
+                - TrackCodecText.DesiredSize.Width);
+            if (Math.Abs(max - _lastArtistMax) > 0.5)
+            {
+                _lastArtistMax = max;
+                TrackArtistText.MaxWidth = max;
+            }
+            return true;
         }
 
         private async Task LoadTipCoverAsync(byte[]? bytes, string? key)
@@ -2409,9 +2483,13 @@ namespace AmllTtmlTool.WinUI.Views
             OnTipVolumeStateClick(TipVolumeStateButton, new RoutedEventArgs());
         internal void Test_OpenTrackTip()
         {
-            // Through the real Click path (toggle + close-the-other-tip).
-            Test_CloseTips();
-            OnTrackButtonClick(TrackButton, new RoutedEventArgs());
+            // Deterministic open (not a toggle): the matrix polls for laid
+            // out bounds right after, which a toggle race would flake.
+            if (TrackTip.Target is null) TrackTip.Target = TrackButton;
+            SpeedTip.IsOpen = false;
+            TrackTip.IsOpen = true;
+            RefreshTrackTip();
+            EnqueueArtistFit();
         }
         internal void Test_OpenSpeedTip()
         {
@@ -2554,6 +2632,82 @@ namespace AmllTtmlTool.WinUI.Views
             3 => SpeedPreset15,
             _ => SpeedPreset125,
         };
+        // Track-tip bounds for the layout matrix: right edges of every
+        // control plus content-root and tip widths, all in TrackTip space.
+        // Codec desired width included to prove full visibility.
+        internal string Test_TipBounds()
+        {
+            try
+            {
+                // Settle synchronously so the read reflects THIS track: run
+                // layout, apply the artist fit against the real content
+                // width, then re-run layout until the cap takes (bounded:
+                // MaxWidth changes need an arrange pass to land in
+                // ActualWidth, and one UpdateLayout is not always enough
+                // inside a freshly opened popup).
+                var layoutPasses = 0;
+                TipContentRoot.UpdateLayout();
+                ApplyArtistMax(TipContentRoot.ActualWidth);
+                for (var i = 0; i < 5; i++)
+                {
+                    layoutPasses++;
+                    TipContentRoot.UpdateLayout();
+                    if (TrackArtistText.ActualWidth
+                        <= TrackArtistText.MaxWidth + 1.0)
+                        break;
+                }
+                TrackCodecText.Measure(new Windows.Foundation.Size(
+                    double.PositiveInfinity, double.PositiveInfinity));
+                TrackArtistText.Measure(new Windows.Foundation.Size(
+                    double.PositiveInfinity, double.PositiveInfinity));
+                TipOpenFileButton.Measure(new Windows.Foundation.Size(
+                    double.PositiveInfinity, double.PositiveInfinity));
+                TipExplorerButton.Measure(new Windows.Foundation.Size(
+                    double.PositiveInfinity, double.PositiveInfinity));
+                // True artist desired width, unconstrained (MaxWidth clamps
+                // DesiredSize, so measure with it lifted, then restore).
+                var savedMax = TrackArtistText.MaxWidth;
+                TrackArtistText.MaxWidth = double.PositiveInfinity;
+                TrackArtistText.Measure(new Windows.Foundation.Size(
+                    double.PositiveInfinity, double.PositiveInfinity));
+                var artistTrue = TrackArtistText.DesiredSize.Width;
+                TrackArtistText.MaxWidth = savedMax;
+                string Box(FrameworkElement el)
+                {
+                    var o = el.TransformToVisual(TrackTip)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0));
+                    return $"{o.X:F1}-{o.X + el.ActualWidth:F1}";
+                }
+                var rootO = TipContentRoot.TransformToVisual(TrackTip)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0));
+                var volThumb = FindThumb(TipVolumeSlider);
+                string vol = "none";
+                if (volThumb is not null)
+                {
+                    var vo = volThumb.TransformToVisual(TrackTip)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0));
+                    vol = $"{vo.X:F1}-{vo.X + volThumb.ActualWidth:F1}";
+                }
+                return $"tipW={TrackTip.ActualWidth:F1} "
+                    + $"tipOpen={TrackTip.IsOpen} vol={TipVolumeSlider.Value:F0} "
+                    + $"maxW={TrackArtistText.MaxWidth:F0} lastMax={_lastArtistMax:F0} "
+                    + $"passes={layoutPasses} "
+                    + $"root=[{rootO.X:F1}-{rootO.X + TipContentRoot.ActualWidth:F1}] "
+                    + $"title=[{Box(TrackTitleText)}] artist=[{Box(TrackArtistText)}] "
+                    + $"codec=[{Box(TrackCodecText)}] codecDesired={TrackCodecText.DesiredSize.Width:F1} "
+                    + $"artistDesired={TrackArtistText.DesiredSize.Width:F1} "
+                    + $"artistTrue={artistTrue:F1} "
+                    + $"openDesired={TipOpenFileButton.DesiredSize.Width:F1} "
+                    + $"explorerDesired={TipExplorerButton.DesiredSize.Width:F1} "
+                    + $"slider=[{Box(TipVolumeSlider)}] volThumb=[{vol}] "
+                    + $"open=[{Box(TipOpenFileButton)}] explorer=[{Box(TipExplorerButton)}] "
+                    + $"state=[{Box(TipVolumeStateButton)}]";
+            }
+            catch (Exception ex)
+            {
+                return "FAIL harness-error " + ex.GetType().Name;
+            }
+        }
         // Seek-thumb geometry for the thumb matrix: slider Value/Maximum plus
         // track origin/width and live thumb-center x, all in PlayerBarBorder
         // space. Finds the VISIBLE bar slider by AutomationId (there is

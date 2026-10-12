@@ -774,7 +774,13 @@
             PreferredPlacement="Top"
             ShouldConstrainToRootBounds="True">
             <TeachingTip.Content>
-                <Grid RowSpacing="8" MinWidth="300" MaxWidth="360">
+                <!-- No fixed Width: the tip sizes to this content up to the
+                     theme TeachingTipMaxWidth (336) minus 12px content
+                     margins each side. Keep content <= ~310 wide or the
+                     presenter clips the right edge. -->
+                <Grid x:Name="TipContentRoot"
+                      AutomationProperties.AutomationId="TipContentRoot"
+                      HorizontalAlignment="Stretch" RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -819,11 +825,11 @@
                                 Style="{StaticResource BodyStrongTextBlockStyle}"
                                 Text="-"
                                 TextTrimming="CharacterEllipsis" />
-                            <Grid ColumnSpacing="6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
+                            <!-- Artist hugs the codec: one left-aligned row, no
+                                 stretching gap. Long artists ellipsize to a
+                                 code-computed MaxWidth (FitArtistLine); the
+                                 codec is always fully visible. -->
+                            <StackPanel Orientation="Horizontal" Spacing="6">
                                 <TextBlock
                                     x:Name="TrackArtistText"
                                     AutomationProperties.AutomationId="TrackArtistText"
@@ -831,16 +837,17 @@
                                     MaxLines="1"
                                     Style="{StaticResource BodyTextBlockStyle}"
                                     Text="-"
-                                    TextTrimming="CharacterEllipsis" />
+                                    TextTrimming="CharacterEllipsis"
+                                    VerticalAlignment="Center" />
                                 <TextBlock
                                     x:Name="TrackCodecText"
                                     AutomationProperties.AutomationId="TrackCodecText"
-                                    Grid.Column="1"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                     MaxLines="1"
                                     Style="{StaticResource BodyTextBlockStyle}"
-                                    Text="-" />
-                            </Grid>
+                                    Text="-"
+                                    VerticalAlignment="Center" />
+                            </StackPanel>
                         </StackPanel>
                     </Grid>
                     <Slider
@@ -855,15 +862,21 @@
                         ValueChanged="OnTipVolumeChanged" />
                     <Grid Grid.Row="2" ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
+                            <!-- Auto + MinWidths (never *): star distribution
+                                 with minimums overflowed this row by ~5px.
+                                 MinWidths cover measured text (81/123) with
+                                 3px headroom; the row is narrower than the
+                                 content and left-aligns. Guarded by the
+                                 buttons-fit harness assert. -->
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Button
                             x:Name="TipVolumeStateButton"
                             AutomationProperties.AutomationId="TipVolumeStateButton"
                             AutomationProperties.Name="Mute"
-                            Width="40"
+                            Width="36"
                             Height="36"
                             Padding="0"
                             Click="OnTipVolumeStateClick"
@@ -875,13 +888,19 @@
                             AutomationProperties.AutomationId="TipOpenFileButton"
                             Grid.Column="1"
                             HorizontalAlignment="Stretch"
+                            MinWidth="84"
                             Click="OnTipOpenFileClick"
                             Content="Open file" />
+                        <!-- MinWidth covers the measured 123px text width:
+                             the *-shared row starved this button to 119px
+                             and clipped "View in Explorer". Guarded by the
+                             buttons-fit harness assert. -->
                         <Button
                             x:Name="TipExplorerButton"
                             AutomationProperties.AutomationId="TipExplorerButton"
                             Grid.Column="2"
                             HorizontalAlignment="Stretch"
+                            MinWidth="124"
                             Click="OnTipExplorerClick"
                             Content="View in Explorer" />
                     </Grid>

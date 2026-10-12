@@ -39,6 +39,7 @@ public static class W32Win2 {
     [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h, System.IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -104,6 +105,28 @@ function Assert-Alive {
     $p = Get-Text 'PositionText'
     if (-not ($p -match '\d+:\d+\.\d+')) { throw "app looks dead (PositionText='$p')" }
     if ($proc.HasExited) { throw "app process exited (code $($proc.ExitCode))" }
+}
+
+# Main-window discovery: the pid may own transient windows (popups,
+# activation surfaces) that contain no bar controls. Poll for a non-popup
+# window whose tree actually hosts TrackButton, so a wrong $hwnd can never
+# silently poison every later -w call (reads are app-wide and would still
+# pass, hiding it).
+function Find-MainHwnd {
+    param([int]$ProcId, [int]$TimeoutMs = 20000)
+    $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+    while ((Get-Date) -lt $deadline) {
+        $wins = @(Invoke-Ui @('list-windows', '--json') | ConvertFrom-Json |
+            Where-Object { $_.hwnd -and $_.hwnd -ne '0' -and $_.processId -eq $ProcId -and $_.title -ne 'PopupHost' })
+        foreach ($w in $wins) {
+            try {
+                Invoke-Ui @('wait-for', 'TrackButton', '-t', '1000') -Window ([string]$w.hwnd) | Out-Null
+                return [string]$w.hwnd
+            } catch { }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    return $null
 }
 
 # A closed tip leaves no app-wide trace (toggle-close passes --gone and
@@ -174,6 +197,9 @@ $proc = $null
 try {
     # The stub picker returns this file; inherited by the child process.
     $env:AMLL_PICKER_STUB = $StubFile
+    # Hold runs outlive the 180s harness default; give them 600s so the
+    # watchdog can never fire mid-run (it would Exit(3) the app).
+    $env:AMLL_HARNESS_TIMEOUT = '600'
     $proc = Start-Process -FilePath $Exe -ArgumentList '--playerbar-ui-hold', $HoldFile -PassThru
     $AppPid = $proc.Id
     Write-Host "LAUNCH: pid=$AppPid hold=$HoldFile stub=$StubFile"
@@ -182,12 +208,10 @@ try {
         $launchFailures++
         throw "app exited during startup (code $($proc.ExitCode))"
     }
-    $hwnd = (Invoke-Ui @('list-windows', '--json') | ConvertFrom-Json |
-        Where-Object { $_.hwnd -and $_.hwnd -ne '0' -and $_.processId -eq $AppPid } |
-        Select-Object -First 1).hwnd
+    $hwnd = Find-MainHwnd $AppPid
     if (-not $hwnd) {
         $launchFailures++
-        throw "no app window for pid $AppPid"
+        throw "no main app window (with TrackButton) for pid $AppPid"
     }
     $launchFailures = 0
     Write-Host "WINDOW: hwnd=$hwnd"
@@ -221,7 +245,12 @@ try {
 
     Test-UI 'track tip screenshot delivered' {
         $p = Join-Path $Artifacts '02-track-tip.png'
-        Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+        try { Invoke-Ui @('focus', 'TrackButton') -Window $hwnd | Out-Null } catch { }
+        try {
+            Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+        } catch {
+            Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+        }
         if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or (Get-Item -LiteralPath $p).Length -eq 0) {
             throw "screenshot not delivered: $p"
         }
@@ -286,6 +315,26 @@ try {
         Invoke-TipClose 'TrackTitleText'
     }
 
+    Test-UI 'long artist fits with codec visible (foreground geometry)' {
+        # Stub file artist is 33 chars: needs the computed cap. UIA ints,
+        # so 2px budgets (in-harness asserts the exact 1.5px/1px bounds).
+        Ensure-NoPopup
+        Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
+        Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '3000') | Out-Null
+        try { Invoke-Ui @('focus', 'TrackButton') -Window $hwnd | Out-Null } catch { }
+        Start-Sleep -Milliseconds 800
+        $root = Element-Rect 'TipContentRoot'
+        $art = Element-Rect 'TrackArtistText'
+        $cod = Element-Rect 'TrackCodecText'
+        $cap = $root.width - 64 - 12 - 6 - $cod.width
+        if ($cap -lt 40) { $cap = 40 }
+        Write-Host "  root=$($root.width) artist=$($art.width) codec=$($cod.width) cap=$cap"
+        if ($art.width -gt $cap + 2) { throw "artist overflows cap: $($art.width) > $cap" }
+        if (($art.x + $art.width) -gt ($root.x + $root.width) + 2) { throw 'artist overflows content' }
+        if ($cod.width -le 0) { throw 'codec has no width' }
+        Invoke-TipClose 'TrackTitleText'
+    }
+
     Test-UI 'speed preset click sets button text, tip stays open' {
         Ensure-NoPopup
         Invoke-Ui @('invoke', 'RateButton') -Window $hwnd | Out-Null
@@ -294,7 +343,56 @@ try {
         Wait-ButtonText 'RateButton' '1.5x'
         if (-not (TipPresent 'SpeedPreset05')) { throw 'speed tip closed after preset click' }
         $p = Join-Path $Artifacts '03-speed-tip.png'
-        Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+        try {
+            Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+        } catch {
+            Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+        }
+    }
+
+    Test-UI 'synthetic tip screenshots (5 cases)' {
+        # One --playerbar-synth-hold per case (indices into the shared
+        # table: 0 artist-short, 1 artist-cjk, 2 artist-80, 3 title-cjk,
+        # 4 cover). $AppPid/$hwnd are rebound per case and restored after.
+        $savedPid = $AppPid; $savedHwnd = $hwnd
+        try {
+            $names = @('artist-short', 'artist-cjk', 'artist-80', 'title-cjk', 'cover')
+            for ($i = 0; $i -lt $names.Count; $i++) {
+                $sp = Start-Process -FilePath $Exe -ArgumentList '--playerbar-synth-hold', "$i" -PassThru
+                try {
+                    Start-Sleep -Seconds 8
+                    if ($sp.HasExited) { throw "synth hold $i exited early (code $($sp.ExitCode))" }
+                    $AppPid = $sp.Id
+                    $hwnd = Find-MainHwnd $AppPid
+                    if (-not $hwnd) { throw "no main window for synth case $i" }
+                    Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '5000') | Out-Null
+                    # --capture-screen refuses background windows and a hidden
+                    # driver cannot steal foreground via SetForegroundWindow,
+                    # so focus the window first (may foreground it); fall back
+                    # to a direct capture, which still contains the tip: with
+                    # ShouldConstrainToRootBounds it renders in the main tree.
+                    try { Invoke-Ui @('focus', 'TrackButton') -Window $hwnd | Out-Null } catch { }
+                    Start-Sleep -Milliseconds 500
+                    $p = Join-Path $Artifacts "synth-$($names[$i]).png"
+                    try {
+                        Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+                    } catch {
+                        Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+                    }
+                    if (-not (Test-Path -LiteralPath $p -PathType Leaf) -or (Get-Item -LiteralPath $p).Length -eq 0) {
+                        throw "screenshot not delivered: $p"
+                    }
+                } finally {
+                    try {
+                        if (-not $sp.HasExited) {
+                            if (-not $sp.WaitForExit(5000)) { Stop-Process -Id $sp.Id -Force }
+                        }
+                    } catch { }
+                }
+            }
+        } finally {
+            $AppPid = $savedPid; $hwnd = $savedHwnd
+        }
     }
 
     Test-UI 'right click cycles presets without opening the tip' {
@@ -478,6 +576,7 @@ finally {
         }
     } catch { }
     Remove-Item Env:AMLL_PICKER_STUB -ErrorAction SilentlyContinue
+    Remove-Item Env:AMLL_HARNESS_TIMEOUT -ErrorAction SilentlyContinue
 }
 
 $failed = @($results | Where-Object { $_.status -eq 'FAIL' }).Count

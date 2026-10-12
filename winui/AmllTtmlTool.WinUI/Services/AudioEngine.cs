@@ -540,6 +540,36 @@ public partial class AudioEngine : ObservableObject, IDisposable
         PositionClock.Publish(PlaybackSnapshot.Empty);
     }
 
+#if DEBUG
+    // Synthetic track for tip-layout tests: installs display state without
+    // decoding any file. UI thread only (mirrors LoadAsync's post-decode
+    // block); the harness drives it through OnUiAsync.
+    internal void Test_LoadSynthetic(
+        string title, string artist, string codecName, string fileName,
+        byte[]? coverBytes, double durationSeconds)
+    {
+        if (!_dispatcher.HasThreadAccess)
+            throw new InvalidOperationException("Test_LoadSynthetic requires the UI thread");
+        ProbeTags.Clear();
+        if (title.Length > 0) ProbeTags["title"] = title;
+        if (artist.Length > 0) ProbeTags["artist"] = artist;
+        CodecName = codecName;
+        AudioPath = fileName;
+        Cover = coverBytes is null ? null : new AudioCover(coverBytes, "image/png");
+        Duration = TimeSpan.FromSeconds(durationSeconds);
+        Position = TimeSpan.Zero;
+        HasAudio = true;
+        DecodeBackend = "synthetic";
+        PositionClock.Publish(new PlaybackSnapshot
+        {
+            SourceSeconds = 0,
+            QpcTicks = System.Diagnostics.Stopwatch.GetTimestamp(),
+            Rate = PlaybackRate,
+            State = PlaybackClockState.Paused,
+        });
+    }
+#endif
+
     private void SeekWithoutClearing(double seconds)
     {
         var clamped = Math.Max(0, Math.Min(seconds, Duration.TotalSeconds));

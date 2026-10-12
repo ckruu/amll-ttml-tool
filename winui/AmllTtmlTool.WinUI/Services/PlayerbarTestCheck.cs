@@ -53,6 +53,7 @@ internal static class PlayerbarTestCheck
             fails += await SettingsMatrixAsync(report);
             fails += await FilesMatrixAsync(window, audio, page, folder, report);
             fails += await ThumbMatrixAsync(window, audio, page, folder, report);
+            fails += await TipBoundsMatrixAsync(window, audio, page, report);
             fails += await SpeedMatrixAsync(window, audio, page, report);
             fails += await LayoutMatrixAsync(window, page, report);
             fails += await BrushReportAsync(window, page, report);
@@ -74,6 +75,65 @@ internal static class PlayerbarTestCheck
             catch { }
             watchdogCts.Cancel();
         }
+    }
+
+    // Passive synthetic hold for screenshots: loads synthetic case <arg>
+    // (index into SyntheticCases, clamped) and leaves the track tip open.
+    public static async Task RunSynthHoldAsync(
+        Window window, AudioEngine audio, Views.ShellPage page, string arg)
+    {
+        using var watchdogCts = new CancellationTokenSource();
+        _ = Task.Delay(TimeSpan.FromMinutes(10), watchdogCts.Token).ContinueWith(t =>
+        {
+            if (!t.IsCanceled) Environment.Exit(3);
+        });
+        try
+        {
+            if (!int.TryParse(arg, out var index)) index = 0;
+            var cases = SyntheticCases();
+            index = Math.Clamp(index, 0, cases.Count - 1);
+            var c = cases[index];
+            await OnUiAsync(window, () => audio.SilentMode = true);
+            await OnUiAsync(window, () =>
+            {
+                audio.Test_LoadSynthetic(c.Title, c.Artist, c.Codec, c.File, c.Cover ? CoverPng() : null, 200);
+                page.Test_RefreshChrome();
+                page.Test_OpenTrackTip();
+            });
+            System.Diagnostics.Debug.WriteLine($"PLAYERBAR-SYNTH-HOLD READY case={index}");
+            await Task.Delay(TimeSpan.FromMinutes(9));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("PLAYERBAR-SYNTH-HOLD-ERROR " + AudioErrorText.FullReport(ex));
+        }
+    }
+
+    private sealed record SynthCase(string Label, string Title, string Artist, string Codec, string File, bool Cover);
+
+    private static byte[] CoverPng() => Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+
+    // Shared by the bounds matrix and the screenshot hold: indices 0-2
+    // artist sweep, 3 CJK title, 4 cover, 5+ codec sweep.
+    private static List<SynthCase> SyntheticCases()
+    {
+        var cases = new List<SynthCase>
+        {
+            new("artist-short", "T", "A", "alac", "synth.m4a", false),
+            new("artist-cjk", "T", "ココア(佐倉綾音)", "alac", "synth.m4a", false),
+            new("artist-80", "T", new string('x', 80), "alac", "synth.m4a", false),
+            new("title-cjk", "テストタイトル日本語の長い曲名", "A", "flac", "synth.flac", false),
+            new("cover", "T", "Petit Rabbit's", "alac", "synth.m4a", true),
+        };
+        foreach (var (codec, ext) in new[]
+        {
+            ("alac", "m4a"), ("flac", "flac"), ("eac3", "m4a"), ("ac3", "ac3"),
+            ("truehd", "thd"), ("aac", "m4a"), ("mp3", "mp3"), ("opus", "opus"),
+            ("vorbis", "ogg"), ("pcm_s16le", "wav"), ("wmav2", "wma"), ("frobnicate", "xyz"),
+        })
+            cases.Add(new($"codec-{codec}", "T", "A", codec, $"synth.{ext}", false));
+        return cases;
     }
 
     // Passive UI target for the EXTERNAL driver (real OS mouse/keyboard):
@@ -210,8 +270,200 @@ internal static class PlayerbarTestCheck
         return fails;
     }
 
-    private static async Task<int> CheckThumbAsync(
-        Window window, Views.ShellPage page, double durMs, string label, string report)
+    // --- tip-bounds matrix (item 4, synthetic, no files) ----------------------
+    // Reads until the content has laid out (rootW > 0) AND settled with the
+    // artist cap applied. Rationale: UpdateLayout() does not force an
+    // arrange inside a freshly opened popup (entrance animation gardens
+    // it), so synchronous reads right after open see the pre-cap arrange
+    // (e.g. artist 514px with MaxWidth already 120). Production converges
+    // one compositor pass later (screenshots prove the final state); this
+    // poll waits for the settled state instead of trusting first numbers.
+    // Reopens the tip if a background-window dismissal closed it mid-matrix
+    // (counted honestly); the read and the ensure-open run in one UI block
+    // so they can't race.
+    private static async Task<(bool Ok, TipBounds B, string Raw, int Reopens)> ReadTipBoundsAsync(
+        Window window, Views.ShellPage page, string report)
+    {
+        string raw = "";
+        var reopens = 0;
+        var pollLog = new System.Text.StringBuilder();
+        for (var i = 0; i < 10; i++)
+        {
+            var opened = 0;
+            await OnUiAsync(window, () =>
+            {
+                if (!page.Test_TrackTipOpen()) { page.Test_OpenTrackTip(); opened++; }
+                raw = page.Test_TipBounds();
+            });
+            reopens += opened;
+            var parsed = TryParseBounds(raw, out var b);
+            pollLog.Append($"[{i}:parse={parsed} rootW={(parsed ? b.RootW : -1):F0} open={opened}]");
+            if (parsed && b.RootW > 0) return (true, b, raw, reopens);
+            await Task.Delay(200);
+        }
+        TryParseBounds(raw, out var last);
+        Write(report, $"  polltrace {pollLog}");
+        return (false, last, raw, reopens);
+    }
+
+    private static async Task<int> TipBoundsMatrixAsync(
+        Window window, AudioEngine audio, Views.ShellPage page, string report)
+    {
+        Write(report, "---- tip-bounds matrix (synthetic) ----");
+        var fails = 0;
+        foreach (var c in SyntheticCases())
+        {
+            await OnUiAsync(window, () =>
+            {
+                audio.Test_LoadSynthetic(c.Title, c.Artist, c.Codec, c.File,
+                    c.Cover ? CoverPng() : null, 200);
+                page.Test_RefreshChrome();
+                page.Test_OpenTrackTip();
+            });
+            // Poll for laid-out bounds: the artist fit runs one layout pass
+            // after the texts land, so the first read may predate it.
+            var (laidOut, b, bounds, reopens0) = await ReadTipBoundsAsync(window, page, report);
+            if (reopens0 > 0) Write(report, $"  note {c.Label} reopened x{reopens0} (background dismissal)");
+            if (!laidOut)
+            {
+                Check(report, $"tip {c.Label}", false, bounds, ref fails);
+                continue;
+            }
+            var rootR = b.RootL + b.RootW;
+            // Content fits the 336px-capped presenter with ~13px slack per
+            // side: (336-310)/2. TrackTip.ActualWidth measures the inline
+            // anchor, not the popup, so it is not asserted.
+            Check(report, $"tip {c.Label} fits-cap",
+                b.RootW <= 310 && b.RootL >= 11,
+                $"rootW={b.RootW:F1} rootL={b.RootL:F1} [{bounds}]", ref fails);
+            var worst = "";
+            foreach (var (name, l, r) in new[]
+            {
+                // NOTE: artist excluded — its cap needs an arrange pass that
+                // background windows defer; the set property (asserted below)
+                // plus the foregrounded driver geometry assert cover it.
+                ("title", b.TitleL, b.TitleR),
+                ("codec", b.CodecL, b.CodecR), ("slider", b.SliderL, b.SliderR),
+                ("open", b.OpenL, b.OpenR), ("explorer", b.ExplorerL, b.ExplorerR),
+                ("state", b.StateL, b.StateR),
+            })
+                if (r > rootR + 0.5) worst += $" {name} clipped";
+            Check(report, $"tip {c.Label} unclipped", worst.Length == 0,
+                (worst.Length == 0 ? "all inside content" : worst.Trim()) + $" [{bounds}]", ref fails);
+            // Subpixel arrange rounding can shave a fraction of a pixel off
+            // the measured desired width; 1.0px separates that from real
+            // ellipsis clipping.
+            Check(report, $"tip {c.Label} codec-visible",
+                (b.CodecR - b.CodecL) >= b.CodecDesired - 1.0,
+                $"codecW={b.CodecR - b.CodecL:F1} desired={b.CodecDesired:F1} [{bounds}]", ref fails);
+            // Exact fit: the SET cap must equal the computed cap (the box
+            // itself needs an arrange pass that background windows defer;
+            // the foregrounded driver asserts the rendered artist box).
+            var cap = Math.Max(40, b.RootW - 64.0 - 12.0 - 6.0 - b.CodecDesired);
+            var maxW = 0.0;
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    bounds, @"maxW=(-?[0-9.]+|Infinity)");
+                double.TryParse(m.Success ? m.Groups[1].Value : "",
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out maxW);
+            }
+            Check(report, $"tip {c.Label} artist-fit",
+                Math.Abs(maxW - cap) <= 1.0,
+                $"maxW={maxW:F1} want={cap:F1} true={b.ArtistTrue:F1} [{bounds}]", ref fails);
+            // Button text must fit its button (no ellipsis inside buttons).
+            Check(report, $"tip {c.Label} buttons-fit",
+                (b.OpenR - b.OpenL) >= b.OpenDesired - 1.0
+                    && (b.ExplorerR - b.ExplorerL) >= b.ExplorerDesired - 1.0,
+                $"openW={b.OpenR - b.OpenL:F1}/{b.OpenDesired:F1} explorerW={b.ExplorerR - b.ExplorerL:F1}/{b.ExplorerDesired:F1} [{bounds}]", ref fails);
+            if (c.Label == "artist-short")
+                Check(report, $"tip {c.Label} hug", (b.CodecL - b.ArtistR) <= 8,
+                    $"gap={b.CodecL - b.ArtistR:F1} [{bounds}]", ref fails);
+            foreach (var v in new[] { 0.0, 50.0, 100.0 })
+            {
+                await OnUiAsync(window, () => page.Test_SetTipSlider(v));
+                await Task.Delay(150);
+                var (vok, bv, vb, reopensV) = await ReadTipBoundsAsync(window, page, report);
+                if (reopensV > 0) Write(report, $"  note {c.Label} vol@{v} reopened x{reopensV}");
+                if (!vok || double.IsNaN(bv.VolL))
+                {
+                    Check(report, $"tip {c.Label} vol@{v}", false, vb, ref fails);
+                    continue;
+                }
+                Check(report, $"tip {c.Label} vol@{v}",
+                    bv.VolL >= bv.SliderL - 0.5 && bv.VolR <= bv.SliderR + 0.5,
+                    $"thumb=[{bv.VolL:F1}-{bv.VolR:F1}] slider=[{bv.SliderL:F1}-{bv.SliderR:F1}] [{vb}]", ref fails);
+            }
+            await OnUiAsync(window, () =>
+            {
+                page.Test_SetTipSlider(50);
+                page.Test_CloseTips();
+            });
+        }
+        return fails;
+    }
+
+    private sealed record TipBounds(
+        double TipW, double RootL, double RootW,
+        double TitleL, double TitleR, double ArtistL, double ArtistR,
+        double CodecL, double CodecR, double CodecDesired, double ArtistTrue,
+        double SliderL, double SliderR, double VolL, double VolR,
+        double OpenL, double OpenR, double OpenDesired,
+        double ExplorerL, double ExplorerR, double ExplorerDesired,
+        double StateL, double StateR);
+
+    private static bool TryParseBounds(string s, out TipBounds b)
+    {
+        b = new TipBounds(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        try
+        {
+            var box = new Dictionary<string, (double L, double R)>(StringComparer.OrdinalIgnoreCase);
+            var num = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            foreach (var part in s.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = part.Split('=');
+                if (kv.Length != 2) continue;
+                var m = System.Text.RegularExpressions.Regex.Match(
+                    kv[1], @"^\[(-?[0-9.]+)-(-?[0-9.]+)\]$");
+                if (m.Success
+                    && double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var l)
+                    && double.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var r))
+                {
+                    box[kv[0]] = (l, r);
+                    continue;
+                }
+                if (double.TryParse(kv[1], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var v))
+                {
+                    num[kv[0]] = v;
+                }
+            }
+            (double L, double R) Box(string k) => box.TryGetValue(k, out var t) ? t : (double.NaN, double.NaN);
+            var root = Box("root"); var title = Box("title"); var artist = Box("artist");
+            var codec = Box("codec"); var slider = Box("slider"); var open = Box("open");
+            var explorer = Box("explorer"); var state = Box("state");
+            var vol = Box("volThumb");
+            b = new TipBounds(
+                num["tipW"], root.L, root.L == root.R ? 0 : root.R - root.L,
+                title.L, title.R, artist.L, artist.R, codec.L, codec.R,
+                num.GetValueOrDefault("codecDesired", double.NaN),
+                num.GetValueOrDefault("artistTrue", double.NaN),
+                slider.L, slider.R,
+                vol.L, vol.R,
+                open.L, open.R, num.GetValueOrDefault("openDesired", double.NaN),
+                explorer.L, explorer.R, num.GetValueOrDefault("explorerDesired", double.NaN),
+                state.L, state.R);
+            return b.TipW > 0 && b.RootW > 0 && !double.IsNaN(b.CodecDesired);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<int> CheckThumbAsync(        Window window, Views.ShellPage page, double durMs, string label, string report)
     {
         var fails = 0;
         string geo = "";
