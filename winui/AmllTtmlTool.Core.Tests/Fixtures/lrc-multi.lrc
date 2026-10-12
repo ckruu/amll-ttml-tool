@@ -1,0 +1,18 @@
+# lrc-multi.lrc — synthetic LRC parity fixture: multi-timestamps, same-time
+# translation/roman/extra lines, unsorted input, empty groups, tag-less
+# lines, 1/2/3-digit fractions, offset + metadata tags (ignored, like the
+# original), trailing spaces, CRLF endings, no trailing newline.
+[00:03.00]third
+[00:01.00][00:02.00]multi
+[ar:Artist Name]
+[offset:+500]
+[00:04.00]main
+[00:04.00]translation here
+[00:04.00]roman here
+[00:04.00]extra line
+this line has no tags and is ignored
+[00:05.00]
+[00:06.1]one digit
+[00:07.12]two digits
+[00:08.123]three digits
+[00:09.00]trailing spaces here

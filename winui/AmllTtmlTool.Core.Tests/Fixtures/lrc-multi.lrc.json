@@ -1,0 +1,65 @@
+[
+ {
+  "startTime": 1000,
+  "endTime": 2000,
+  "word": "multi",
+  "translatedLyric": "",
+  "romanLyric": ""
+ },
+ {
+  "startTime": 2000,
+  "endTime": 3000,
+  "word": "multi",
+  "translatedLyric": "",
+  "romanLyric": ""
+ },
+ {
+  "startTime": 3000,
+  "endTime": 4000,
+  "word": "third",
+  "translatedLyric": "",
+  "romanLyric": ""
+ },
+ {
+  "startTime": 4000,
+  "endTime": 5000,
+  "word": "main",
+  "translatedLyric": "translation here",
+  "romanLyric": "roman here"
+ },
+ {
+  "startTime": 4000,
+  "endTime": 5000,
+  "word": "extra line",
+  "translatedLyric": "",
+  "romanLyric": ""
+ },
+ {
+  "startTime": 6100,
+  "endTime": 7120,
+  "word": "one digit",
+  "translatedLyric": "",
+  "romanLyric": ""
+ },
+ {
+  "startTime": 7120,
+  "endTime": 8123,
+  "word": "two digits",
+  "translatedLyric": "",
+  "romanLyric": ""
+ },
+ {
+  "startTime": 8123,
+  "endTime": 9000,
+  "word": "three digits",
+  "translatedLyric": "",
+  "romanLyric": ""
+ },
+ {
+  "startTime": 9000,
+  "endTime": 19000,
+  "word": "trailing spaces here",
+  "translatedLyric": "",
+  "romanLyric": ""
+ }
+]

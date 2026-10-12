@@ -13,7 +13,9 @@ public static partial class LrcParser
         var globalIndex = 0;
         foreach (var rawLine in content.Split(["\r\n", "\n"], StringSplitOptions.None))
         {
-            var text = TimeTag().Replace(rawLine, string.Empty).Trim();
+            // JS trim() strips U+FEFF too (.NET Trim does not) — mirror it so
+            // a BOM-ish line end filters as empty exactly like the original.
+            var text = TimeTag().Replace(rawLine, string.Empty).Trim().Trim('﻿').Trim();
             foreach (Match match in TimeTag().Matches(rawLine))
             {
                 var minutes = int.Parse(match.Groups[1].Value);
@@ -63,6 +65,8 @@ public static partial class LrcParser
         return new LyricLine(Guid.NewGuid().ToString("N"), [w], translated, roman, false, false, start, end, false);
     }
 
-    [GeneratedRegex(@"\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]")]
+    // [0-9], not \d: .NET \d matches Unicode digits (int.Parse would then
+    // throw where the original's ASCII-only regex simply finds no tag).
+    [GeneratedRegex(@"\[([0-9]{1,2}):([0-9]{1,2})(?:[.:]([0-9]{1,3}))?\]")]
     private static partial Regex TimeTag();
 }
