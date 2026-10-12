@@ -654,10 +654,10 @@
             Grid.Row="4"
             Margin="8,0,8,8"
             Padding="8,6"
-            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+            Background="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}"
             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
             BorderThickness="1"
-            CornerRadius="8">
+            CornerRadius="{ThemeResource OverlayCornerRadius}">
             <Grid x:Name="BarInnerGrid" ColumnSpacing="4">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -773,6 +773,26 @@
             IsLightDismissEnabled="False"
             PreferredPlacement="Top"
             ShouldConstrainToRootBounds="True">
+            <!-- Solid layered surface instead of the acrylic transient
+                 default: opaque in Light/Dark, system colors in HC. -->
+            <TeachingTip.Resources>
+                <ResourceDictionary>
+                    <ResourceDictionary.ThemeDictionaries>
+                        <ResourceDictionary x:Key="Light">
+                            <StaticResource x:Key="TeachingTipBackgroundBrush" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                            <StaticResource x:Key="TeachingTipTransientBackground" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="Dark">
+                            <StaticResource x:Key="TeachingTipBackgroundBrush" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                            <StaticResource x:Key="TeachingTipTransientBackground" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="HighContrast">
+                            <StaticResource x:Key="TeachingTipBackgroundBrush" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                            <StaticResource x:Key="TeachingTipTransientBackground" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                        </ResourceDictionary>
+                    </ResourceDictionary.ThemeDictionaries>
+                </ResourceDictionary>
+            </TeachingTip.Resources>
             <TeachingTip.Content>
                 <!-- No fixed Width: the tip sizes to this content up to the
                      theme TeachingTipMaxWidth (336) minus 12px content
@@ -922,6 +942,25 @@
             IsLightDismissEnabled="False"
             PreferredPlacement="Top"
             ShouldConstrainToRootBounds="True">
+            <!-- Same solid layered surface as the track tip. -->
+            <TeachingTip.Resources>
+                <ResourceDictionary>
+                    <ResourceDictionary.ThemeDictionaries>
+                        <ResourceDictionary x:Key="Light">
+                            <StaticResource x:Key="TeachingTipBackgroundBrush" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                            <StaticResource x:Key="TeachingTipTransientBackground" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="Dark">
+                            <StaticResource x:Key="TeachingTipBackgroundBrush" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                            <StaticResource x:Key="TeachingTipTransientBackground" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                        </ResourceDictionary>
+                        <ResourceDictionary x:Key="HighContrast">
+                            <StaticResource x:Key="TeachingTipBackgroundBrush" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                            <StaticResource x:Key="TeachingTipTransientBackground" ResourceKey="SolidBackgroundFillColorTertiaryBrush" />
+                        </ResourceDictionary>
+                    </ResourceDictionary.ThemeDictionaries>
+                </ResourceDictionary>
+            </TeachingTip.Resources>
             <TeachingTip.Content>
                 <Grid RowSpacing="8" MinWidth="280" MaxWidth="340">
                     <Grid.RowDefinitions>

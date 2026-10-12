@@ -91,6 +91,17 @@ namespace AmllTtmlTool.WinUI.Views
             var window = ((App)Application.Current).MainWindow;
             _windowHwnd = WinRT.Interop.WindowNative.GetWindowHandle(window);
             window.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
+#if DEBUG
+            // Screenshot hook: AMLL_REQUESTED_THEME=Light|Dark forces the
+            // app theme for Light/Dark evidence runs (HighContrast stays a
+            // manual OS-level check — it cannot be forced per-app).
+            var themeEnv = Environment.GetEnvironmentVariable("AMLL_REQUESTED_THEME")?.Trim().ToLowerInvariant();
+            if ((themeEnv is "light" or "dark") && window.Content is FrameworkElement themeRoot)
+                themeRoot.RequestedTheme = themeEnv == "light"
+                    ? Microsoft.UI.Xaml.ElementTheme.Light
+                    : Microsoft.UI.Xaml.ElementTheme.Dark;
+#endif
+            window.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
             window.ExtendsContentIntoTitleBar = true;
             window.SetTitleBar(TitleBarArea);
             // Min-track-size subclass (verified safe while minimized: the
@@ -2521,10 +2532,48 @@ namespace AmllTtmlTool.WinUI.Views
         internal bool Test_EyeEnabled() => EyeButton.IsEnabled;
         internal string Test_BarBrush() => PlayerBarBorder.Background switch
         {
-            Microsoft.UI.Xaml.Media.AcrylicBrush ab =>
-                $"AcrylicBrush tint={ab.TintColor} opacity={ab.TintOpacity} fallback={ab.FallbackColor}",
-            var b => b?.GetType().Name ?? "null",
+            Microsoft.UI.Xaml.Media.SolidColorBrush sb =>
+                $"Solid color={sb.Color} opacity={sb.Opacity}",
+            var b => (b?.GetType().Name ?? "null") + " UNEXPECTED-TYPE",
         };
+        // Resolved background of an open tip's content root (empty string
+        // when closed or not found). The template parts live in the popup
+        // visual tree, NOT under the inline TeachingTip element — so walk
+        // UP from our own content (which is inside the popup when open) to
+        // the popup root, then back DOWN to the template's ContentRootGrid.
+        internal string Test_TipBrush(string which)
+        {
+            try
+            {
+                if (which == "speed" ? !SpeedTip.IsOpen : !TrackTip.IsOpen) return "tip-closed";
+                DependencyObject root = which == "speed" ? SpeedSlider : TipContentRoot;
+                while (VisualTreeHelper.GetParent(root) is DependencyObject parent) root = parent;
+                var queue = new Queue<DependencyObject>();
+                queue.Enqueue(root);
+                while (queue.Count > 0)
+                {
+                    var current = queue.Dequeue();
+                    if (current is FrameworkElement fe && fe.Name == "ContentRootGrid")
+                    {
+                        var bg = (fe as Microsoft.UI.Xaml.Controls.Grid)?.Background;
+                        return bg switch
+                        {
+                            Microsoft.UI.Xaml.Media.SolidColorBrush sb =>
+                                $"Solid color={sb.Color} opacity={sb.Opacity}",
+                            null => "null-bg",
+                            _ => bg.GetType().Name + " UNEXPECTED-TYPE",
+                        };
+                    }
+                    var count = VisualTreeHelper.GetChildrenCount(current);
+                    for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+                }
+                return "no-content-root";
+            }
+            catch (Exception ex)
+            {
+                return "FAIL harness-error " + ex.GetType().Name;
+            }
+        }
         internal void Test_ResizeWindow(int widthDip)
         {
             var window = ((App)Application.Current).MainWindow;

@@ -871,14 +871,41 @@ internal static class PlayerbarTestCheck
 
     private static async Task<int> BrushReportAsync(Window window, Views.ShellPage page, string report)
     {
-        Write(report, "---- brushes ----");
+        Write(report, "---- brushes (item 5: theme resources only, no acrylic) ----");
         var fails = 0;
         var brush = "";
         await OnUiAsync(window, () => brush = page.Test_BarBrush());
-        Check(report, "bar-brush", brush.StartsWith("AcrylicBrush", StringComparison.Ordinal), brush, ref fails);
-        Write(report, "  tips: default TeachingTip style (TeachingTipTransientBackground -> AcrylicInAppFillColorDefaultBrush); "
-            + "no TeachingTip.SystemBackdrop in SDK 1.8; see screenshots for the over-content look.");
+        Check(report, "bar-brush-solid", brush.StartsWith("Solid", StringComparison.Ordinal)
+            && !brush.Contains("UNEXPECTED-TYPE"), brush, ref fails);
+        Check(report, "bar-brush-no-acrylic", !brush.Contains("Acrylic"), brush, ref fails);
+        // Tips: open each, read the resolved ContentRootGrid background.
+        await OnUiAsync(window, () => page.Test_OpenTrackTip());
+        await Task.Delay(400);
+        var trackBg = "";
+        await OnUiAsync(window, () => trackBg = page.Test_TipBrush("track"));
+        Check(report, "tracktip-bg-solid", trackBg.StartsWith("Solid", StringComparison.Ordinal)
+            && !trackBg.Contains("UNEXPECTED-TYPE"), trackBg, ref fails);
+        Check(report, "tracktip-bg-opaque", IsOpaque(trackBg), trackBg, ref fails);
+        await OnUiAsync(window, () => page.Test_OpenSpeedTip());
+        await Task.Delay(400);
+        var speedBg = "";
+        await OnUiAsync(window, () => speedBg = page.Test_TipBrush("speed"));
+        Check(report, "speedtip-bg-solid", speedBg.StartsWith("Solid", StringComparison.Ordinal)
+            && !speedBg.Contains("UNEXPECTED-TYPE"), speedBg, ref fails);
+        Check(report, "speedtip-bg-opaque", IsOpaque(speedBg), speedBg, ref fails);
+        await OnUiAsync(window, () => page.Test_CloseTips());
+        Write(report, "  bar: LayerOnMicaBaseAltFillColorDefaultBrush + CardStrokeColorDefaultBrush + OverlayCornerRadius; "
+            + "tips: TeachingTipBackgroundBrush/TransientBackground -> SolidBackgroundFillColorTertiaryBrush (own Resources, Light/Dark/HC); "
+            + "no TeachingTip.SystemBackdrop in SDK 1.8.");
         return fails;
+    }
+
+    // Opaque = solid brush with full alpha (#FF......). Parses the
+    // "Solid color=#AARRGGBB opacity=O" hook format.
+    private static bool IsOpaque(string s)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(s, @"color=#([0-9A-Fa-f]{8})");
+        return m.Success && m.Groups[1].Value.StartsWith("FF", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Name(string path) => System.IO.Path.GetFileName(path);

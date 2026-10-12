@@ -395,6 +395,58 @@ try {
         }
     }
 
+    Test-UI 'theme screenshots Light/Dark (bar + both tips)' {
+        # Separate holds with AMLL_REQUESTED_THEME (inherited env); each is
+        # screenshotted with both tips. HC stays manual (OS-level only).
+        $savedPid = $AppPid; $savedHwnd = $hwnd
+        try {
+            foreach ($theme in @('Light', 'Dark')) {
+                $env:AMLL_REQUESTED_THEME = $theme
+                $sp = Start-Process -FilePath $Exe -ArgumentList '--playerbar-ui-hold', $HoldFile -PassThru
+                try {
+                    Start-Sleep -Seconds 9
+                    if ($sp.HasExited) { throw "$theme hold exited early (code $($sp.ExitCode))" }
+                    $AppPid = $sp.Id
+                    $hwnd = Find-MainHwnd $AppPid
+                    if (-not $hwnd) { throw "no main window for $theme hold" }
+                    $p = Join-Path $Artifacts "theme-$theme-bar.png"
+                    Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+                    Invoke-Ui @('invoke', 'TrackButton') -Window $hwnd | Out-Null
+                    Invoke-Ui @('wait-for', 'TrackTitleText', '-t', '5000') | Out-Null
+                    $p = Join-Path $Artifacts "theme-$theme-track.png"
+                    try {
+                        Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+                    } catch {
+                        Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+                    }
+                    Invoke-Ui @('invoke', 'RateButton') -Window $hwnd | Out-Null
+                    Invoke-Ui @('wait-for', 'SpeedPreset05', '-t', '5000') | Out-Null
+                    $p = Join-Path $Artifacts "theme-$theme-speed.png"
+                    try {
+                        Invoke-Ui @('screenshot', '--output', $p, '--capture-screen') -Window $hwnd | Out-Null
+                    } catch {
+                        Invoke-Ui @('screenshot', '--output', $p) -Window $hwnd | Out-Null
+                    }
+                    foreach ($f in @("theme-$theme-bar.png", "theme-$theme-track.png", "theme-$theme-speed.png")) {
+                        $fp = Join-Path $Artifacts $f
+                        if (-not (Test-Path -LiteralPath $fp -PathType Leaf) -or (Get-Item -LiteralPath $fp).Length -eq 0) {
+                            throw "screenshot not delivered: $fp"
+                        }
+                    }
+                } finally {
+                    try {
+                        if (-not $sp.HasExited) {
+                            if (-not $sp.WaitForExit(5000)) { Stop-Process -Id $sp.Id -Force }
+                        }
+                    } catch { }
+                }
+            }
+        } finally {
+            $AppPid = $savedPid; $hwnd = $savedHwnd
+            Remove-Item Env:AMLL_REQUESTED_THEME -ErrorAction SilentlyContinue
+        }
+    }
+
     Test-UI 'right click cycles presets without opening the tip' {
         Ensure-NoPopup
         Invoke-Ui @('invoke', 'RateButton') -Window $hwnd | Out-Null
