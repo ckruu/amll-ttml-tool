@@ -2,6 +2,7 @@
 // Explorer" actions go through these small interfaces so test mode never
 // opens a real native dialog (which would hang a run) or a real Explorer
 // window. Stubs record their calls to a log file the UI driver reads.
+using AmllTtmlTool.Core.Lyrics;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;

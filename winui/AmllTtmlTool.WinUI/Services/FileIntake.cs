@@ -1,4 +1,5 @@
 using AmllTtmlTool.Core.Audio;
+using AmllTtmlTool.Core.Lyrics;
 using AmllTtmlTool.Core.Models;
 using Microsoft.UI.Xaml;
 using Windows.Storage;
@@ -125,12 +126,12 @@ public sealed class FileIntake(
         string text;
         if (appleFlavor)
         {
-            text = Core.AppleTtml.ToAppleTtml(store.Document);
-            foreach (var w in Core.AppleTtml.GetAppleTtmlWarnings(store.Document)) notify(w);
+            text = Core.AppleTtml.ToAppleTtml(store.ToRecords());
+            foreach (var w in Core.AppleTtml.GetAppleTtmlWarnings(store.ToRecords())) notify(w);
         }
         else
         {
-            var prepared = Core.TtmlNormalize.PostProcess(Core.TtmlNormalize.NormalizeForExport(store.Document));
+            var prepared = Core.TtmlNormalize.PostProcess(Core.TtmlNormalize.NormalizeForExport(store.ToRecords()));
             var gen = Core.TtmlGenerator.Generate(prepared, new(), new(false, false, Core.TtmlNormalize.IsLineTimingLyrics(prepared)));
             if (!gen.Success)
             {
@@ -163,10 +164,10 @@ public sealed class FileIntake(
     {
         if (appleFlavor)
         {
-            foreach (var w in Core.AppleTtml.GetAppleTtmlWarnings(store.Document)) notify(w);
-            return Core.AppleTtml.ToAppleTtml(store.Document);
+            foreach (var w in Core.AppleTtml.GetAppleTtmlWarnings(store.ToRecords())) notify(w);
+            return Core.AppleTtml.ToAppleTtml(store.ToRecords());
         }
-        var prepared = Core.TtmlNormalize.PostProcess(Core.TtmlNormalize.NormalizeForExport(store.Document));
+        var prepared = Core.TtmlNormalize.PostProcess(Core.TtmlNormalize.NormalizeForExport(store.ToRecords()));
         var gen = Core.TtmlGenerator.Generate(prepared, new(), new(false, false, Core.TtmlNormalize.IsLineTimingLyrics(prepared)));
         if (!gen.Success)
         {

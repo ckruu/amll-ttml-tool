@@ -3,6 +3,7 @@
 // can be checked in-process (hit-testability, handler-side facts, overlay
 // geometry, shared extension lists, live classifier behavior) and leaves
 // the per-region manual matrix to the report. Self-closing, DEBUG-only.
+using AmllTtmlTool.Core.Lyrics;
 using Microsoft.UI.Xaml.Media;
 
 namespace AmllTtmlTool.WinUI.Services;

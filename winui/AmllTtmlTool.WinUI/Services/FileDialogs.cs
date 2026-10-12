@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using AmllTtmlTool.Core.Lyrics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.ApplicationModel.DataTransfer;

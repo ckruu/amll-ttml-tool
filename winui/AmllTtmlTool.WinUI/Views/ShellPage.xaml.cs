@@ -1,3 +1,5 @@
+using AmllTtmlTool.Core.Lyrics;
+using AmllTtmlTool.Core.Lyrics.Commands;
 using AmllTtmlTool.Core.Models;
 using AmllTtmlTool.WinUI.Services;
 using Microsoft.UI;
@@ -942,10 +944,8 @@ namespace AmllTtmlTool.WinUI.Views
             _audio.PositionChanged += RefreshAudioChrome;
             _audio.TrackEnded += RefreshAudioChrome;
             EditBar.NewLineRequested += () =>
-                _store.Mutate(doc => doc with
-                {
-                    LyricLines = [.. doc.LyricLines, LyricLine.New()],
-                });
+                _store.Execute(new AddLineCommand(
+                    _store.Document.Lines.Count, EditLine.New()));
             RefreshChrome();
             RefreshAudioChrome();
             LoadMasterToggles();
@@ -1820,7 +1820,7 @@ namespace AmllTtmlTool.WinUI.Views
                 var items = await e.DataView.GetStorageItemsAsync();
                 var names = items.OfType<StorageFile>().Select(f => f.Name).ToList();
                 var kind = AmllTtmlTool.Core.DropFiles.Classify(
-                    names, Services.LyricStore.AudioExtensions, Services.LyricStore.LyricExtensions);
+                    names, LyricStore.AudioExtensions, LyricStore.LyricExtensions);
                 var accept = kind is AmllTtmlTool.Core.DropKind.Lyrics
                     or AmllTtmlTool.Core.DropKind.Audio
                     or AmllTtmlTool.Core.DropKind.Both;
@@ -1856,8 +1856,8 @@ namespace AmllTtmlTool.WinUI.Views
                 var items = await e.DataView.GetStorageItemsAsync();
                 if (items.Count == 0) return;
                 var files = items.OfType<StorageFile>().ToList();
-                var lyrics = files.Where(f => Services.LyricStore.IsLyricFile(f.Name)).ToList();
-                var audios = files.Where(f => Services.LyricStore.IsAudioFile(f.Name)).ToList();
+                var lyrics = files.Where(f => LyricStore.IsLyricFile(f.Name)).ToList();
+                var audios = files.Where(f => LyricStore.IsAudioFile(f.Name)).ToList();
                 if (lyrics.Count == 0 && audios.Count == 0)
                 {
                     Notify($"Unsupported file{(files.Count == 1 ? string.Empty : "s")}: " +
