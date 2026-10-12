@@ -965,6 +965,7 @@ namespace AmllTtmlTool.WinUI.Views
                 _store.Execute(new AddLineCommand(
                     _store.Document.Lines.Count, EditLine.New()));
             EditBar.ImportRequested += () => _ = OpenLyricAsync();
+            EditBar.BindSelection(_selection, _store);
             RefreshChrome();
             RefreshAudioChrome();
             LoadMasterToggles();

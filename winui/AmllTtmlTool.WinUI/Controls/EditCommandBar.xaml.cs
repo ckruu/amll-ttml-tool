@@ -1,3 +1,4 @@
+using AmllTtmlTool.Core.Lyrics;
 using AmllTtmlTool.WinUI.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -8,6 +9,60 @@ namespace AmllTtmlTool.WinUI.Controls
     {
         public event Action? NewLineRequested;
         public event Action? ImportRequested;
+
+        private SelectionService? _selection;
+        private LyricStore? _store;
+
+        // Step 4 (render only): ribbon mirrors the selection, read-only.
+        // Toggles stay disabled throughout this phase (clicking must not
+        // flip state with no model effect); Phase 3 enables them for real.
+        public void BindSelection(SelectionService selection, LyricStore store)
+        {
+            if (_selection is not null) _selection.Changed -= RefreshSelectionDisplay;
+            if (_store is not null) _store.Changed -= RefreshSelectionDisplay;
+            _selection = selection;
+            _store = store;
+            _selection.Changed += RefreshSelectionDisplay;
+            _store.Changed += RefreshSelectionDisplay;
+            RefreshSelectionDisplay();
+        }
+
+        private void RefreshSelectionDisplay()
+        {
+            EditLine? line = null;
+            EditWord? word = null;
+            if (_selection?.SelectedLineId is string lineId && _store is not null)
+            {
+                line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
+                if (line is not null && _selection.SelectedWordId is string wordId)
+                    word = line.Words.FirstOrDefault(w => w.Id == wordId);
+            }
+            LineStartBox.Text = line is null ? "" : LyricTime.Format(line.StartTimeMs);
+            LineEndBox.Text = line is null ? "" : LyricTime.Format(line.EndTimeMs);
+            BgToggle.IsChecked = line?.IsBg == true;
+            DuetToggle.IsChecked = line?.IsDuet == true;
+            IgnoreSyncToggle.IsChecked = line?.IgnoreSync == true;
+            WordStartBox.Text = word is null ? "" : LyricTime.Format(word.StartTimeMs);
+            WordEndBox.Text = word is null ? "" : LyricTime.Format(word.EndTimeMs);
+            WordContentBox.Text = word?.Text ?? "";
+            ObsceneToggle.IsChecked = word?.Obscene == true;
+            ObsceneToggle.Content = word?.Obscene == true ? "Yes" : "No";
+            TransBox.Text = line?.TranslatedLyric ?? "";
+            RomanBox.Text = line?.RomanLyric ?? "";
+            var hasLine = line is not null;
+            var hasWord = word is not null;
+            LineStartBox.IsEnabled = hasLine;
+            LineEndBox.IsEnabled = hasLine;
+            BgToggle.IsEnabled = hasLine;
+            DuetToggle.IsEnabled = hasLine;
+            IgnoreSyncToggle.IsEnabled = hasLine;
+            WordStartBox.IsEnabled = hasWord;
+            WordEndBox.IsEnabled = hasWord;
+            WordContentBox.IsEnabled = hasWord;
+            ObsceneToggle.IsEnabled = false;
+            TransBox.IsEnabled = hasLine;
+            RomanBox.IsEnabled = hasLine;
+        }
 
         public EditCommandBar()
         {
@@ -23,7 +78,12 @@ namespace AmllTtmlTool.WinUI.Controls
                 ApplyMasterToggles();
                 AppSettings.DisplayChanged += ApplyMasterToggles;
             };
-            this.Unloaded += (_, _) => AppSettings.DisplayChanged -= ApplyMasterToggles;
+            this.Unloaded += (_, _) =>
+            {
+                AppSettings.DisplayChanged -= ApplyMasterToggles;
+                if (_selection is not null) _selection.Changed -= RefreshSelectionDisplay;
+                if (_store is not null) _store.Changed -= RefreshSelectionDisplay;
+            };
         }
 
         private void ApplyMasterToggles()
