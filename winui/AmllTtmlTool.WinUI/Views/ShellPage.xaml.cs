@@ -25,6 +25,7 @@ namespace AmllTtmlTool.WinUI.Views
     {
         private readonly Type[] _pages = [typeof(EditPage), typeof(SyncPage), typeof(PreviewPage)];
         private readonly LyricStore _store = new();
+        private readonly SelectionService _selection = new();
         private readonly AudioEngine _audio = new();
         private FileIntake? _intake;
         private bool _scrubbing;
@@ -1972,7 +1973,7 @@ namespace AmllTtmlTool.WinUI.Views
                 }
                 _attachedEditPage = editPage;
                 editPage.ImportRequested += OnEditImportRequested;
-                editPage.Attach(_store);
+                editPage.Attach(_store, _selection);
             }
         }
 
@@ -2518,6 +2519,8 @@ namespace AmllTtmlTool.WinUI.Views
         internal string Test_LyricFileName() => _store.FileName;
         internal bool Test_EmptyStateVisible() =>
             _attachedEditPage?.IsEmptyStateVisible == true;
+        internal void Test_SelectLine(int index) => _attachedEditPage?.SelectLineAt(index);
+        internal int Test_SelectedLine() => _attachedEditPage?.SelectedLineIndex() ?? -1;
         internal bool Test_ImportBusyVisible() =>
             ImportProgress.Visibility == Visibility.Visible;
         // --- player-bar test hooks (DEBUG only) -------------------------------
