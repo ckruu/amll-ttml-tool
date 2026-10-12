@@ -50,6 +50,18 @@ if (-not (Test-Path -LiteralPath $Exe)) {
 }
 if (-not $ReportPath) { $ReportPath = Join-Path $env:TEMP "$Mode-report.txt" }
 
+# Item 4: never hand a D:\Audio original to the app (read-only test data;
+# a report was once appended INTO an .m4a). Stage a temp copy first:
+#   Import-Module (Join-Path $Repo 'scripts\TestAudio.psm1')
+#   $copy = New-TestAudioCopy 'D:\Audio\alac.m4a'
+# STAGE-AUDIO-FIRST
+foreach ($a in $Args) {
+    if ("$a" -match '^[A-Za-z]:\\Audio(\\|$)') {
+        Write-Host "NOT-WIRED: audio arg '$a' points at the read-only library (STAGE-AUDIO-FIRST)"
+        exit 2
+    }
+}
+
 $marker = "$ReportPath.started"
 $outFile = Join-Path $env:TEMP "harness-$Mode-$PID.out.txt"
 $errFile = Join-Path $env:TEMP "harness-$Mode-$PID.err.txt"

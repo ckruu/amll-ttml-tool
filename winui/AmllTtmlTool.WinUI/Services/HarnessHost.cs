@@ -123,7 +123,10 @@ internal static class HarnessHost
         }
         Report = string.IsNullOrWhiteSpace(report)
             ? Path.Combine(Path.GetTempPath(), $"{Mode}-report.txt")
-            : report!;
+            // Defense in depth for the corruption we observed (report lines
+            // appended into an .m4a): an audio-extension report falls back
+            // to temp instead of destroying test data.
+            : AmllTtmlTool.Core.Audio.AudioInput.GuardReportPath(report, Mode);
         string? timeoutEnv = Environment.GetEnvironmentVariable("AMLL_HARNESS_TIMEOUT");
         _timeoutSec = int.TryParse(timeoutEnv, out var t) && t > 0 ? t : DefaultTimeout(Mode);
 

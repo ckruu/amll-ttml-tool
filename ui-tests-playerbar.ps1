@@ -21,11 +21,13 @@ Sort-Object { (Get-Item -LiteralPath $_).LastWriteTimeUtc } | Select-Object -Las
 if (-not $Exe) { throw "no built app exe under $BuildRoot (build first)" }
 Write-Host "EXE: $Exe ($((Get-Item -LiteralPath $Exe).LastWriteTimeUtc.ToString('u')))"
 
-$HoldFile = 'D:\Audio\alac.m4a'
-$StubFile = 'D:\Audio\flac_2.flac'
-foreach ($f in @($HoldFile, $StubFile)) {
-    if (-not (Test-Path -LiteralPath $f)) { throw "missing test file: $f" }
-}
+# Item 4: never open D:\Audio originals (read-only test data). Stage pinned,
+# hash-verified temp copies per run and open only those.
+Import-Module (Join-Path $Repo 'scripts\TestAudio.psm1')
+$staged = @(New-TestAudioCopy 'D:\Audio\alac.m4a', 'D:\Audio\flac_2.flac')
+$HoldFile = $staged[0]
+$StubFile = $staged[1]
+Write-Host "STAGED: hold=$HoldFile stub=$StubFile"
 $StubLog = Join-Path $env:TEMP 'playerbar-stub-calls.log'
 if (Test-Path -LiteralPath $StubLog) { Remove-Item -LiteralPath $StubLog -Force }
 $Artifacts = Join-Path $env:TEMP 'playerbar-ui-artifacts'

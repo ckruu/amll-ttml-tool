@@ -48,6 +48,9 @@ public static class FfmpegDecoder
     public static async Task<FfmpegProbeResult> ProbeAsync(
         FfmpegBins bins, string path, CancellationToken ct = default)
     {
+        // Read-only contract: fail fast here (not in ffprobe's stderr)
+        // when the input is missing, locked, or not share-readable.
+        using var _ = AmllTtmlTool.Core.Audio.AudioInput.OpenReadShared(path);
         var args = $"-v quiet -print_format json -show_format -show_streams \"{path}\"";
         var (exit, stdout, stderr) = await RunAsync(bins.Ffprobe, args, null, ct);
         if (exit != 0)
@@ -107,6 +110,7 @@ public static class FfmpegDecoder
         IProgress<double>? progress = null,
         CancellationToken ct = default)
     {
+        using var _ = AmllTtmlTool.Core.Audio.AudioInput.OpenReadShared(path);
         var args = $"-v error -i \"{path}\" -map 0:a -f f32le -ac {OutChannels} -ar {OutSampleRate} -";
         using var process = Start(bins.Ffmpeg, args);
         var pcm = new MemoryStream();
@@ -145,6 +149,7 @@ public static class FfmpegDecoder
 
     public static async Task<byte[]?> ExtractCoverAsync(FfmpegBins bins, string path, CancellationToken ct = default)
     {
+        using var _ = AmllTtmlTool.Core.Audio.AudioInput.OpenReadShared(path);
         var args = $"-v error -i \"{path}\" -map 0:v -frames:v 1 -f image2pipe -vcodec mjpeg -";
         var (exit, _, _) = (0, string.Empty, string.Empty);
         using var process = Start(bins.Ffmpeg, args);

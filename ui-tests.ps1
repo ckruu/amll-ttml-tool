@@ -18,7 +18,12 @@ Sort-Object { (Get-Item -LiteralPath $_).LastWriteTimeUtc } | Select-Object -Las
 if (-not $Exe) { throw "no built app exe under $BuildRoot (build first)" }
 Write-Host "EXE: $Exe ($((Get-Item -LiteralPath $Exe).LastWriteTimeUtc.ToString('u')))"
 
-$AudioFile = if ($args.Count -ge 1) { $args[0] } else { 'D:\Audio\alac.m4a' }
+# Item 4: never open the original (read-only test data). Stage a pinned,
+# hash-verified temp copy and open only that.
+Import-Module (Join-Path $Repo 'scripts\TestAudio.psm1')
+$RawAudio = if ($args.Count -ge 1) { $args[0] } else { 'D:\Audio\alac.m4a' }
+$AudioFile = New-TestAudioCopy $RawAudio
+Write-Host "STAGED: file=$AudioFile"
 $Artifacts = Join-Path $env:TEMP 'ui-test-artifacts'
 if (Test-Path -LiteralPath $Artifacts) { Remove-Item -LiteralPath $Artifacts -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $Artifacts | Out-Null
