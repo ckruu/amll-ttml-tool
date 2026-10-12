@@ -199,6 +199,15 @@ history is NEVER cleared (no reset API used). Dirty-confirm guards open,
 new-file, text-import. New-file resets selection; file-import resets
 selection; TEXT import keeps selection (direct set, `ImportFromText:265`).
 
+Display toggles (`showLineTranslationAtom`,
+`showLineRomanizationAtom`, `showWordRomanizationInputAtom`): view-only,
+persisted; the original NEVER changes them on import (verified: no `set()`
+call on any of the three anywhere in `src/`). DEVIATION (user decision,
+Phase 2 step 3): the port switches a toggle ON once per import when the
+imported document actually carries that data and the toggle is off, so the
+content is visible instead of silently hidden. Pills, overflow copies and
+card rows follow one persisted view-state service.
+
 Word ops:
 - Split (manual char indices, `split-word.tsx:161-233`): slice text at
   indices → tokens → `distributeTime` (weights: Latin/Numeric/CJK char =

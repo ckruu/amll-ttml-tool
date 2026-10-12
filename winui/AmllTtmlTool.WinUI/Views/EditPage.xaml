@@ -145,6 +145,7 @@
                                 </Grid.RowDefinitions>
                                 <TextBlock
                                     x:Uid="EditPage_TransLabel"
+                                    x:Name="TransLabel"
                                     Grid.Row="0"
                                     VerticalAlignment="Center"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -158,6 +159,7 @@
                                     IsTabStop="False" />
                                 <TextBlock
                                     x:Uid="EditPage_RomanLabel"
+                                    x:Name="RomanLabel"
                                     Grid.Row="1"
                                     VerticalAlignment="Center"
                                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"

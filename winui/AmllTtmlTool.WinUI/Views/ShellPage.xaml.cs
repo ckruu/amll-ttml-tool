@@ -26,6 +26,7 @@ namespace AmllTtmlTool.WinUI.Views
         private readonly Type[] _pages = [typeof(EditPage), typeof(SyncPage), typeof(PreviewPage)];
         private readonly LyricStore _store = new();
         private readonly SelectionService _selection = new();
+        private readonly LyricViewStateService _viewState = new();
         private readonly AudioEngine _audio = new();
         private FileIntake? _intake;
         private bool _scrubbing;
@@ -930,7 +931,7 @@ namespace AmllTtmlTool.WinUI.Views
         {
             var window = ((App)Application.Current).MainWindow;
             SetupSmtc();
-            _intake = new FileIntake(_store, _audio, window, this, Notify, _smtcSvc, SetImportBusy);
+            _intake = new FileIntake(_store, _audio, window, this, Notify, _smtcSvc, SetImportBusy, AutoEnableToggles);
 #if DEBUG
             if (Services.HarnessHost.IsTest)
             {
@@ -967,6 +968,7 @@ namespace AmllTtmlTool.WinUI.Views
             RefreshChrome();
             RefreshAudioChrome();
             LoadMasterToggles();
+            _viewState.Changed += SyncPillsFromViewState;
             ApplyRememberedVolume();
         }
 
@@ -1234,6 +1236,23 @@ namespace AmllTtmlTool.WinUI.Views
         {
             ImportProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
             ImportProgress.IsActive = busy;
+        }
+
+        // Deviation from the original (noted in PORTING-NOTES): the original
+        // never changes these toggles on import. We switch a toggle ON once
+        // per import when the document actually carries that data and the
+        // toggle is off, so the imported content is visible, not a surprise.
+        private void AutoEnableToggles(EditDocument doc)
+        {
+            if (doc.Lines.Any(l => !string.IsNullOrWhiteSpace(l.TranslatedLyric))
+                && !_viewState.ShowTranslation)
+                _viewState.ShowTranslation = true;
+            if (doc.Lines.Any(l => !string.IsNullOrWhiteSpace(l.RomanLyric))
+                && !_viewState.ShowRomanization)
+                _viewState.ShowRomanization = true;
+            if (doc.Lines.Any(l => l.Words.Any(w => !string.IsNullOrWhiteSpace(w.RomanWord)))
+                && !_viewState.ShowWordRomanization)
+                _viewState.ShowWordRomanization = true;
         }
 
         private async void OnNewClick(object sender, RoutedEventArgs e) => await NewFileAsync();
@@ -1973,7 +1992,7 @@ namespace AmllTtmlTool.WinUI.Views
                 }
                 _attachedEditPage = editPage;
                 editPage.ImportRequested += OnEditImportRequested;
-                editPage.Attach(_store, _selection);
+                editPage.Attach(_store, _selection, _viewState);
             }
         }
 
@@ -2375,16 +2394,23 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void LoadMasterToggles()
         {
-            RomanToggle.IsChecked = AppSettings.ShowRomanization;
-            TransToggle.IsChecked = AppSettings.ShowTranslation;
-            WordRomanToggle.IsChecked = AppSettings.ShowWordRomanization;
+            RomanToggle.IsChecked = _viewState.ShowRomanization;
+            TransToggle.IsChecked = _viewState.ShowTranslation;
+            WordRomanToggle.IsChecked = _viewState.ShowWordRomanization;
+        }
+
+        private void SyncPillsFromViewState()
+        {
+            RomanToggle.IsChecked = _viewState.ShowRomanization;
+            TransToggle.IsChecked = _viewState.ShowTranslation;
+            WordRomanToggle.IsChecked = _viewState.ShowWordRomanization;
         }
 
         private void OnMasterToggleClick(object sender, RoutedEventArgs e)
         {
-            AppSettings.ShowRomanization = RomanToggle.IsChecked == true;
-            AppSettings.ShowTranslation = TransToggle.IsChecked == true;
-            AppSettings.ShowWordRomanization = WordRomanToggle.IsChecked == true;
+            _viewState.ShowRomanization = RomanToggle.IsChecked == true;
+            _viewState.ShowTranslation = TransToggle.IsChecked == true;
+            _viewState.ShowWordRomanization = WordRomanToggle.IsChecked == true;
             AppSettings.NotifyDisplayChanged();
             if (sender is ToggleButton tb && tb.IsChecked == true)
                 PopPill(tb);

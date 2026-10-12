@@ -15,7 +15,8 @@ public sealed class FileIntake(
     UIElement anchor,
     Action<string> notify,
     SmtcService? smtc = null,
-    Action<bool>? setBusy = null)
+    Action<bool>? setBusy = null,
+    Action<EditDocument>? onImported = null)
 {
     // Single import funnel: picker, drop, startup file, --load-lyrics hook
     // and paste all land here. Bytes -> decode -> parse OFF the UI thread ->
@@ -77,7 +78,11 @@ public sealed class FileIntake(
                     $"Could not parse {fileName}.", ex.Message);
                 return;
             }
-            await OnUiAsync(() => store.ApplyImportResult(result, fileName, displayName));
+            await OnUiAsync(() =>
+            {
+                store.ApplyImportResult(result, fileName, displayName);
+                onImported?.Invoke(store.Document);
+            });
         }
         finally
         {
