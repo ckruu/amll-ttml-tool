@@ -105,13 +105,19 @@ internal static class HarnessHost
         if (string.IsNullOrWhiteSpace(report) && fromArgs is not null)
         {
             var i = Array.IndexOf(args, "--" + fromArgs);
-            // -ui-hold / -ui-target modes take a FILE as their first
-            // positional argument, not a report path. Treating it as one wrote
-            // the .started marker next to the audio file. Only the report
-            // modes derive a path from args; everything else waits for the
-            // AMLL_HARNESS_REPORT env var and otherwise defaults to temp.
+            // -ui-hold / -ui-target / file-first modes take a FILE (or other
+            // non-report value) as their first positional argument, not a
+            // report path. Treating it as one wrote the .started marker next
+            // to the audio file — and worse, the watchdog and exit handler
+            // appended VERDICT/DIED-CONTEXT lines INTO the audio file,
+            // corrupting test data. Only the report modes derive a path from
+            // args; everything else waits for the AMLL_HARNESS_REPORT env var
+            // and otherwise defaults to temp.
+            var firstPositional = (i >= 0 && i + 1 < args.Length) ? args[i + 1] : null;
             var positionalIsReport = fromArgs is not (null
-                or "seek-ui-hold" or "seek-ui-target" or "minimize-ui-hold");
+                or "seek-ui-hold" or "seek-ui-target" or "minimize-ui-hold"
+                or "playerbar-ui-hold" or "playerbar-synth-hold" or "seek-drag")
+                && firstPositional != "rate";
             if (positionalIsReport && i >= 0 && i + 1 < args.Length)
                 report = args[i + 1];
         }

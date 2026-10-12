@@ -89,6 +89,9 @@ $AppPid = 0
 $proc = $null
 try {
     # Start-Process -PassThru, never in the foreground of a command.
+    # Hold runs outlive the 180s harness default; give them 600s so the
+    # watchdog can never fire mid-run (it would Exit(3) the app).
+    $env:AMLL_HARNESS_TIMEOUT = '600'
     $proc = Start-Process -FilePath $Exe -ArgumentList '--seek-ui-hold', $AudioFile -PassThru
     $AppPid = $proc.Id
     Write-Host "LAUNCH: pid=$AppPid file=$AudioFile"
@@ -371,6 +374,7 @@ finally {
         if ($AppPid -gt 0) { & winapp ui yield --on local | Out-Null }
     } catch { }
     try { if ($proc -and -not $proc.HasExited) { Stop-Process -Id $AppPid -Force } } catch { }
+    Remove-Item Env:AMLL_HARNESS_TIMEOUT -ErrorAction SilentlyContinue
 }
 
 $failed = @($results | Where-Object { $_.status -eq 'FAIL' }).Count
