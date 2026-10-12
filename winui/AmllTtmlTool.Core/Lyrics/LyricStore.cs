@@ -106,7 +106,7 @@ public partial class LyricStore : ObservableObject
         Changed?.Invoke();
     }
 
-    public LyricFileResult OpenLyricText(string text, string fileName)
+    public LyricFileResult OpenLyricText(string text, string fileName, string? displayName = null)
     {
         ILyricImporter importer;
         try
@@ -120,7 +120,7 @@ public partial class LyricStore : ObservableObject
         LyricImportResult imported;
         try
         {
-            imported = importer.Import(text, fileName);
+            imported = ParseLyricText(importer, text, fileName);
         }
         catch (LyricImportException ex)
         {
@@ -130,16 +130,29 @@ public partial class LyricStore : ObservableObject
         {
             return new LyricFileResult(false, "ImportFailed", ex.Message);
         }
+        ApplyImportResult(imported, fileName, displayName);
+        return new LyricFileResult(true, null, null, imported.Notices);
+    }
+
+    // Pure parse phase: no document touched, safe on any thread. The UI
+    // applies the result via ApplyImportResult on the UI thread.
+    public static LyricImportResult ParseLyricText(ILyricImporter importer, string text, string fileName) =>
+        importer.Import(text, fileName);
+
+    public static ILyricImporter ImporterFor(string fileName) => Registry.ByExtension(fileName);
+
+    // Apply phase: must run on the UI thread (ObservableCollections).
+    public void ApplyImportResult(LyricImportResult imported, string fileName, string? displayName = null)
+    {
         RunCommand(new BulkReplaceCommand(
             imported.Document.Lines.ToList(), imported.Document.Metadata.ToList()));
-        FileName = fileName;
+        FileName = displayName ?? fileName;
         Rebaseline();
         Changed?.Invoke();
         if (imported.Notices.Count > 0)
         {
             foreach (var n in imported.Notices) Notice?.Invoke(n);
         }
-        return new LyricFileResult(true, null, null, imported.Notices);
     }
 
     public void MergeAudioMetadata(List<TtmlMetadata> extracted)

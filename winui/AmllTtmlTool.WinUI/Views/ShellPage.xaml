@@ -336,7 +336,7 @@
                     MaxLines="1"
                     Style="{StaticResource BodyTextBlockStyle}"
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    Text="lyric.ttml"
+                    Text="Untitled"
                     TextTrimming="CharacterEllipsis"
                     TextWrapping="NoWrap" />
             </Grid>
@@ -346,7 +346,7 @@
                 VerticalAlignment="Center"
                 Visibility="Collapsed"
                 Style="{StaticResource SubtleTitleBarButtonStyle}"
-                ToolTipService.ToolTip="lyric.ttml">
+                ToolTipService.ToolTip="Untitled">
                 <FontIcon VerticalAlignment="Center" Glyph="&#xE8B7;" FontSize="14" />
                 <Button.Flyout>
                     <Flyout>
@@ -354,7 +354,7 @@
                             <TextBlock
                                 x:Name="FileInfoFlyoutName"
                                 Style="{StaticResource BodyStrongTextBlockStyle}"
-                                Text="lyric.ttml"
+                                Text="Untitled"
                                 TextWrapping="Wrap" />
                             <TextBlock
                                 x:Name="FileInfoFlyoutDirty"
@@ -515,6 +515,16 @@
                         <RepositionThemeTransition />
                     </TransitionCollection>
                 </StackPanel.Transitions>
+                <ProgressRing
+                    x:Name="ImportProgress"
+                    Width="20"
+                    Height="20"
+                    Margin="4,0"
+                    VerticalAlignment="Center"
+                    Visibility="Collapsed"
+                    IsActive="False"
+                    AutomationProperties.AutomationId="ImportProgress"
+                    AutomationProperties.Name="Importing lyrics" />
                 <Button x:Uid="ShellPage_History" Click="OnStubClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="History">
                     <FontIcon FontSize="14" Glyph="&#xE81C;" />
                 </Button>

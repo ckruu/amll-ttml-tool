@@ -50,6 +50,7 @@
         <Compile Remove="Services\DropCheck.cs" />
         <Compile Remove="Services\FocusTestCheck.cs" />
         <Compile Remove="Services\GainTestCheck.cs" />
+        <Compile Remove="Services\LyricsCheck.cs" />
         <Compile Remove="Services\MinimizeTestCheck.cs" />
         <Compile Remove="Services\PlayerbarTestCheck.cs" />
         <Compile Remove="Services\SeekTestCheck.cs" />

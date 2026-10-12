@@ -673,6 +673,22 @@ namespace AmllTtmlTool.WinUI.Views
                         await Services.PlayerbarTestCheck.RunSynthHoldAsync(win, _audio, this, synthArg);
                     });
                 }
+                // Lyrics hold for the Step-5 driver: --load-lyrics <file>
+                // imports through the SAME FileIntake.ImportFileAsync funnel
+                // as picker/drop/startup/paste, then holds for inspection.
+                // DEBUG-only.
+                var loadLyricsIdx = Array.IndexOf(audioArgs, "--load-lyrics");
+                if (loadLyricsIdx >= 0)
+                {
+                    var lyricFile = loadLyricsIdx + 1 < audioArgs.Length ? audioArgs[loadLyricsIdx + 1] : "";
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(800);
+                        var win = ((App)Application.Current).MainWindow;
+                        if (_intake is not null && !string.IsNullOrEmpty(lyricFile))
+                            await Services.LyricsCheck.RunHoldAsync(win, _intake, _store, lyricFile);
+                    });
+                }
 #endif
             };
         }
@@ -913,7 +929,7 @@ namespace AmllTtmlTool.WinUI.Views
         {
             var window = ((App)Application.Current).MainWindow;
             SetupSmtc();
-            _intake = new FileIntake(_store, _audio, window, this, Notify, _smtcSvc);
+            _intake = new FileIntake(_store, _audio, window, this, Notify, _smtcSvc, SetImportBusy);
 #if DEBUG
             if (Services.HarnessHost.IsTest)
             {
@@ -946,6 +962,7 @@ namespace AmllTtmlTool.WinUI.Views
             EditBar.NewLineRequested += () =>
                 _store.Execute(new AddLineCommand(
                     _store.Document.Lines.Count, EditLine.New()));
+            EditBar.ImportRequested += () => _ = OpenLyricAsync();
             RefreshChrome();
             RefreshAudioChrome();
             LoadMasterToggles();
@@ -1209,7 +1226,13 @@ namespace AmllTtmlTool.WinUI.Views
             if (!await ConfirmDirtyAsync("Open")) return;
             var window = ((App)Application.Current).MainWindow;
             var file = await FileDialogs.PickOpenLyricAsync(window);
-            if (file is not null) await _intake.OpenAnyAsync(file);
+            if (file is not null) await _intake.ImportFileAsync(file);
+        }
+
+        private void SetImportBusy(bool busy)
+        {
+            ImportProgress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+            ImportProgress.IsActive = busy;
         }
 
         private async void OnNewClick(object sender, RoutedEventArgs e) => await NewFileAsync();
@@ -1867,7 +1890,7 @@ namespace AmllTtmlTool.WinUI.Views
                 // One dirty-confirm for the lyric side; a cancelled lyric
                 // open still lets a co-dropped audio file through.
                 var openLyric = lyrics.Count > 0 && await ConfirmDirtyAsync("Open");
-                if (openLyric) await _intake.OpenLyricFileAsync(lyrics[0]);
+                if (openLyric) await _intake.ImportFileAsync(lyrics[0]);
                 if (audios.Count > 0)
                 {
                     await _intake.OpenAudioFileAsync(audios[0]);
@@ -1940,7 +1963,22 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (ContentFrame.Content is FrameworkElement page)
                 AnimateIncomingPage(page, fromRight: _pendingSlideFromRight);
+            if (ContentFrame.Content is EditPage editPage)
+            {
+                if (_attachedEditPage is not null && !ReferenceEquals(_attachedEditPage, editPage))
+                {
+                    _attachedEditPage.ImportRequested -= OnEditImportRequested;
+                    _attachedEditPage.Detach();
+                }
+                _attachedEditPage = editPage;
+                editPage.ImportRequested += OnEditImportRequested;
+                editPage.Attach(_store);
+            }
         }
+
+        private EditPage? _attachedEditPage;
+
+        private void OnEditImportRequested() => _ = OpenLyricAsync();
 
         private void AnimateIncomingPage(FrameworkElement page, bool fromRight)
         {
@@ -2461,6 +2499,27 @@ namespace AmllTtmlTool.WinUI.Views
         }
 
 #if DEBUG
+        // --- lyrics test hooks (DEBUG only) ---------------------------------
+        // Model/render facts for the Step-5 lyrics driver. Model hooks read
+        // the store (UI thread via OnUiAsync in checks); render hooks read
+        // the live EditPage.
+        internal int Test_LyricLineCount() => _store.Document.Lines.Count;
+        internal int Test_LyricWordCount(int line) => _store.Document.Lines[line].Words.Count;
+        internal string Test_WordText(int line, int word) =>
+            _store.Document.Lines[line].Words[word].Text;
+        internal string Test_WordRoman(int line, int word) =>
+            _store.Document.Lines[line].Words[word].RomanWord;
+        internal int Test_WordEmptyBeat(int line, int word) =>
+            _store.Document.Lines[line].Words[word].EmptyBeat;
+        internal string Test_LineTranslation(int line) =>
+            _store.Document.Lines[line].TranslatedLyric;
+        internal string Test_LineRomanization(int line) =>
+            _store.Document.Lines[line].RomanLyric;
+        internal string Test_LyricFileName() => _store.FileName;
+        internal bool Test_EmptyStateVisible() =>
+            _attachedEditPage?.IsEmptyStateVisible == true;
+        internal bool Test_ImportBusyVisible() =>
+            ImportProgress.Visibility == Visibility.Visible;
         // --- player-bar test hooks (DEBUG only) -------------------------------
         // The self-driving harness drives the REAL controls on the UI thread
         // through these: the same handlers the pointer/keyboard paths use.

@@ -1,5 +1,6 @@
 using AmllTtmlTool.Core.Audio;
 using AmllTtmlTool.Core.Lyrics;
+using AmllTtmlTool.Core.Lyrics.Import;
 using AmllTtmlTool.Core.Models;
 using Microsoft.UI.Xaml;
 using Windows.Storage;
@@ -13,18 +14,131 @@ public sealed class FileIntake(
     Window window,
     UIElement anchor,
     Action<string> notify,
-    SmtcService? smtc = null)
+    SmtcService? smtc = null,
+    Action<bool>? setBusy = null)
 {
-    public async Task OpenLyricFileAsync(StorageFile file)
+    // Single import funnel: picker, drop, startup file, --load-lyrics hook
+    // and paste all land here. Bytes -> decode -> parse OFF the UI thread ->
+    // apply ON the UI thread (ObservableCollections). Never throws: every
+    // failure becomes an error dialog and the previous document stays.
+    public async Task ImportFileAsync(StorageFile file)
     {
-        var text = await FileIO.ReadTextAsync(file);
-        var result = store.OpenLyricText(text, file.Name);
-        if (!result.Success)
+        byte[] bytes;
+        try
         {
-            await FileDialogs.ShowErrorAsync(anchor, "Open failed",
-                $"Could not parse {file.Name}.",
-                result.ErrorKind + (result.ErrorMessage is null ? string.Empty : ": " + result.ErrorMessage));
+            using var stream = await file.OpenReadAsync();
+            using var ms = new MemoryStream();
+            await stream.AsStreamForRead().CopyToAsync(ms);
+            bytes = ms.ToArray();
         }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("Import failed",
+                $"Could not read {file.Name}.", ex.Message);
+            return;
+        }
+        await ImportTextAsync(LyricEncoding.Decode(bytes), file.Name);
+    }
+
+    public async Task ImportTextAsync(string text, string fileName, string? displayName = null)
+    {
+        ILyricImporter importer;
+        try
+        {
+            importer = LyricStore.ImporterFor(fileName);
+        }
+        catch (LyricImportException ex)
+        {
+            await ShowErrorAsync("Import failed",
+                $"Unsupported lyric format: {fileName}.", ex.Message);
+            return;
+        }
+        // Slow parses (>200ms) show the indeterminate indicator; fast ones
+        // never flash it.
+        var parseTask = Task.Run(() => LyricStore.ParseLyricText(importer, text, fileName));
+        var slow = await Task.WhenAny(parseTask, Task.Delay(200)) != parseTask;
+        if (slow) SetBusy(true);
+        try
+        {
+            LyricImportResult result;
+            try
+            {
+                result = await parseTask;
+            }
+            catch (LyricImportException ex)
+            {
+                await ShowErrorAsync("Import failed",
+                    $"Could not parse {fileName}.", ex.Message);
+                return;
+            }
+            catch (Exception ex)
+            {
+                await ShowErrorAsync("Import failed",
+                    $"Could not parse {fileName}.", ex.Message);
+                return;
+            }
+            await OnUiAsync(() => store.ApplyImportResult(result, fileName, displayName));
+        }
+        finally
+        {
+            if (slow) SetBusy(false);
+        }
+    }
+
+    private Task ShowErrorAsync(string title, string message, string? details) =>
+        OnUiAsync(() => FileDialogs.ShowErrorAsync(anchor, title, message, details));
+
+    private void SetBusy(bool busy)
+    {
+        if (setBusy is null) return;
+        if (window.DispatcherQueue.HasThreadAccess) setBusy(busy);
+        else window.DispatcherQueue.TryEnqueue(() => setBusy(busy));
+    }
+
+    private Task OnUiAsync(Action work)
+    {
+        if (window.DispatcherQueue.HasThreadAccess)
+        {
+            work();
+            return Task.CompletedTask;
+        }
+        var tcs = new TaskCompletionSource();
+        window.DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                work();
+                tcs.SetResult();
+            }
+            catch (Exception ex)
+            {
+                tcs.SetException(ex);
+            }
+        });
+        return tcs.Task;
+    }
+
+    private async Task OnUiAsync(Func<Task> work)
+    {
+        if (window.DispatcherQueue.HasThreadAccess)
+        {
+            await work();
+            return;
+        }
+        var tcs = new TaskCompletionSource();
+        window.DispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                await work();
+                tcs.SetResult();
+            }
+            catch (Exception ex)
+            {
+                tcs.SetException(ex);
+            }
+        });
+        await tcs.Task;
     }
 
     public async Task OpenAudioFileAsync(StorageFile file)
@@ -92,7 +206,7 @@ public sealed class FileIntake(
         }
         else if (LyricStore.IsLyricFile(name))
         {
-            await OpenLyricFileAsync(file);
+            await ImportFileAsync(file);
         }
         else
         {
@@ -111,13 +225,11 @@ public sealed class FileIntake(
         if (!store.IsDirty || await FileDialogs.ConfirmAsync(anchor, "Paste lyrics",
                 "Replace the current document with clipboard contents?", "Replace"))
         {
-            var result = store.OpenLyricText(text, "lyric.ttml");
-            if (!result.Success)
-            {
-                await FileDialogs.ShowErrorAsync(anchor, "Paste failed",
-                    "Clipboard text is not valid TTML or LRC.",
-                    result.ErrorKind + (result.ErrorMessage is null ? string.Empty : ": " + result.ErrorMessage));
-            }
+            // Sniff: pasted text has no file, so the registry picks the
+            // format (the old path forced TTML and rejected LRC pastes).
+            var sniffed = LyricImporterRegistry.Default().Sniff(text);
+            var pseudoName = "pasted" + sniffed.Extensions[0];
+            await ImportTextAsync(text, pseudoName, "Untitled");
         }
     }
 

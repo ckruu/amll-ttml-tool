@@ -7,6 +7,7 @@ namespace AmllTtmlTool.WinUI.Controls
     public sealed partial class EditCommandBar : UserControl
     {
         public event Action? NewLineRequested;
+        public event Action? ImportRequested;
 
         public EditCommandBar()
         {
@@ -55,6 +56,9 @@ namespace AmllTtmlTool.WinUI.Controls
 
         private void OnNewLineClick(object sender, RoutedEventArgs e) =>
             NewLineRequested?.Invoke();
+
+        private void OnImportClick(object sender, RoutedEventArgs e) =>
+            ImportRequested?.Invoke();
 
         private void OnStubClick(object sender, RoutedEventArgs e)
         {

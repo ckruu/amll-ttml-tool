@@ -63,8 +63,7 @@ public sealed class LyricStoreTests
 
     [Fact]
     public void Open_Ttml_Sets_Name_Clean_Notices_None()
-    {
-        var store = new LyricStore();
+    {        var store = new LyricStore();
         var notices = new List<string>();
         store.Notice += notices.Add;
         var events = 0;
@@ -78,6 +77,29 @@ public sealed class LyricStoreTests
         Assert.True(store.CanUndo);
         Assert.Equal(1, events);
         Assert.Empty(notices);
+    }
+
+    [Fact]
+    public void Open_With_DisplayName_Shows_It()
+    {
+        var store = new LyricStore();
+        var result = store.OpenLyricText(Ttml, "pasted.ttml", "Untitled");
+        Assert.True(result.Success);
+        Assert.Equal("Untitled", store.FileName);
+        Assert.Single(store.Document.Lines);
+    }
+
+    [Fact]
+    public void Parse_Then_Apply_Split_Phases()
+    {
+        var store = new LyricStore();
+        var importer = LyricStore.ImporterFor("a.lrc");
+        var parsed = LyricStore.ParseLyricText(importer, "[00:01.00]hi\n", "a.lrc");
+        Assert.Empty(store.Document.Lines); // parse touches nothing
+        store.ApplyImportResult(parsed, "a.lrc");
+        Assert.Equal("hi", store.Document.Lines[0].Words[0].Text);
+        Assert.Equal("a.lrc", store.FileName);
+        Assert.False(store.IsDirty);
     }
 
     [Fact]

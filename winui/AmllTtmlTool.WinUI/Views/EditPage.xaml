@@ -6,20 +6,47 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <StackPanel
-        HorizontalAlignment="Center"
-        Spacing="8"
-        VerticalAlignment="Center">
-        <TextBlock
-            x:Uid="EditPage_Title"
-            FontSize="24"
+    <Grid>
+        <!-- Empty state: shown while the document has no lines. The line
+             list (step 2) replaces the blank remainder of this Grid. -->
+        <StackPanel
+            x:Name="EmptyStatePanel"
             HorizontalAlignment="Center"
-            Text="Lyric editor" />
-        <TextBlock
-            x:Uid="EditPage_Subtitle"
-            HorizontalAlignment="Center"
-            Style="{StaticResource BodyTextBlockStyle}"
-            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-            Text="Word-level editing lands here in Phase 1." />
-    </StackPanel>
+            Spacing="8"
+            VerticalAlignment="Center"
+            AutomationProperties.AutomationId="EmptyStatePanel"
+            AutomationProperties.Name="No lyrics loaded">
+            <FontIcon
+                FontSize="40"
+                HorizontalAlignment="Center"
+                Glyph="&#xE8B7;"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                AutomationProperties.AccessibilityView="Raw" />
+            <TextBlock
+                x:Uid="EditPage_EmptyTitle"
+                FontSize="20"
+                FontStyle="Normal"
+                FontWeight="SemiBold"
+                HorizontalAlignment="Center"
+                Text="No lyrics yet" />
+            <TextBlock
+                x:Uid="EditPage_EmptyHint"
+                HorizontalAlignment="Center"
+                Style="{StaticResource BodyTextBlockStyle}"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="Import lyrics or drop a file here" />
+            <Button
+                x:Name="EmptyImportButton"
+                HorizontalAlignment="Center"
+                Style="{StaticResource AccentButtonStyle}"
+                Click="OnImportClick"
+                AutomationProperties.AutomationId="EmptyImportButton"
+                AutomationProperties.Name="Import lyrics">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon FontSize="14" Glyph="&#xE8B7;" />
+                    <TextBlock x:Uid="EditPage_EmptyImportLabel" Text="Import lyrics" />
+                </StackPanel>
+            </Button>
+        </StackPanel>
+    </Grid>
 </Page>
