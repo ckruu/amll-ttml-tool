@@ -28,6 +28,18 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <!-- Track-tip buttons: one shared size and look (Height, MinHeight,
+             Padding, BorderThickness, FontSize, CornerRadius, default idle /
+             hover / pressed visuals). The volume button adds Width=36 to
+             match (a square). -->
+        <Style x:Key="TipButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="Height" Value="36" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
+        </Style>
     </Page.Resources>
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="OnOpenAccelerator" />
@@ -897,11 +909,10 @@
                             AutomationProperties.AutomationId="TipVolumeStateButton"
                             AutomationProperties.Name="Mute"
                             Width="36"
-                            Height="36"
-                            Padding="0"
                             Click="OnTipVolumeStateClick"
+                            Style="{StaticResource TipButtonStyle}"
                             ToolTipService.ToolTip="Mute">
-                            <FontIcon x:Name="TipVolumeStateGlyph" FontSize="16" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE993;" />
+                            <FontIcon x:Name="TipVolumeStateGlyph" FontSize="14" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE993;" />
                         </Button>
                         <Button
                             x:Name="TipOpenFileButton"
@@ -910,6 +921,7 @@
                             HorizontalAlignment="Stretch"
                             MinWidth="84"
                             Click="OnTipOpenFileClick"
+                            Style="{StaticResource TipButtonStyle}"
                             Content="Open file" />
                         <!-- MinWidth covers the measured 123px text width:
                              the *-shared row starved this button to 119px
@@ -922,6 +934,7 @@
                             HorizontalAlignment="Stretch"
                             MinWidth="124"
                             Click="OnTipExplorerClick"
+                            Style="{StaticResource TipButtonStyle}"
                             Content="View in Explorer" />
                     </Grid>
                 </Grid>

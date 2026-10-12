@@ -2523,6 +2523,21 @@ namespace AmllTtmlTool.WinUI.Views
         internal bool Test_ExplorerEnabled() => TipExplorerButton.IsEnabled;
         internal bool Test_VolumeStateEnabled() => TipVolumeStateButton.IsEnabled;
         internal bool Test_SpeedSliderEnabled() => SpeedSlider.IsEnabled;
+        // Tip button boxes for the shared-style asserts (item 2): heights
+        // must be identical and the volume button square, loaded or empty.
+        internal string Test_TipButtonSizes()
+        {
+            try
+            {
+                return $"state={TipVolumeStateButton.ActualWidth:F2}x{TipVolumeStateButton.ActualHeight:F2} "
+                    + $"open={TipOpenFileButton.ActualWidth:F2}x{TipOpenFileButton.ActualHeight:F2} "
+                    + $"explorer={TipExplorerButton.ActualWidth:F2}x{TipExplorerButton.ActualHeight:F2}";
+            }
+            catch (Exception ex)
+            {
+                return "FAIL harness-error " + ex.GetType().Name;
+            }
+        }
         internal void Test_ClickEye() => OnLocateClick(EyeButton, new RoutedEventArgs());
         internal string Test_EyeName() => AutomationProperties.GetName(EyeButton);
         internal bool Test_EyeEnabled() => EyeButton.IsEnabled;

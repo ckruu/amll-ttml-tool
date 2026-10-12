@@ -336,6 +336,9 @@ internal static class PlayerbarTestCheck
             Check(report, $"tip {c.Label} fits-cap",
                 b.RootW <= 310 && b.RootL >= 11,
                 $"rootW={b.RootW:F1} rootL={b.RootL:F1} [{bounds}]", ref fails);
+            string loadedSizes = "";
+            await OnUiAsync(window, () => loadedSizes = page.Test_TipButtonSizes());
+            CheckTipButtonSizes(loadedSizes, c.Label, report, ref fails);
             var worst = "";
             foreach (var (name, l, r) in new[]
             {
@@ -463,6 +466,36 @@ internal static class PlayerbarTestCheck
         }
     }
 
+    // Item 2: shared tip-button style — identical heights across the three
+    // buttons plus a square volume button, in loaded and empty states.
+    // Callers pass sizes read while the tip is OPEN (closed tips report 0).
+    private static void CheckTipButtonSizes(
+        string sizes, string label, string report, ref int fails)
+    {
+        var dims = new Dictionary<string, (double W, double H)>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+            sizes, @"(\w+)=([0-9.]+)x([0-9.]+)"))
+        {
+            if (double.TryParse(m.Groups[2].Value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var w)
+                && double.TryParse(m.Groups[3].Value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var h))
+                dims[m.Groups[1].Value] = (w, h);
+        }
+        if (!dims.TryGetValue("state", out var st)
+            || !dims.TryGetValue("open", out var op)
+            || !dims.TryGetValue("explorer", out var ex))
+        {
+            Check(report, $"tip-buttons {label}", false, sizes, ref fails);
+            return;
+        }
+        Check(report, $"tip-buttons {label} equal-heights",
+            st.H > 0 && Math.Abs(st.H - op.H) < 0.01 && Math.Abs(st.H - ex.H) < 0.01,
+            $"[{sizes}]", ref fails);
+        Check(report, $"tip-buttons {label} square-state",
+            Math.Abs(st.W - st.H) < 0.01, $"[{sizes}]", ref fails);
+    }
+
     private static async Task<int> CheckThumbAsync(        Window window, Views.ShellPage page, double durMs, string label, string report)
     {
         var fails = 0;
@@ -533,9 +566,8 @@ internal static class PlayerbarTestCheck
         Check(report, "play-name-no-file", playName == "Play", $"name='{playName}'", ref fails);
         Check(report, "speed-disabled-no-file", !rateEnabled, $"enabled={rateEnabled}", ref fails);
 
-        string title = "", artist = "", codec = "";
-        var sliderOn = true; var sliderVal = -1.0;
-        var openOn = false; var explorerOn = true; var stateOn = true;
+        string title = "", artist = "", codec = "", sizesEmpty = "";
+        var sliderOn = true; var sliderVal = -1.0;        var openOn = false; var explorerOn = true; var stateOn = true;
         var coverShown = true;
         await OnUiAsync(window, () =>
         {
@@ -546,11 +578,23 @@ internal static class PlayerbarTestCheck
             sliderOn = page.Test_TipSliderEnabled();
             sliderVal = page.Test_TipSlider();
             openOn = page.Test_OpenFileEnabled();
-            explorerOn = page.Test_ExplorerEnabled();
+            explorerOn = page.Test_VolumeStateEnabled();
             stateOn = page.Test_VolumeStateEnabled();
             coverShown = page.Test_CoverShown();
-            page.Test_CloseTips();
         });
+        // Sizes need a layout pass after open; poll briefly (never trust a
+        // 0x0 read — a closed tip also reads zero).
+        for (var i = 0; i < 10 && sizesEmpty.Length == 0; i++)
+        {
+            await OnUiAsync(window, () =>
+            {
+                if (!page.Test_TrackTipOpen()) page.Test_OpenTrackTip();
+                var s = page.Test_TipButtonSizes();
+                if (!s.Contains("0.00x0.00")) sizesEmpty = s;
+            });
+            if (sizesEmpty.Length == 0) await Task.Delay(200);
+        }
+        await OnUiAsync(window, () => page.Test_CloseTips());
         Check(report, "track-empty-lines", title == "-" && artist == "-" && codec == "-",
             $"title='{title}' artist='{artist}' codec='{codec}'", ref fails);
         Check(report, "track-empty-slider", !sliderOn && sliderVal == 0,
@@ -558,6 +602,7 @@ internal static class PlayerbarTestCheck
         Check(report, "track-empty-buttons", openOn && !explorerOn && !stateOn,
             $"open={openOn} explorer={explorerOn} state={stateOn}", ref fails);
         Check(report, "track-empty-cover", !coverShown, $"coverShown={coverShown}", ref fails);
+        CheckTipButtonSizes(sizesEmpty, "empty", report, ref fails);
 
         var speedOn = true; var keepChecked = true; var keepOn = true;
         var presetOn = true;
