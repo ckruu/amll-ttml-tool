@@ -223,3 +223,50 @@ files, 21 hold/UIA asserts). Test data stays read-only (`D:\Lyrics`,
 - Narrator spot-check: line cards, pills, error dialog.
 - `error-dialog.png` + `combo-all-on.png` eyeball in
   `%TEMP%\lyrics-ui-artifacts\`.
+
+---
+
+# Phase 3 progress — Editing in the Edit tab
+
+Model rule (from Phase 1, holds): `EditDocument` is the only model.
+EVERY mutation goes through its commands. One committed edit = one
+history step. Composite ops (split/merge/shift/paste of many lines) are
+ONE step (`CompositeCommand` / single command class).
+
+## Step 0: operation map (original → port)
+
+Sources: PORTING-NOTES §d + `keyboard/commands.ts`, `states/main.ts`,
+`TopMenu/useTopMenuActions.ts`, `Menus/lyric-line-menu.tsx`,
+`lyric-editor/components/lyric-word-menu.tsx`, `lyric-word-view.tsx`,
+`lyric-line-view.tsx`, `RibbonBar/edit-mode.tsx`, `utils/timestamp.ts`.
+
+| # | Original op | EditDocument command (one step) | UI surface | Accelerator |
+|---|---|---|---|---|
+| 1 | Edit word text (Enter/blur commit, no-op if unchanged; `word\|` seeds `ruby=[]`) | `SetWordTextCommand` | chip text box | Enter commit, Esc revert, Tab/Shift+Tab commit+move |
+| 2 | Edit per-word romanization | `SetWordRomanCommand` | chip roman box + ribbon romanWord | same commit keys |
+| 3 | Edit line translation / romanization | `SetTranslationCommand` / `SetRomanizationCommand` | card Trans/Roman boxes + ribbon fields | same commit keys |
+| 4 | Edit line start/end; word start/end; end-as-duration mode (δ or absolute, clamp end≥start, push abutting next start) | `SetLineTimesCommand` / `SetWordTimesCommand` | ribbon time boxes + duration toggle | Enter/blur commit; invalid → red + revert |
+| 5 | Toggle BG / duet / ignoreSync; obscene; emptyBeat int (`parseInt→0`) | `SetLineFlagsCommand` / `SetWordFlagsCommand` | ribbon toggles + new emptyBeat field + line context checkboxes | immediate, one step each |
+| 6 | Add word (trailing `+`, insert-mode before, `Insert word here…` box; `newLyricWord()` 0/0/`""`) | `AddWordCommand` | chip-row `+`, inline insert box | Enter commits + keep focus, Esc cancels |
+| 7 | Delete words (filter + `normalizeLineTime` iff changed) | `RemoveWordsCommand` | word context menu, Edit menu, Del | `Delete` |
+| 8 | Split word at char indices (weight distribution) | `SplitWordCommand` (+ `SplitWeights`) | word context menu → small dialog | menu text only |
+| 9 | Merge words (>1 in one line, join `""`, fresh id) | `MergeWordsCommand` | word context menu | menu text only |
+| 10 | Replace word text (exact / ignore-case) | `ReplaceWordTextCommand` | word context menu → small dialog | menu text only |
+| 11 | Move selected words / following words to new line (inherit BG/duet, normalize both; whitespace-only untimed clicked word deleted first) | `MoveWordsToNewLineCommand` / `MoveFollowingWordsToNewLineCommand` | word context menu | menu text only |
+| 12 | Add line (append / above / below / ribbon New; `newLyricLine()`) | `AddLineCommand` | ribbon `+ Line`, line context menu | menu only |
+| 13 | Delete line(s) (no selection → this line; else selected; clears selection; NO confirm, undo restores) | `RemoveLinesCommand` | card `X`, line context menu, Del | `Delete` |
+| 14 | Combine lines (≥2 contiguous; words→lowest index, end=last end, absorbed translations discarded) | `CombineLinesCommand` | line context menu | menu text only |
+| 15 | Duplicate lines (fresh ids after each) | `DuplicateLinesCommand` | line context menu | `Ctrl+D` (list scope) |
+| 16 | Move line up/down | `MoveLineCommand` | line context menu | `Alt+Up/Down` |
+| 17 | Select all / unselect / invert / word-matches; delete selection (words nonempty → strip words globally, else splice lines) | selection + `CompositeCommand` batch | Edit menu | `Ctrl+A`, `Esc` (list scope), `Ctrl+I`/`Ctrl+F2` stubs |
+| 18 | Undo / redo | `Document.Undo/Redo` via `LyricStore` | title-bar buttons, Edit menu | `Ctrl+Z` / `Ctrl+Y` + `Ctrl+Shift+Z` via `KeyboardAccelerators` |
+| 19 | TimeShift ±ms (clamp ≥0; scope all/selected/following/custom) | `TimeShiftCommand` | Edit menu `Shift time…` dialog | menu only |
+| 20 | Sync line timestamps (bulk, confirm); link/unlink end-time | core chaining in `SetLineTimesCommand` / `Link/UnlinkEndTimeCommand` | Tools menu; link UI stays Sync-phase | menu only |
+| — | SKIP (Sync/Preview-only): Space/arrows/`[]'` audio, D/A/S/W R/Y F/G/H Home/End stamping, Q/S/W spectrogram, preview/render, drag-reorder, auto-segment/ruby/smoothing dialogs, LRCLIB, outline panel | — | later phases | Space NEVER bound globally (Sync stamping) |
+| — | SKIP (no line/word clipboard): TTML clipboard in/out replaces whole doc, one step | `BulkReplaceCommand` via import funnel | File menu only | existing `Ctrl+V` path |
+
+Decisions locked for Phase 3 (Q&A): ribbon gains `romanWord` +
+`emptyBeat` + end-as-duration toggle (full parity); `SelectionService`
+extends to multi-select; split/replace go through small dialogs (stubs
+in test mode). Empty word text commits as `""` (original `onEnter`
+sets it verbatim; blank style covers display) — no auto-delete.
