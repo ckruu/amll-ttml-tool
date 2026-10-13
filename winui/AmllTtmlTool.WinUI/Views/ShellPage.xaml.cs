@@ -2692,6 +2692,15 @@ namespace AmllTtmlTool.WinUI.Views
         internal string Test_LineId(int index) => _store.Document.Lines[index].Id;
         internal string Test_WordId(int line, int word) =>
             _store.Document.Lines[line].Words[word].Id;
+        internal string Test_RibbonText(string which) => EditBar.RibbonText(which);
+        internal void Test_SetRibbonText(string which, string text) =>
+            EditBar.SetRibbonText(which, text);
+        internal void Test_CommitRibbon(string which) => EditBar.CommitRibbon(which);
+        internal bool Test_RibbonEnabled(string which) => EditBar.RibbonEnabled(which);
+        internal void Test_ClickRibbonToggle(string which) => EditBar.ClickRibbonToggle(which);
+        internal bool Test_DurationMode() => EditBar.DurationMode();
+        internal void Test_SetRibbonComposing(string which, bool composing) =>
+            EditBar.SetComposing(which, composing);
         internal bool Test_ToggleState(string which) => which switch
         {
             "trans" => _viewState.ShowTranslation,

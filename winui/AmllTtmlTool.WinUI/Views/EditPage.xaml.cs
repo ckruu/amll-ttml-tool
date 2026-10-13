@@ -605,8 +605,8 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnStoreChanged()
         {
-            if (DispatcherQueue.HasThreadAccess) { RefreshEmptyState(); RefreshBoxTexts(); }
-            else DispatcherQueue.TryEnqueue(() => { RefreshEmptyState(); RefreshBoxTexts(); });
+            if (DispatcherQueue.HasThreadAccess) { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); }
+            else DispatcherQueue.TryEnqueue(() => { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); });
         }
 
         // Pushes model text into every realized box WITHOUT stealing focus:
@@ -1388,14 +1388,32 @@ namespace AmllTtmlTool.WinUI.Views
                 sv.ChangeView(null, sv.VerticalOffset + (after - anchor.Y), null, true);
         }
 
-        // Flag visuals live here in code (no template change): automation
-        // names carry BG/duet for AT; the visible badges land in Step 3.
+        // Flag visuals: BG/duet badges (WinUI tinted-border style) plus an
+        // automation-name suffix for AT.
         private void ApplyFlagVisual(DependencyObject container, int index, EditLine line)
         {
             var name = $"Line {index + 1}";
             if (line.IsBg) name += ", BG";
             if (line.IsDuet) name += ", duet";
             AutomationProperties.SetName(container, name);
+            if (container is ListViewItem item
+                && item.ContentTemplateRoot is Grid card)
+            {
+                if (card.FindName("BgBadge") is FrameworkElement bg)
+                    bg.Visibility = line.IsBg ? Visibility.Visible : Visibility.Collapsed;
+                if (card.FindName("DuetBadge") is FrameworkElement duet)
+                    duet.Visibility = line.IsDuet ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void RefreshFlagVisuals()
+        {
+            if (_store is null) return;
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                ApplyFlagVisual(container, i, _store.Document.Lines[i]);
+            }
         }
 
         private Grid BuildChip(EditLine line, EditWord word, int index, int lineIndex)

@@ -124,12 +124,42 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock
-                            x:Name="LineNumber"
+                        <StackPanel
                             Grid.Column="0"
                             VerticalAlignment="Center"
-                            Style="{StaticResource BodyTextBlockStyle}"
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            Spacing="4">
+                            <TextBlock
+                                x:Name="LineNumber"
+                                HorizontalAlignment="Center"
+                                Style="{StaticResource BodyTextBlockStyle}"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Border
+                                x:Name="BgBadge"
+                                Padding="4,1"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Visibility="Collapsed"
+                                BorderBrush="{ThemeResource SystemFillColorAttentionBrush}">
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="10"
+                                    Foreground="{ThemeResource SystemFillColorAttentionBrush}"
+                                    Text="BG" />
+                            </Border>
+                            <Border
+                                x:Name="DuetBadge"
+                                Padding="4,1"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Visibility="Collapsed"
+                                BorderBrush="{ThemeResource SystemFillColorSuccessBrush}">
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="10"
+                                    Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                    Text="V2" />
+                            </Border>
+                        </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="8">
                             <controls:LyricWrapPanel
                                 x:Name="ChipPanel"
