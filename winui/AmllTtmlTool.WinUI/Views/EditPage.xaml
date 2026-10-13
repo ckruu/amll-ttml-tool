@@ -161,11 +161,32 @@
                             </Border>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="8">
-                            <controls:LyricWrapPanel
-                                x:Name="ChipPanel"
-                                HorizontalSpacing="6"
-                                VerticalSpacing="6" />
-                            <Grid x:Name="SubRows" ColumnSpacing="12" RowSpacing="6">
+                            <!-- Chip row + add button: the button is centered
+                                 on the WHOLE chip row (which can be two rows
+                                 tall with per-word romaji), never on its top
+                                 row, so it stays aligned as chips grow. -->
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <controls:LyricWrapPanel
+                                    x:Name="ChipPanel"
+                                    HorizontalSpacing="6"
+                                    VerticalSpacing="6" />
+                                <Button
+                                    x:Name="AddWordButton"
+                                    Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    ToolTipService.ToolTip="Add word">
+                                    <FontIcon FontSize="14" Glyph="&#xE710;" />
+                                </Button>
+                            </Grid>
+                            <!-- RowSpacing mirrors ChipRowSpacing while both rows
+                                 are visible; ApplyCardVisibility drops it to 0
+                                 when one row is hidden so no leftover gap
+                                 pads the card bottom. -->
+                            <Grid x:Name="SubRows" ColumnSpacing="12" RowSpacing="{StaticResource ChipRowSpacing}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />

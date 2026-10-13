@@ -160,6 +160,114 @@ internal static class EditCheck
             await OnUiAsync(window, () => page.Test_SetChipBoxText(0, 0, false, orig0));
             await OnUiAsync(window, () => page.Test_CommitChip(0, 0, false));
 
+            // --- 1b. space chips + hug + pads ------------------------------
+            // Self-contained: appends 3 scratch words to line 0, drives them
+            // through spaces/glyphs, then undoes everything back.
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(0));
+            var scDepth = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var scLineId = await OnUiAsync(window, () => page.Test_LineId(0));
+            await OnUiAsync(window, () => page.Test_AddWordToLine(scLineId, "x"));
+            await OnUiAsync(window, () => page.Test_AddWordToLine(scLineId, "x"));
+            await OnUiAsync(window, () => page.Test_AddWordToLine(scLineId, "x"));
+            var scCount = await OnUiAsync(window, () => page.Test_LyricWordCount(0));
+            var s0 = scCount - 3;
+            var s1 = scCount - 2;
+            var s2 = scCount - 1;
+            // 1/2/5 spaces render as dim "Space xN" labels (model keeps raw).
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s0, false, " "));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s0, false));
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s1, false, "  "));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s1, false));
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s2, false, "     "));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s2, false));
+            var lab0 = await OnUiAsync(window, () => page.Test_SpaceLabel(0, s0));
+            var lab1 = await OnUiAsync(window, () => page.Test_SpaceLabel(0, s1));
+            var lab2 = await OnUiAsync(window, () => page.Test_SpaceLabel(0, s2));
+            var mod1 = await OnUiAsync(window, () => page.Test_WordText(0, s1));
+            Check("space-labels", lab0 == "Space x1" && lab1 == "Space x2" && lab2 == "Space x5" && mod1 == "  ",
+                $"labels='{lab0}'/'{lab1}'/'{lab2}' model='{mod1}'");
+            // The count follows edits live: 5 -> 3 spaces.
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s2, false, "   "));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s2, false));
+            var lab2b = await OnUiAsync(window, () => page.Test_SpaceLabel(0, s2));
+            Check("space-recount", lab2b == "Space x3", $"label='{lab2b}'");
+            // Visual evidence (RenderTargetBitmap, headless-safe): card with
+            // the three space chips, viewed by the operator after the run.
+            var shotDir = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "edit-ui-artifacts");
+            var shotPrefix = System.Environment.GetEnvironmentVariable("AMLL_SHOT_PREFIX");
+            if (string.IsNullOrWhiteSpace(shotPrefix)) shotPrefix = "step1";
+            var shotSpace = await await OnUiAsync(window, () =>
+                page.Test_ShotCard(0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-space-chips.png")));
+            Check("shot-space", shotSpace.StartsWith("ok:"), shotSpace);
+            var shotChip = await await OnUiAsync(window, () =>
+                page.Test_ShotChip(0, s0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-space-chipunit.png")));
+            Check("shot-chipunit", shotChip.StartsWith("ok:"), shotChip);
+            // Recounted chip (x3) + a normal word chip, for pixel reading.
+            var shotChip2 = await await OnUiAsync(window, () =>
+                page.Test_ShotChip(0, s2, System.IO.Path.Combine(shotDir, $"{shotPrefix}-space-x3-chipunit.png")));
+            Check("shot-chipunit2", shotChip2.StartsWith("ok:"), shotChip2);
+            var shotWord = await await OnUiAsync(window, () =>
+                page.Test_ShotChip(0, 0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-word-chipunit.png")));
+            Check("shot-wordchip", shotWord.StartsWith("ok:"), shotWord);
+            // Hug: single glyph + long kana + long romaji units. Box widths
+            // equal within 1px; the single glyph stays compact (< 64px, the
+            // old TextBox theme floor).
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s0, false, "キ"));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s0, false));
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s1, false, "ハッピーバースデー"));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s1, false));
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s2, false, "alongromajiword"));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s2, false));
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s2, true, "ruby-for-width"));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s2, true));
+            var wS0 = await OnUiAsync(window, () => page.Test_ChipWidths(0, s0));
+            var wS1 = await OnUiAsync(window, () => page.Test_ChipWidths(0, s1));
+            var wS2 = await OnUiAsync(window, () => page.Test_ChipWidths(0, s2));
+            var uS0 = await OnUiAsync(window, () => page.Test_ChipUnitWidth(0, s0));
+            var hugOk = WidthsEqual(wS0) && WidthsEqual(wS1) && WidthsEqual(wS2)
+                && double.TryParse(uS0, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var unitW)
+                && unitW < 64;
+            Check("chip-hug", hugOk, $"widths=[{wS0}][{wS1}][{wS2}] unit={uS0}");
+            var shotHug = await await OnUiAsync(window, () =>
+                page.Test_ShotCard(0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-hug.png")));
+            Check("shot-hug", shotHug.StartsWith("ok:"), shotHug);
+            // Gaps: chip main<->romaji == card Trans<->Roman (shared 6px).
+            var chipGap = await OnUiAsync(window, () => page.Test_ChipGap(0, s2));
+            var rowGap = await OnUiAsync(window, () => page.Test_RowGap(0));
+            var gapsOk = chipGap == rowGap
+                && double.TryParse(chipGap, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var gapV)
+                && Math.Abs(gapV - 6) <= 1.0;
+            Check("romaji-gap", gapsOk, $"chip={chipGap} row={rowGap}");
+            // Card top pad == bottom pad, romaji on and off; "+" centered.
+            var padsOn = await OnUiAsync(window, () => page.Test_CardPads(0));
+            var dyOn = await OnUiAsync(window, () => page.Test_AddButtonDy(0));
+            var padsOk = PadsEqual(padsOn) && DyOk(dyOn);
+            Check("card-pads-on", padsOk, $"pads=[{padsOn}] dy={dyOn}");
+            var wrOn = await OnUiAsync(window, () => page.Test_ToggleState("wordroman"));
+            if (wrOn) await OnUiAsync(window, () => page.Test_FlipToggle("wordroman"));
+            await Task.Delay(400);
+            var padsOff = await OnUiAsync(window, () => page.Test_CardPads(0));
+            var dyOff = await OnUiAsync(window, () => page.Test_AddButtonDy(0));
+            var gapOff = await OnUiAsync(window, () => page.Test_ChipGap(0, s2));
+            var offOk = PadsEqual(padsOff) && DyOk(dyOff) && gapOff == "collapsed";
+            Check("card-pads-off", offOk, $"pads=[{padsOff}] dy={dyOff} gap={gapOff}");
+            await OnUiAsync(window, () => page.Test_FlipToggle("wordroman"));
+            await Task.Delay(400);
+            var padsBack = await OnUiAsync(window, () => page.Test_CardPads(0));
+            Check("card-pads-restore", PadsEqual(padsBack), $"pads=[{padsBack}]");
+            // Undo everything back to the imported doc.
+            var guard = 0;
+            while (await OnUiAsync(window, () => page.Test_UndoDepth()) > scDepth && guard < 30)
+            {
+                await OnUiAsync(window, () => page.Test_Undo());
+                guard++;
+            }
+            var scCountBack = await OnUiAsync(window, () => page.Test_LyricWordCount(0));
+            Check("scratch-undone", scCountBack == scCount - 3, $"words={scCountBack}");
+
             // --- 2. width hug + caret ------------------------------------
             await OnUiAsync(window, () => page.Test_SetChipBoxText(0, 1, false,
                 "a much longer word for width hug"));
@@ -555,6 +663,22 @@ internal static class EditCheck
                 System.Globalization.CultureInfo.InvariantCulture, out var rw)
             && Math.Abs(tw - rw) <= 1.0;
     }
+
+    private static bool PadsEqual(string pads)
+    {
+        var parts = pads.Split(',');
+        return parts.Length == 2
+            && double.TryParse(parts[0], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var top)
+            && double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var bottom)
+            && Math.Abs(top - bottom) <= 1.0;
+    }
+
+    private static bool DyOk(string dy) =>
+        double.TryParse(dy, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var v)
+        && v <= 1.0;
 
     // 200 deterministic random ops against a simple reference model.
     // Reference mirrors texts/counts/flags/times by index (split times via

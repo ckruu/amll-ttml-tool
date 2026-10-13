@@ -14,6 +14,11 @@
             </ResourceDictionary.MergedDictionaries>
             <Color x:Key="AppAccent">#E86A5C</Color>
             <SolidColorBrush x:Key="AppAccentBrush" Color="{StaticResource AppAccent}" />
+            <!-- ONE shared vertical gap: chip main<->romaji boxes AND the
+                 card Translation<->Romanization rows. Both are set from this
+                 value in code (BuildChip / ApplyCardVisibility), so the two
+                 gaps can never drift apart. -->
+            <x:Double x:Key="ChipRowSpacing">6</x:Double>
             <Style x:Key="RibbonGroup" TargetType="StackPanel">
                 <Setter Property="Padding" Value="8,6" />
                 <Setter Property="Spacing" Value="4" />

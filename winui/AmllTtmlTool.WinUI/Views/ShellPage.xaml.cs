@@ -2787,6 +2787,26 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.RowVisibility(line, which) ?? -1;
         internal string Test_ChipWidths(int line, int word) =>
             _attachedEditPage?.ChipWidths(line, word) ?? "nopage";
+        internal string Test_SpaceLabel(int line, int word) =>
+            _attachedEditPage?.SpaceLabel(line, word) ?? "nopage";
+        internal string Test_ChipUnitWidth(int line, int word) =>
+            _attachedEditPage?.ChipUnitWidth(line, word) ?? "nopage";
+        internal string Test_CardPads(int line) =>
+            _attachedEditPage?.CardPads(line) ?? "nopage";
+        internal string Test_AddButtonDy(int line) =>
+            _attachedEditPage?.AddButtonDy(line) ?? "nopage";
+        internal bool Test_EnterSpaceEdit(int line, int word) =>
+            _attachedEditPage?.EnterSpaceEdit(Test_WordId(line, word) ?? "") ?? false;
+        internal string Test_ChipGap(int line, int word) =>
+            _attachedEditPage?.ChipGap(line, word) ?? "nopage";
+        internal string Test_RowGap(int line) =>
+            _attachedEditPage?.RowGap(line) ?? "nopage";
+        internal Task<string> Test_ShotCard(int line, string path) =>
+            _attachedEditPage?.ShotCardAsync(line, path) ?? Task.FromResult("nopage");
+        internal Task<string> Test_ShotList(string path) =>
+            _attachedEditPage?.ShotListAsync(path) ?? Task.FromResult("nopage");
+        internal Task<string> Test_ShotChip(int line, int word, string path) =>
+            _attachedEditPage?.ShotChipAsync(line, word, path) ?? Task.FromResult("nopage");
         internal bool Test_FocusChip(int line, int word, bool roman) =>
             _attachedEditPage?.FocusChip(line, word, roman) ?? false;
         internal string Test_ChipBoxText(int line, int word, bool roman) =>

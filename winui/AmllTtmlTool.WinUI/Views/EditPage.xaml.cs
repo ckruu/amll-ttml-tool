@@ -253,17 +253,9 @@ namespace AmllTtmlTool.WinUI.Views
             panel.Children.Clear();
             for (var i = 0; i < line.Words.Count; i++)
                 panel.Children.Add(BuildChip(line, line.Words[i], i, index));
-            var add = new Button
-            {
-                Content = new FontIcon { FontSize = 14, Glyph = "\uE710" },
-                VerticalAlignment = VerticalAlignment.Center,
-                Tag = line.Id,
-            };
-            add.Click += OnAddWordClick;
-            ToolTipService.SetToolTip(add, "Add word");
-            AutomationProperties.SetAutomationId(add, $"AddWord{index + 1}");
-            AutomationProperties.SetName(add, $"Add word to line {index + 1}");
-            panel.Children.Add(add);
+            // The "+" lives in XAML beside the panel (centered on the whole
+            // chip row, not its top row); only its Tag/Name are refreshed
+            // per prepare in OnLineContainerChanging.
             // Inline "Insert word here..." box (original insertWordField):
             // open at the row end while adding; Enter commits a new word
             // (default 0/0 timing) and keeps focus for repeat adds.
@@ -525,6 +517,12 @@ namespace AmllTtmlTool.WinUI.Views
         {
             var box = FindChipBox(line, word, roman);
             if (box is null) return false;
+            // A space label cannot take focus: swap in its editor first so
+            // keyboard users can always reach every chip.
+            if (box.Visibility == Visibility.Collapsed
+                && _store is not null && line >= 0 && line < _store.Document.Lines.Count
+                && word >= 0 && word < _store.Document.Lines[line].Words.Count)
+                EnterSpaceEdit(_store.Document.Lines[line].Words[word].Id);
             return box.Focus(FocusState.Programmatic);
         }
 
@@ -594,7 +592,12 @@ namespace AmllTtmlTool.WinUI.Views
             return sw.Elapsed.TotalMilliseconds;
         }
 
-        internal string TypeBreakdown() => $"{_lastSetMs:F2},{_lastLayoutMs:F2},{_lastSetCpuMs:F2}";
+        // Measurement hooks format with the invariant culture: the harness
+        // parses with InvariantCulture, and the OS locale may use ','.
+        internal static string F2(double v) =>
+            v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+
+        internal string TypeBreakdown() => $"{F2(_lastSetMs)},{F2(_lastLayoutMs)},{F2(_lastSetCpuMs)}";
 
         // Returns true when a history step resulted (false = box missing
         // or nothing to commit). Lets the harness tell silent no-ops apart
@@ -604,6 +607,11 @@ namespace AmllTtmlTool.WinUI.Views
             if (FindChipBox(line, word, roman) is not TextBox box) return false;
             var before = _store?.Document.UndoDepth ?? -1;
             CommitBoxIfDirty(box);
+            // Leaving space-edit mode restores the label (a store change
+            // already refreshes it; this covers no-op commits too).
+            if (!roman && _store is not null && line >= 0 && line < _store.Document.Lines.Count
+                && word >= 0 && word < _store.Document.Lines[line].Words.Count)
+                ExitSpaceEdit(_store.Document.Lines[line].Words[word].Id);
             var after = _store?.Document.UndoDepth ?? -1;
             return after != before;
         }
@@ -619,6 +627,9 @@ namespace AmllTtmlTool.WinUI.Views
                 session.LastSeenModel = model;
             }
             catch { }
+            if (!roman && _store is not null && line >= 0 && line < _store.Document.Lines.Count
+                && word >= 0 && word < _store.Document.Lines[line].Words.Count)
+                ExitSpaceEdit(_store.Document.Lines[line].Words[word].Id);
         }
 
         internal int ChipCaret(int line, int word, bool roman) =>
@@ -691,9 +702,203 @@ namespace AmllTtmlTool.WinUI.Views
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
             if (word < 0 || word >= panel.Children.Count) return "norow";
             if (panel.Children[word] is not Grid chip || chip.Children.Count < 2) return "nochip";
-            var tw = (chip.Children[0] as FrameworkElement)?.ActualWidth ?? double.NaN;
+            // A collapsed main box (space label showing) measures 0: use the
+            // visible label instead, which is what defines the chip width.
+            FrameworkElement? main = chip.Children[0] as FrameworkElement;
+            if (main is not null && main.Visibility == Visibility.Collapsed
+                && chip.Children.Count >= 3 && chip.Children[2] is FrameworkElement labelEl)
+                main = labelEl;
+            var tw = main?.ActualWidth ?? double.NaN;
             var rw = (chip.Children[1] as FrameworkElement)?.ActualWidth ?? double.NaN;
-            return $"{tw:F2},{rw:F2}";
+            return $"{F2(tw)},{F2(rw)}";
+        }
+
+        // Space-label text for a chip ("Space xN" when the label shows,
+        // "hidden" while its editor is open, "notspace" for normal words).
+        internal string SpaceLabel(int line, int word)
+        {
+            if (_store is null || line < 0 || line >= _store.Document.Lines.Count) return "noline";
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return "noword";
+            if (!IsSpaceWord(docLine.Words[word])) return "notspace";
+            var wordId = docLine.Words[word].Id;
+            foreach (var child in panel.Children)
+            {
+                if (child is Grid chip && chip.Tag is string tag && tag == wordId
+                    && chip.Children.Count >= 3 && chip.Children[2] is TextBlock label)
+                    return label.Visibility == Visibility.Visible ? label.Text : "hidden";
+            }
+            return "nolabel";
+        }
+
+        // Full chip-unit width (hug check: must be small for one glyph).
+        internal string ChipUnitWidth(int line, int word)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            if (word < 0 || word >= panel.Children.Count) return "norow";
+            if (panel.Children[word] is not Grid chip) return "nochip";
+            card.UpdateLayout();
+            return $"{F2(chip.ActualWidth)}";
+        }
+
+        // Card top pad (card top -> chip row top) vs bottom pad (sub-rows
+        // bottom -> card bottom). Equal within 1px, romaji on and off.
+        internal string CardPads(int line)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            if (card.FindName("SubRows") is not Grid subRows) return "nosubrows";
+            card.UpdateLayout();
+            var panelTop = panel.TransformToVisual(card)
+                .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            var subBottom = subRows.TransformToVisual(card)
+                .TransformPoint(new Windows.Foundation.Point(0, subRows.ActualHeight)).Y;
+            return $"{F2(panelTop)},{F2(card.ActualHeight - subBottom)}";
+        }
+
+        // Vertical distance between the "+" center and the chip-row center
+        // (must be ~0: centered on the whole unit, not its top row).
+        internal string AddButtonDy(int line)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            if (card.FindName("AddWordButton") is not Button add) return "noadd";
+            card.UpdateLayout();
+            var panelCenter = panel.TransformToVisual(card)
+                .TransformPoint(new Windows.Foundation.Point(0, panel.ActualHeight / 2)).Y;
+            var addCenter = add.TransformToVisual(card)
+                .TransformPoint(new Windows.Foundation.Point(0, add.ActualHeight / 2)).Y;
+            return $"{F2(Math.Abs(addCenter - panelCenter))}";
+        }
+
+        // Gap between a chip's main box (or its space label) and its romaji
+        // box, in px. "collapsed" when the romaji row is toggled off.
+        internal string ChipGap(int line, int word)
+        {
+            if (_store is null || line < 0 || line >= _store.Document.Lines.Count) return "noline";
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return "noword";
+            var wordId = docLine.Words[word].Id;
+            foreach (var child in panel.Children)
+            {
+                if (child is not Grid chip || chip.Tag is not string tag || tag != wordId) continue;
+                if (chip.Children.Count < 2 || chip.Children[1] is not FrameworkElement roman) return "noroman";
+                if (roman.Visibility == Visibility.Collapsed) return "collapsed";
+                card.UpdateLayout();
+                FrameworkElement? main = chip.Children[0] as FrameworkElement;
+                if (main is not null && main.Visibility == Visibility.Collapsed
+                    && chip.Children.Count >= 3 && chip.Children[2] is FrameworkElement labelEl)
+                    main = labelEl;
+                if (main is null) return "nomain";
+                var mainBottom = main.TransformToVisual(card)
+                    .TransformPoint(new Windows.Foundation.Point(0, main.ActualHeight)).Y;
+                var romanTop = roman.TransformToVisual(card)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                return $"{F2(romanTop - mainBottom)}";
+            }
+            return "nochip";
+        }
+
+        // Gap between the card Translation and Romanization rows, in px.
+        // "collapsed" when either row is toggled off.
+        internal string RowGap(int line)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("TransBox") is not FrameworkElement trans) return "notrans";
+            if (card.FindName("RomanBox") is not FrameworkElement roman) return "noroman";
+            if (trans.Visibility == Visibility.Collapsed || roman.Visibility == Visibility.Collapsed)
+                return "collapsed";
+            card.UpdateLayout();
+            var transBottom = trans.TransformToVisual(card)
+                .TransformPoint(new Windows.Foundation.Point(0, trans.ActualHeight)).Y;
+            var romanTop = roman.TransformToVisual(card)
+                .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+            return $"{F2(romanTop - transBottom)}";
+        }
+
+        // Headless-safe screenshots (RenderTargetBitmap renders the XAML
+        // tree in software: no foreground, no compositor needed, unlike UIA
+        // capture). Used for before/after visual verification each step.
+        internal async Task<string> ShotCardAsync(int line, string path)
+        {
+            try
+            {
+                if (LineList.ContainerFromIndex(line) is not ListViewItem container)
+                    return "unrealized";
+                // Render the card grid itself: the container chrome (Border)
+                // captures without its data-template content under RTB.
+                if (container.ContentTemplateRoot is Grid card)
+                    return await ShotElementAsync(card, path);
+                return await ShotElementAsync(container, path);
+            }
+            catch (Exception ex) { return "error:" + ex.Message; }
+        }
+
+        internal async Task<string> ShotChipAsync(int line, int word, string path)
+        {
+            try
+            {
+                if (_store is null) return "noline";
+                if (LineList.ContainerFromIndex(line) is not ListViewItem container)
+                    return "unrealized";
+                if (container.ContentTemplateRoot is not Grid card) return "nocard";
+                if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+                var docLine = _store.Document.Lines[line];
+                if (word < 0 || word >= docLine.Words.Count) return "noword";
+                var wordId = docLine.Words[word].Id;
+                foreach (var child in panel.Children)
+                {
+                    if (child is Grid chip && chip.Tag is string tag && tag == wordId)
+                        return await ShotElementAsync(chip, path);
+                }
+                return "nochip";
+            }
+            catch (Exception ex) { return "error:" + ex.Message; }
+        }
+
+        internal async Task<string> ShotListAsync(string path)
+        {
+            try { return await ShotElementAsync(LineList, path); }
+            catch (Exception ex) { return "error:" + ex.Message; }
+        }
+
+        private static async Task<string> ShotElementAsync(FrameworkElement el, string path)
+        {
+            el.UpdateLayout();
+            var rtb = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
+            await rtb.RenderAsync(el);
+            var pixels = await rtb.GetPixelsAsync();
+            var sb = Windows.Graphics.Imaging.SoftwareBitmap.CreateCopyFromBuffer(
+                pixels,
+                Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                rtb.PixelWidth, rtb.PixelHeight,
+                Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied);
+            var dir = System.IO.Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
+            using var mem = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+            var enc = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(
+                Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, mem);
+            enc.SetSoftwareBitmap(sb);
+            await enc.FlushAsync();
+            mem.Seek(0);
+            using var fs = System.IO.File.Create(path);
+            var reader = new Windows.Storage.Streams.DataReader(mem.GetInputStreamAt(0));
+            var bytes = new byte[mem.Size];
+            await reader.LoadAsync((uint)mem.Size);
+            reader.ReadBytes(bytes);
+            await fs.WriteAsync(bytes, 0, bytes.Length);
+            return $"ok:{rtb.PixelWidth}x{rtb.PixelHeight}";
         }
 
         internal bool ToggleState(string which) => _viewState is not null && which switch
@@ -799,7 +1004,7 @@ namespace AmllTtmlTool.WinUI.Views
             var max = deltas[^1];
             var over13_9 = deltas.Count(d => d > 13.9);
             var over2xmedian = deltas.Count(d => d > 2 * median);
-            return $"frames={stamps.Count} median={median:F2} p95={p95:F2} max={max:F2} over13_9={over13_9} over2xmedian={over2xmedian}";
+            return $"frames={stamps.Count} median={F2(median)} p95={F2(p95)} max={F2(max)} over13_9={over13_9} over2xmedian={over2xmedian}";
         }
 
         private void OnStoreChanged()
@@ -834,8 +1039,18 @@ namespace AmllTtmlTool.WinUI.Views
                         SyncBox(text, word.Text);
                     if (chip.Children[1] is TextBox rom)
                         SyncBox(rom, word.RomanWord);
-                    var blank = word.EmptyBeat > 0 && string.IsNullOrWhiteSpace(word.Text);
-                    chip.Opacity = blank ? 0.55 : 1;
+                    // Space chips keep the dim "Space xN" label in sync with
+                    // the model count (typing spaces changes N live); the
+                    // dim cue is the secondary-brush label itself, so the
+                    // chip stays full-opacity and legible.
+                    var space = IsSpaceWord(word);
+                    chip.Opacity = 1;
+                    if (chip.Children.Count >= 3 && chip.Children[2] is TextBlock label && space)
+                    {
+                        label.Text = SpaceLabelFor(word);
+                        AutomationProperties.SetName(label, $"Space \u00D7{word.Text.Length}");
+                    }
+                    UpdateSpaceVisual(chip, showEditor: false);
                 }
             }
         }
@@ -1465,6 +1680,15 @@ namespace AmllTtmlTool.WinUI.Views
                 AutomationProperties.SetAutomationId(delete, $"DeleteLine{index + 1}");
                 AutomationProperties.SetName(delete, $"Delete line {index + 1}");
             }
+            // The XAML "+" beside the chip row resolves its line via Tag
+            // (roots are pooled; Tag must follow the current line).
+            if (card.FindName("AddWordButton") is Button addWord)
+            {
+                addWord.Tag = line.Id;
+                ToolTipService.SetToolTip(addWord, "Add word");
+                AutomationProperties.SetAutomationId(addWord, $"AddWord{index + 1}");
+                AutomationProperties.SetName(addWord, $"Add word to line {index + 1}");
+            }
             // Stable per-line automation identities for the row boxes: the
             // UI-verification driver addresses rows by direct AutomationId
             // lookup (tree walks omit nodes), and an explicit Name keeps the
@@ -1485,6 +1709,8 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 if (card.FindName("DeleteButton") is Button deleteBtn)
                     deleteBtn.Click += OnDeleteButtonClick;
+                if (card.FindName("AddWordButton") is Button addWordBtn)
+                    addWordBtn.Click += OnAddWordClick;
                 var flyout = new MenuFlyout();
                 flyout.Opening += (_, _) => RebuildLineMenu(flyout, card);
                 card.ContextFlyout = flyout;
@@ -1532,10 +1758,17 @@ namespace AmllTtmlTool.WinUI.Views
         {
             SetRow(card, "TransLabel", "TransBox", showTrans, animate, collapseNow);
             SetRow(card, "RomanLabel", "RomanBox", showRoman, animate, collapseNow);
+            // The Translation<->Romanization gap equals the chip main<->romaji
+            // gap (one shared ChipRowSpacing value). With only one row left
+            // the gap drops to 0: a leftover 6px would pad the card bottom
+            // and break top==bottom padding.
+            if (card.FindName("SubRows") is Grid subRows)
+                subRows.RowSpacing = showTrans && showRoman ? ChipRowGap : 0;
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return;
             foreach (var child in panel.Children)
             {
                 if (child is not Grid chip || chip.Children.Count < 2) continue;
+                chip.RowSpacing = showWordRoman ? ChipRowGap : 0;
                 if (chip.Children[1] is FrameworkElement roman) SetElement(roman, showWordRoman, animate, collapseNow);
             }
         }
@@ -1718,24 +1951,50 @@ namespace AmllTtmlTool.WinUI.Views
             }
         }
 
+        // A word whose text is only whitespace (length > 0) is a SPACE chip,
+        // like the original (`useWordBlank` + `Space x{count}` with
+        // count = word.length; PORTING-NOTES §h). `emptyBeat` is orthogonal
+        // (an int field, NOT the space count), so it is not part of the gate.
+        // Space words normally carry no timing, but that is left to the
+        // model/commands — the chip only changes how they render.
+        internal static bool IsSpaceWord(EditWord word) =>
+            word.Text.Length > 0 && string.IsNullOrWhiteSpace(word.Text);
+
+        internal static string SpaceLabelFor(EditWord word) =>
+            $"Space x{word.Text.Length}";
+
+        // The ONE shared main<->romaji gap (App.xaml ChipRowSpacing): the
+        // chip grid and the card Translation/Romanization rows both use it.
+        internal static double ChipRowGap =>
+            Application.Current.Resources.TryGetValue("ChipRowSpacing", out var v)
+            && v is double d ? d : 6;
+
+        // Word ids whose space label is temporarily swapped for the raw-text
+        // box while editing (double-click / Test hook). Commits and Esc
+        // remove the id again; refreshes never show the box otherwise.
+        private readonly HashSet<string> _editingSpaces = new(StringComparer.Ordinal);
+
         private Grid BuildChip(EditLine line, EditWord word, int index, int lineIndex)
         {
             var chip = new Grid
             {
-                MinWidth = 44,
+                // No minimum: a chip unit hugs max(main, romaji). The old
+                // MinWidth=44 plus the TextBox theme floors (MinWidth 64 +
+                // padding) turned "キ" into a huge box.
+                MinWidth = 0,
                 Tag = word.Id,
+                RowSpacing = ChipRowGap,
             };
             chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            // Raw model text in the box (never the "Space ×N" display alias:
-            // committing that alias would write it into the model). The
-            // alias survives as the automation name + placeholder + dim cue,
-            // so AT and the empty-beat render test keep working.
-            var isSpace = word.EmptyBeat > 0 && string.IsNullOrWhiteSpace(word.Text);
+            var isSpace = IsSpaceWord(word);
+            var editingSpace = _editingSpaces.Contains(word.Id);
             // Spellcheck/prediction off: lyric text is often non-dictionary
             // (and CJK); predictions interfere with commit/IME flows and add
             // per-keystroke text-service cost. IME composition itself is
             // unaffected (guarded separately via TextComposition events).
+            // MinWidth/MinHeight/Padding override the TextBox theme floors
+            // so single glyphs stay compact (item 8).
             var text = new TextBox
             {
                 Text = word.Text,
@@ -1744,6 +2003,10 @@ namespace AmllTtmlTool.WinUI.Views
                 IsSpellCheckEnabled = false,
                 IsTextPredictionEnabled = false,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                MinWidth = 0,
+                MinHeight = 0,
+                Padding = new Thickness(6, 3, 6, 3),
                 Tag = word.Id,
             };
             var roman = new TextBox
@@ -1754,23 +2017,44 @@ namespace AmllTtmlTool.WinUI.Views
                 IsSpellCheckEnabled = false,
                 IsTextPredictionEnabled = false,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                MinWidth = 0,
+                MinHeight = 0,
+                Padding = new Thickness(6, 3, 6, 3),
                 Tag = word.Id,
             };
             Grid.SetRow(roman, 1);
-            if (isSpace)
+            // Raw model text stays in the box (never the "Space xN" display
+            // label: committing that label would write it into the model).
+            // The label is a separate dim TextBlock overlaying row 0 while
+            // the box is collapsed; AT still gets "Space ×N" on both.
+            var label = new TextBlock
             {
-                chip.Opacity = 0.55;
-                text.PlaceholderText = $"Space \u00D7{word.EmptyBeat}";
-            }
+                Text = SpaceLabelFor(word),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(6, 3, 6, 3),
+                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                IsHitTestVisible = false,
+                Tag = word.Id,
+            };
+            var showLabel = isSpace && !editingSpace;
+            text.Visibility = showLabel ? Visibility.Collapsed : Visibility.Visible;
+            label.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;
             // The two boxes share the chip width (grid = max child width,
             // both stretch): widths hug the wider content instantly while
             // typing, with no animation and no rebuild, so caret/focus stay.
+            // A collapsed main box is replaced by the label for measuring.
             AutomationProperties.SetAutomationId(text, $"ChipText{lineIndex + 1}_{index + 1}");
             AutomationProperties.SetName(text, isSpace
-                ? $"Word {index + 1}: Space \u00D7{word.EmptyBeat}"
+                ? $"Word {index + 1}: Space \u00D7{word.Text.Length}"
                 : $"Word {index + 1}: {word.Text}");
             AutomationProperties.SetAutomationId(roman, $"ChipRoman{lineIndex + 1}_{index + 1}");
             AutomationProperties.SetName(roman, $"Romanization of word {index + 1}");
+            AutomationProperties.SetAutomationId(label, $"SpaceLabel{lineIndex + 1}_{index + 1}");
+            AutomationProperties.SetName(label, isSpace
+                ? $"Space \u00D7{word.Text.Length}"
+                : $"Word {index + 1}");
             var wordId = word.Id;
             WireBox(text,
                 () => line.Words.FirstOrDefault(w => w.Id == wordId)?.Text ?? "",
@@ -1783,10 +2067,106 @@ namespace AmllTtmlTool.WinUI.Views
             // (GotFocus covers keyboard focus; this covers pointer select.)
             chip.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnChipPointerPressed), true);
+            // Double-click a space label swaps in the raw-text box for
+            // editing (single click still selects via PointerPressed).
+            chip.DoubleTapped += (_, e) =>
+            {
+                if (FindSpaceChip(e.OriginalSource) is Grid tapped
+                    && tapped.Tag is string tappedId
+                    && IsSpaceId(tappedId) && !IsCtrlDown())
+                    EnterSpaceEdit(tappedId);
+            };
             chip.Children.Add(text);
             chip.Children.Add(roman);
+            chip.Children.Add(label);
             AttachWordMenu(chip, text, roman, line, wordId);
             return chip;
+        }
+
+        private static Grid? FindSpaceChip(object source)
+        {
+            var current = source as DependencyObject;
+            while (current is not null)
+            {
+                if (current is Grid grid && grid.Tag is string) return grid;
+                current = VisualTreeHelper.GetParent(current);
+            }
+            return null;
+        }
+
+        private bool IsSpaceId(string wordId)
+        {
+            if (_store is null) return false;
+            foreach (var line in _store.Document.Lines)
+            {
+                var word = line.Words.FirstOrDefault(w => w.Id == wordId);
+                if (word is not null) return IsSpaceWord(word);
+            }
+            return false;
+        }
+
+        // Swaps a space label for its raw-text box and focuses it (double-
+        // click path + Test hook). Selects the raw spaces so typing replaces
+        // the count; Esc reverts via the normal box session.
+        internal bool EnterSpaceEdit(string wordId)
+        {
+            if (_store is null) return false;
+            _editingSpaces.Add(wordId);
+            foreach (var chip in FindChips(wordId))
+                UpdateSpaceVisual(chip, showEditor: true);
+            var box = FindChipBoxById(wordId, roman: false);
+            if (box is null) return false;
+            box.Focus(FocusState.Programmatic);
+            box.SelectionStart = 0;
+            box.SelectionLength = box.Text.Length;
+            return true;
+        }
+
+        private List<Grid> FindChips(string wordId)
+        {
+            var found = new List<Grid>();
+            if (_store is null) return found;
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                if (card.FindName("ChipPanel") is not LyricWrapPanel panel) continue;
+                foreach (var child in panel.Children)
+                    if (child is Grid chip && chip.Tag is string tag && tag == wordId)
+                        found.Add(chip);
+            }
+            return found;
+        }
+
+        private TextBox? FindChipBoxById(string wordId, bool roman)
+        {
+            foreach (var chip in FindChips(wordId))
+                if (chip.Children.Count >= 2 && chip.Children[roman ? 1 : 0] is TextBox box)
+                    return box;
+            return null;
+        }
+
+        // Applies label-vs-editor visibility for one chip. Editor shows only
+        // while explicitly editing; otherwise a space word shows its dim
+        // "Space xN" label. Non-space words always show the editor.
+        private void UpdateSpaceVisual(Grid chip, bool showEditor)
+        {
+            if (chip.Children.Count < 3) return;
+            if (chip.Children[0] is not TextBox text) return;
+            if (chip.Children[2] is not TextBlock label) return;
+            if (chip.Tag is not string wordId) return;
+            // Non-space words always edit; space words edit only while
+            // explicitly editing (the caller's wish is just a hint).
+            showEditor = !IsSpaceId(wordId) || _editingSpaces.Contains(wordId);
+            text.Visibility = showEditor ? Visibility.Visible : Visibility.Collapsed;
+            label.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void ExitSpaceEdit(string wordId)
+        {
+            _editingSpaces.Remove(wordId);
+            foreach (var chip in FindChips(wordId))
+                UpdateSpaceVisual(chip, showEditor: false);
         }
 
         private static bool IsCtrlDown() =>
