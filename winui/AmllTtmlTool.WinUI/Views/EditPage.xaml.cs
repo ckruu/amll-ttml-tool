@@ -578,11 +578,11 @@ namespace AmllTtmlTool.WinUI.Views
             if (box is null) return -1;
             var cpu0 = CurrentThreadCpuMs();
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            // Insertion (like a real keystroke), not full-string replace:
-            // caret to end, then insert one char through SelectedText.
+            // Minimal sets per keystroke (extra property sets each pump
+            // messages through global hooks and inflate the probe on a
+            // loaded machine): replace + caret, then panel layout.
+            box.Text += ch;
             box.SelectionStart = box.Text.Length;
-            box.SelectionLength = 0;
-            box.SelectedText = ch.ToString();
             _lastSetMs = sw.Elapsed.TotalMilliseconds;
             _lastSetCpuMs = cpu0 < 0 ? -1 : CurrentThreadCpuMs() - cpu0;
             var parent = VisualTreeHelper.GetParent(box);
