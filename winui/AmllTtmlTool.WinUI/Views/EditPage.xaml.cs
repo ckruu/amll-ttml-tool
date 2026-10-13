@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Shapes;
 using System.Numerics;
 
 namespace AmllTtmlTool.WinUI.Views
@@ -49,6 +50,9 @@ namespace AmllTtmlTool.WinUI.Views
             _viewState = viewState;
             _store.Changed += OnStoreChanged;
             _viewState.Changed += OnViewStateChanged;
+            // The accent bar + selected fill are driven from ONE source (the
+            // selection set) on every selection change, prepare and recycle.
+            _selection.Changed += ApplySelectionVisuals;
             WatchLines();
             _compositor = ElementCompositionPreview.GetElementVisual(this).Compositor;
             _decelerate = _compositor.CreateCubicBezierEasingFunction(new Vector2(0, 0), new Vector2(0, 1));
@@ -383,7 +387,11 @@ namespace AmllTtmlTool.WinUI.Views
                 _viewState.Changed -= OnViewStateChanged;
                 _viewState = null;
             }
-            _selection = null;
+            if (_selection is not null)
+            {
+                _selection.Changed -= ApplySelectionVisuals;
+                _selection = null;
+            }
         }
 
         private static bool AnimationsOn()
@@ -760,6 +768,93 @@ namespace AmllTtmlTool.WinUI.Views
             var subBottom = subRows.TransformToVisual(card)
                 .TransformPoint(new Windows.Foundation.Point(0, subRows.ActualHeight)).Y;
             return $"{F2(panelTop)},{F2(card.ActualHeight - subBottom)}";
+        }
+
+        // Realized indices whose overlay accent bar is showing.
+        internal string IndicatedIndices()
+        {
+            if (_store is null) return "nostore";
+            var shown = new List<int>();
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                var (_, pill) = FindCardChrome(container);
+                if (pill is not null && pill.Visibility == Visibility.Visible) shown.Add(i);
+            }
+            return string.Join(",", shown);
+        }
+
+        // Realized-or-not selected indices from the ListView itself.
+        internal string SelectedIndices()
+        {
+            if (_store is null) return "nostore";
+            var sel = new List<int>();
+            foreach (var item in LineList.SelectedItems.OfType<EditLine>())
+            {
+                var idx = _store.Document.Lines.IndexOf(item);
+                if (idx >= 0) sel.Add(idx);
+            }
+            sel.Sort();
+            return string.Join(",", sel);
+        }
+
+        // X of the first word chip relative to its card (identical on every
+        // line: fixed number column + overlay indicator take no layout space,
+        // badges live on the right).
+        internal string FirstChipX(int line)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            foreach (var child in panel.Children)
+            {
+                if (child is Grid chip)
+                {
+                    card.UpdateLayout();
+                    return F2(chip.TransformToVisual(card)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0)).X);
+                }
+            }
+            return "nochip";
+        }
+
+        // Full container height (selection/badges must not change it).
+        internal string CardHeight(int line)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            container.UpdateLayout();
+            return F2(container.ActualHeight);
+        }
+
+        // Min,max,count of gaps between ADJACENT realized index pairs
+        // (identical everywhere: "min,max,n" with max-min <= 1). Adjacent
+        // indices (not sorted-Y) so recycled/stale containers can't pair up.
+        internal string CardGaps()
+        {
+            if (_store is null) return "nostore";
+            LineList.UpdateLayout();
+            var min = double.MaxValue;
+            var max = double.MinValue;
+            var n = 0;
+            for (var i = 0; i + 1 < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem first) continue;
+                if (LineList.ContainerFromIndex(i + 1) is not ListViewItem second) continue;
+                if (ReferenceEquals(first, second)) continue;
+                var top = first.TransformToVisual(LineList)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                var nextTop = second.TransformToVisual(LineList)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                var gap = nextTop - (top + first.ActualHeight);
+                // A stale (pre-layout) container reports a garbage position;
+                // only physically plausible gaps count (|gap| <= height).
+                if (Math.Abs(gap) > first.ActualHeight) continue;
+                if (gap < min) min = gap;
+                if (gap > max) max = gap;
+                n++;
+            }
+            if (n == 0) return "toofew";
+            return $"{F2(min)},{F2(max)},{n}";
         }
 
         // Vertical distance between the "+" center and the chip-row center
@@ -1651,6 +1746,12 @@ namespace AmllTtmlTool.WinUI.Views
                 // but preserves genuine typing) runs here, at recycle time.
                 if (args.ItemContainer.ContentTemplateRoot is Grid oldCard)
                     DropSessions(oldCard);
+                // A pooled container keeps its last visuals until rebind: a
+                // selected-then-recycled card would otherwise flash (or keep)
+                // its bar on another line. Reset to unselected now; prepare
+                // re-applies from the selection set.
+                if (args.ItemContainer is ListViewItem recycled)
+                    ResetSelectionVisual(recycled);
                 return;
             }
             if (args.ItemContainer.ContentTemplateRoot is not Grid card) return;
@@ -1675,6 +1776,10 @@ namespace AmllTtmlTool.WinUI.Views
                     () => line.RomanLyric,
                     _ => CommitLineFieldBox(romanField, line, translation: false));
             ApplyFlagVisual(args.ItemContainer, index, line);
+            // Indicator from the selection set (single source), not the VSM:
+            // recycled containers arrive here with arbitrary stale states.
+            if (_selection is not null && args.ItemContainer is ListViewItem prepared)
+                ApplySelectionVisual(prepared, _selection.SelectedLineIds.Contains(line.Id));
             if (card.FindName("DeleteButton") is Button delete)
             {
                 AutomationProperties.SetAutomationId(delete, $"DeleteLine{index + 1}");
@@ -1950,6 +2055,67 @@ namespace AmllTtmlTool.WinUI.Views
                 ApplyFlagVisual(container, i, _store.Document.Lines[i]);
             }
         }
+
+        // Selection indicator, driven from ONE source (the selection set):
+        // the overlay accent bar shows and the card takes the selected fill
+        // iff the line's id is selected. Re-applied on every selection
+        // change, container prepare and recycle/clear, so pooled containers
+        // can never show stale bars on other lines.
+        private static (Border? Root, Rectangle? Pill) FindCardChrome(DependencyObject container)
+        {
+            Border? root = null;
+            Rectangle? pill = null;
+            var queue = new Queue<DependencyObject>();
+            queue.Enqueue(container);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                if (current is Border border && border.Name == "Root") root = border;
+                else if (current is Rectangle rect && rect.Name == "Pill") pill = rect;
+                if (root is not null && pill is not null) break;
+                var count = VisualTreeHelper.GetChildrenCount(current);
+                for (var i = 0; i < count; i++)
+                    queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+            }
+            return (root, pill);
+        }
+
+        private static Brush? SelectedCardBrush =>
+            Application.Current.Resources.TryGetValue("ControlFillColorSecondaryBrush", out var v)
+            && v is Brush b ? b : null;
+
+        private static Brush? DefaultCardBrush =>
+            Application.Current.Resources.TryGetValue("CardBackgroundFillColorDefaultBrush", out var v)
+            && v is Brush b ? b : null;
+
+        private void ApplySelectionVisual(ListViewItem container, bool selected)
+        {
+            var (root, pill) = FindCardChrome(container);
+            if (pill is not null) pill.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
+            if (root is not null)
+                root.Background = (selected ? SelectedCardBrush : DefaultCardBrush) ?? root.Background;
+        }
+
+        private void ApplySelectionVisuals()
+        {
+            if (_store is null || _selection is null) return;
+            if (DispatcherQueue.HasThreadAccess) ApplySelectionVisualsNow();
+            else DispatcherQueue.TryEnqueue(ApplySelectionVisualsNow);
+        }
+
+        private void ApplySelectionVisualsNow()
+        {
+            if (_store is null || _selection is null) return;
+            var selected = _selection.SelectedLineIds;
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                ApplySelectionVisual(container, selected.Contains(_store.Document.Lines[i].Id));
+            }
+        }
+
+        private void ResetSelectionVisual(ListViewItem container) =>
+            ApplySelectionVisual(container, selected: false);
 
         // A word whose text is only whitespace (length > 0) is a SPACE chip,
         // like the original (`useWordBlank` + `Space x{count}` with

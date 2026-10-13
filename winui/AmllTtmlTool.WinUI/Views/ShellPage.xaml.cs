@@ -2807,6 +2807,43 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.ShotListAsync(path) ?? Task.FromResult("nopage");
         internal Task<string> Test_ShotChip(int line, int word, string path) =>
             _attachedEditPage?.ShotChipAsync(line, word, path) ?? Task.FromResult("nopage");
+        internal string Test_IndicatedIndices() =>
+            _attachedEditPage?.IndicatedIndices() ?? "nopage";
+        internal string Test_SelectedIndices() =>
+            _attachedEditPage?.SelectedIndices() ?? "nopage";
+        internal string Test_FirstChipX(int line) =>
+            _attachedEditPage?.FirstChipX(line) ?? "nopage";
+        internal string Test_CardHeight(int line) =>
+            _attachedEditPage?.CardHeight(line) ?? "nopage";
+        internal string Test_CardGaps() =>
+            _attachedEditPage?.CardGaps() ?? "nopage";
+        internal void Test_BuildSelectDoc()
+        {
+            // 80 lines cycling plain/BG/V2/both with identical content rows
+            // (3 words + trans/roman), for indicator/badge/geometry checks.
+            var lines = new List<EditLine>();
+            for (var li = 0; li < 80; li++)
+            {
+                var line = EditLine.New();
+                line.StartTimeMs = li * 2000;
+                line.EndTimeMs = li * 2000 + 1800;
+                line.IsBg = li % 4 == 1 || li % 4 == 3;
+                line.IsDuet = li % 4 == 2 || li % 4 == 3;
+                line.TranslatedLyric = $"trans {li}";
+                line.RomanLyric = $"roman {li}";
+                for (var wi = 0; wi < 3; wi++)
+                {
+                    var word = EditWord.New();
+                    word.StartTimeMs = li * 2000 + wi * 500;
+                    word.EndTimeMs = li * 2000 + wi * 500 + 400;
+                    word.Text = $"w{li}_{wi}";
+                    word.RomanWord = $"r{li}_{wi}";
+                    line.Words.Add(word);
+                }
+                lines.Add(line);
+            }
+            _store.Execute(new BulkReplaceCommand(lines, new List<EditMetadata>()));
+        }
         internal bool Test_FocusChip(int line, int word, bool roman) =>
             _attachedEditPage?.FocusChip(line, word, roman) ?? false;
         internal string Test_ChipBoxText(int line, int word, bool roman) =>

@@ -57,28 +57,17 @@
                                                 </Storyboard>
                                             </VisualState>
                                         </VisualStateGroup>
+                                        <!-- SelectionStates deliberately empty:
+                                             the accent bar + selected fill are
+                                             driven from ONE source (the
+                                             selection set) in code on every
+                                             prepare/recycle/selection change.
+                                             VSM-driven states leaked onto
+                                             recycled containers (stale bars). -->
                                         <VisualStateGroup x:Name="SelectionStates">
                                             <VisualState x:Name="Unselected" />
-                                            <VisualState x:Name="Selected">
-                                                <Storyboard>
-                                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Pill" Storyboard.TargetProperty="Visibility">
-                                                        <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
-                                                    </ObjectAnimationUsingKeyFrames>
-                                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
-                                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
-                                                    </ObjectAnimationUsingKeyFrames>
-                                                </Storyboard>
-                                            </VisualState>
-                                            <VisualState x:Name="SelectedUnfocused">
-                                                <Storyboard>
-                                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Pill" Storyboard.TargetProperty="Visibility">
-                                                        <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
-                                                    </ObjectAnimationUsingKeyFrames>
-                                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
-                                                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
-                                                    </ObjectAnimationUsingKeyFrames>
-                                                </Storyboard>
-                                            </VisualState>
+                                            <VisualState x:Name="Selected" />
+                                            <VisualState x:Name="SelectedUnfocused" />
                                         </VisualStateGroup>
                                         <VisualStateGroup x:Name="FocusStates">
                                             <VisualState x:Name="Unfocused" />
@@ -91,24 +80,26 @@
                                             </VisualState>
                                         </VisualStateGroup>
                                     </VisualStateManager.VisualStateGroups>
-                                    <Grid ColumnSpacing="0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-                                        <Rectangle
-                                            x:Name="Pill"
-                                            Width="3"
-                                            Margin="0,4,8,4"
-                                            Fill="{ThemeResource AccentFillColorDefaultBrush}"
-                                            RadiusX="1.5"
-                                            RadiusY="1.5"
-                                            Visibility="Collapsed" />
+                                    <Grid>
                                         <ContentPresenter
-                                            Grid.Column="1"
                                             HorizontalAlignment="Stretch"
                                             Content="{TemplateBinding Content}"
                                             ContentTemplate="{TemplateBinding ContentTemplate}" />
+                                        <!-- Accent bar OVERLAY on the card's
+                                             left edge: same grid cell as the
+                                             content, so it takes NO layout
+                                             space and can never shift chips. -->
+                                        <Rectangle
+                                            x:Name="Pill"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Stretch"
+                                            Width="3"
+                                            Margin="0,2,0,2"
+                                            Fill="{ThemeResource AccentFillColorDefaultBrush}"
+                                            RadiusX="1.5"
+                                            RadiusY="1.5"
+                                            Visibility="Collapsed"
+                                            IsHitTestVisible="False" />
                                     </Grid>
                                 </Border>
                             </ControlTemplate>
@@ -120,46 +111,21 @@
                 <DataTemplate x:DataType="lyrics:EditLine">
                     <Grid x:Name="CardRoot" ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
+                            <!-- Fixed number column: the line number and the
+                                 first chip start at the same x on EVERY line,
+                                 selected or not, badges or not. -->
+                            <ColumnDefinition Width="44" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel
+                        <TextBlock
+                            x:Name="LineNumber"
                             Grid.Column="0"
+                            HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Spacing="4">
-                            <TextBlock
-                                x:Name="LineNumber"
-                                HorizontalAlignment="Center"
-                                Style="{StaticResource BodyTextBlockStyle}"
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <Border
-                                x:Name="BgBadge"
-                                Padding="4,1"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Visibility="Collapsed"
-                                BorderBrush="{ThemeResource SystemFillColorAttentionBrush}">
-                                <TextBlock
-                                    HorizontalAlignment="Center"
-                                    FontSize="10"
-                                    Foreground="{ThemeResource SystemFillColorAttentionBrush}"
-                                    Text="BG" />
-                            </Border>
-                            <Border
-                                x:Name="DuetBadge"
-                                Padding="4,1"
-                                BorderThickness="1"
-                                CornerRadius="4"
-                                Visibility="Collapsed"
-                                BorderBrush="{ThemeResource SystemFillColorSuccessBrush}">
-                                <TextBlock
-                                    HorizontalAlignment="Center"
-                                    FontSize="10"
-                                    Foreground="{ThemeResource SystemFillColorSuccessBrush}"
-                                    Text="V2" />
-                            </Border>
-                        </StackPanel>
+                            Style="{StaticResource BodyTextBlockStyle}"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         <StackPanel Grid.Column="1" Spacing="8">
                             <!-- Chip row + add button: the button is centered
                                  on the WHOLE chip row (which can be two rows
@@ -221,9 +187,49 @@
                                     AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" />
                             </Grid>
                         </StackPanel>
+                        <!-- Badges live RIGHT of the card, side by side,
+                             centered, left of X, in a reserved fixed-width
+                             area (MinWidth): showing/hiding them never
+                             reflows the chip area or changes card height. -->
+                        <StackPanel
+                            x:Name="BadgePanel"
+                            Grid.Column="2"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Spacing="4"
+                            MinWidth="64">
+                            <Border
+                                x:Name="BgBadge"
+                                Padding="4,1"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Visibility="Collapsed"
+                                BorderBrush="{ThemeResource SystemFillColorAttentionBrush}"
+                                ToolTipService.ToolTip="Background vocal">
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="10"
+                                    Foreground="{ThemeResource SystemFillColorAttentionBrush}"
+                                    Text="BG" />
+                            </Border>
+                            <Border
+                                x:Name="DuetBadge"
+                                Padding="4,1"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Visibility="Collapsed"
+                                BorderBrush="{ThemeResource SystemFillColorSuccessBrush}"
+                                ToolTipService.ToolTip="Duet vocal">
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="10"
+                                    Foreground="{ThemeResource SystemFillColorSuccessBrush}"
+                                    Text="V2" />
+                            </Border>
+                        </StackPanel>
                         <Button
                             x:Name="DeleteButton"
-                            Grid.Column="2"
+                            Grid.Column="3"
                             VerticalAlignment="Center"
                             ToolTipService.ToolTip="Delete line"
                             AutomationProperties.Name="Delete line">

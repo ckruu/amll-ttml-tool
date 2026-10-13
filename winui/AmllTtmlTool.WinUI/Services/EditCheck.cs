@@ -510,6 +510,117 @@ internal static class EditCheck
             Check("redo-reveal", redoModel == "route-probe", $"'{redoModel}'");
             await OnUiAsync(window, () => page.Test_Undo());
 
+            // --- 5b. card layout + selection indicator ---------------------
+            // 80-line doc cycling plain/BG/V2/both with identical content
+            // rows (3 words + trans/roman each).
+            await OnUiAsync(window, () => page.Test_BuildSelectDoc());
+            var selN = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            Check("select-doc", selN == 80, $"lines={selN}");
+            // Random selection changes + scrolling (seeded): realized cards
+            // showing the bar must equal the selected set EXACTLY (restricted
+            // to realized lines — virtualized lines have no container).
+            var sRng = new Random(20261014);
+            var selOk = true;
+            var selDetail = "";
+            for (var round = 0; round < 30; round++)
+            {
+                var mode = sRng.Next(3);
+                if (mode == 0)
+                {
+                    var want = new HashSet<int>();
+                    var count = sRng.Next(1, 6);
+                    while (want.Count < count) want.Add(sRng.Next(80));
+                    var arr = want.ToArray();
+                    await OnUiAsync(window, () => page.Test_SelectLines(arr));
+                }
+                else if (mode == 1)
+                {
+                    await OnUiAsync(window, () => page.Test_ClearEditSelection());
+                }
+                else
+                {
+                    var one = sRng.Next(80);
+                    await OnUiAsync(window, () => page.Test_SelectLines(new[] { one }));
+                }
+                await OnUiAsync(window, () => page.Test_ScrollLineIntoView(sRng.Next(80)));
+                await Task.Delay(120);
+                var selCsv = await OnUiAsync(window, () => page.Test_SelectedIndices());
+                var indCsv = await OnUiAsync(window, () => page.Test_IndicatedIndices());
+                var selIdx = selCsv.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                var expected = new List<string>();
+                foreach (var s in selIdx)
+                {
+                    if (int.TryParse(s, out var si)
+                        && await OnUiAsync(window, () => page.Test_IsLineRealized(si)))
+                        expected.Add(s);
+                }
+                expected.Sort(StringComparer.Ordinal);
+                var indParts = indCsv.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+                if (!expected.SequenceEqual(indParts))
+                {
+                    selOk = false;
+                    selDetail = $"round={round} sel=[{selCsv}] realized-expected=[{string.Join(",", expected)}] indicated=[{indCsv}]";
+                    break;
+                }
+            }
+            Check("selection-indicator", selOk, selDetail);
+            // First-chip x identical for plain/BG/V2/both + selected lines;
+            // card height unchanged by selection and badges.
+            var xs = new List<double>();
+            var hs = new List<double>();
+            var geoOk = true;
+            var geoDetail = "";
+            for (var li = 0; li < 8; li++)
+            {
+                await OnUiAsync(window, () => page.Test_ScrollLineIntoView(li));
+                await Task.Delay(120);
+                var hUn = await OnUiAsync(window, () => page.Test_CardHeight(li));
+                await OnUiAsync(window, () => page.Test_SelectLine(li));
+                await Task.Delay(60);
+                var x = await OnUiAsync(window, () => page.Test_FirstChipX(li));
+                var hSel = await OnUiAsync(window, () => page.Test_CardHeight(li));
+                if (!TryParseDouble(x, out var xv) || !TryParseDouble(hUn, out var hUv)
+                    || !TryParseDouble(hSel, out var hSv))
+                {
+                    geoOk = false;
+                    geoDetail = $"line={li} x=[{x}] hUn=[{hUn}] hSel=[{hSel}]";
+                    break;
+                }
+                xs.Add(xv);
+                hs.Add(hUv);
+                hs.Add(hSv);
+            }
+            if (geoOk)
+            {
+                xs.Sort();
+                hs.Sort();
+                geoOk = xs[^1] - xs[0] <= 1.0 && hs[^1] - hs[0] <= 1.0;
+                geoDetail = $"x {xs[0]:F2}..{xs[^1]:F2} h {hs[0]:F2}..{hs[^1]:F2}";
+            }
+            Check("card-geometry", geoOk, geoDetail);
+            // Consecutive card gaps identical on a scrolled long doc.
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(40));
+            await Task.Delay(250);
+            var gaps = await OnUiAsync(window, () => page.Test_CardGaps());
+            var gapParts = gaps.Split(',');
+            var cardGapsOk = gapParts.Length == 3
+                && TryParseDouble(gapParts[0], out var gMin)
+                && TryParseDouble(gapParts[1], out var gMax)
+                && int.TryParse(gapParts[2], out var gN) && gN >= 3
+                && gMax - gMin <= 1.0;
+            Check("card-gaps", cardGapsOk, $"gaps=[{gaps}]");
+            // Visual evidence: selected BG+V2 card + list strip.
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(3));
+            await OnUiAsync(window, () => page.Test_SelectLine(3));
+            await Task.Delay(200);
+            var shotBadge = await await OnUiAsync(window, () =>
+                page.Test_ShotCard(3, System.IO.Path.Combine(shotDir, $"{shotPrefix}-badges-card.png")));
+            Check("shot-badges", shotBadge.StartsWith("ok:"), shotBadge);
+            var shotList = await await OnUiAsync(window, () =>
+                page.Test_ShotList(System.IO.Path.Combine(shotDir, $"{shotPrefix}-cards-list.png")));
+            Check("shot-cards", shotList.StartsWith("ok:"), shotList);
+
             Write(report, "  note stress + perf + edge use fresh docs (see below)");
 
             // --- 6. stress: 200 seeded ops vs reference --------------------
@@ -679,6 +790,10 @@ internal static class EditCheck
         double.TryParse(dy, System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out var v)
         && v <= 1.0;
+
+    private static bool TryParseDouble(string s, out double v) =>
+        double.TryParse(s, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out v);
 
     // 200 deterministic random ops against a simple reference model.
     // Reference mirrors texts/counts/flags/times by index (split times via
