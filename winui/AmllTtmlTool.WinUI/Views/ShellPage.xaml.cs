@@ -1030,6 +1030,10 @@ namespace AmllTtmlTool.WinUI.Views
             ToolTipService.SetToolTip(FileInfoButton, _store.FileName);
             UndoButton.IsEnabled = _store.CanUndo;
             RedoButton.IsEnabled = _store.CanRedo;
+            UndoMenuItem.IsEnabled = _store.CanUndo;
+            RedoMenuItem.IsEnabled = _store.CanRedo;
+            CompactUndoMenuItem.IsEnabled = _store.CanUndo;
+            CompactRedoMenuItem.IsEnabled = _store.CanRedo;
         }
 
         private static string Stamp(TimeSpan t) =>
@@ -1334,11 +1338,69 @@ namespace AmllTtmlTool.WinUI.Views
             if (_intake is not null) await _intake.PasteAsync();
         }
 
-        private void OnUndoAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args) =>
-            _store.Undo();
+        // Step-4 focus semantics (decided Phase 1): a TextBox holding
+        // UNCOMMITTED text owns Ctrl+Z/Y (its own text undo) — the
+        // accelerator stays unhandled so the key reaches the box. Once the
+        // text is committed (or equals the model), the accelerator runs the
+        // document undo/redo and is marked handled.
+        private void OnUndoAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+        {
+            if (IsFocusDirty()) return;
+            if (DoUndo()) args.Handled = true;
+        }
 
-        private void OnRedoAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args) =>
-            _store.Redo();
+        private void OnRedoAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+        {
+            if (IsFocusDirty()) return;
+            if (DoRedo()) args.Handled = true;
+        }
+
+        private bool IsFocusDirty() =>
+            (_attachedEditPage?.IsFocusedBoxDirty() ?? false) || EditBar.IsFocusedDirty();
+
+        private bool DoUndo()
+        {
+            var beforeId = _selection.SelectedLineId;
+            var beforeIndex = _attachedEditPage?.SelectedLineIndex() ?? -1;
+            if (!_store.Undo()) return false;
+            RevealAfterHistory(beforeId, beforeIndex);
+            return true;
+        }
+
+        private bool DoRedo()
+        {
+            var beforeId = _selection.SelectedLineId;
+            var beforeIndex = _attachedEditPage?.SelectedLineIndex() ?? -1;
+            if (!_store.Redo()) return false;
+            RevealAfterHistory(beforeId, beforeIndex);
+            return true;
+        }
+
+        // After a document undo/redo, select and scroll to the line that
+        // changed so the effect is visible: the pre-step primary line when
+        // it still exists, else the same index (covers delete/add undo).
+        private void RevealAfterHistory(string? beforeId, int beforeIndex)
+        {
+            if (_attachedEditPage is null) return;
+            var lines = _store.Document.Lines;
+            if (beforeId is not null && lines.Any(l => l.Id == beforeId))
+            {
+                var at = lines.ToList().FindIndex(l => l.Id == beforeId);
+                _attachedEditPage.SelectLineAt(at);
+                _attachedEditPage.ScrollLineIntoView(at);
+                // Anchor the primary only when it moved (preserves a surviving
+                // word selection: SelectLine would clear it).
+                if (_selection.SelectedLineId != beforeId)
+                    _selection.SelectLine(beforeId);
+                return;
+            }
+            if (lines.Count == 0) return;
+            var at2 = Math.Clamp(beforeIndex < 0 ? 0 : beforeIndex, 0, lines.Count - 1);
+            _attachedEditPage.SelectLineAt(at2);
+            _attachedEditPage.ScrollLineIntoView(at2);
+            if (_selection.SelectedLineId != lines[at2].Id)
+                _selection.SelectLine(lines[at2].Id);
+        }
 
         private Task SaveAsync(bool apple) => _intake?.SaveAsync(apple) ?? Task.CompletedTask;
 
@@ -2504,8 +2566,8 @@ namespace AmllTtmlTool.WinUI.Views
         private async void OnDocsClick(object sender, RoutedEventArgs e) =>
             _ = await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/amll-dev/amll-ttml-tool/wiki"));
 
-        private void OnUndoClick(object sender, RoutedEventArgs e) => _store.Undo();
-        private void OnRedoClick(object sender, RoutedEventArgs e) => _store.Redo();
+        private void OnUndoClick(object sender, RoutedEventArgs e) => DoUndo();
+        private void OnRedoClick(object sender, RoutedEventArgs e) => DoRedo();
 
         private void OnSelectAllClick(object sender, RoutedEventArgs e) =>
             _attachedEditPage?.SelectAllLines();
@@ -2644,6 +2706,18 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.EscapeLineField(line, translation);
         internal bool Test_Undo() => _store.Undo();
         internal bool Test_Redo() => _store.Redo();
+        internal string Test_UndoRoute() => IsFocusDirty() ? "textbox" : "document";
+        internal bool Test_RouteUndo()
+        {
+            if (IsFocusDirty()) return false;
+            return DoUndo();
+        }
+        internal bool Test_RouteRedo()
+        {
+            if (IsFocusDirty()) return false;
+            return DoRedo();
+        }
+        internal bool Test_FocusRibbon(string which) => EditBar.FocusRibbon(which);
         internal int Test_SelectedLineCount() =>
             _attachedEditPage?.SelectedLineCount() ?? -1;
         internal int Test_SelectedWordCount() =>

@@ -498,6 +498,17 @@ namespace AmllTtmlTool.WinUI.Views
             if (FindChipBox(line, word, roman) is TextBox box) Test_SetComposing(box, composing);
         }
 
+        // True when the FOCUSED box holds text differing from the model
+        // (Step-4 Ctrl+Z routing: the TextBox then owns the keystroke).
+        internal bool IsFocusedBoxDirty()
+        {
+            if (FocusManager.GetFocusedElement(XamlRoot) is not TextBox box) return false;
+            if (!_sessions.TryGetValue(box, out var session)) return false;
+            if (session.Composing) return true;
+            try { return box.Text != session.GetModel(); }
+            catch { return false; }
+        }
+
         internal bool HasUncommittedEdit()
         {
             foreach (var (box, session) in _sessions)

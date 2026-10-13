@@ -49,6 +49,7 @@
         <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="OnPasteAccelerator" />
         <KeyboardAccelerator Key="Z" Modifiers="Control" Invoked="OnUndoAccelerator" />
         <KeyboardAccelerator Key="Y" Modifiers="Control" Invoked="OnRedoAccelerator" />
+        <KeyboardAccelerator Key="Z" Modifiers="Control,Shift" Invoked="OnRedoAccelerator" />
     </Page.KeyboardAccelerators>
     <Grid x:Name="RootGrid" AllowDrop="True" Background="Transparent">
         <VisualStateManager.VisualStateGroups>
@@ -172,10 +173,10 @@
                     </MenuFlyoutItem>
                 </MenuBarItem>
                 <MenuBarItem x:Uid="Menu_Edit" Title="Edit">
-                    <MenuFlyoutItem x:Uid="Menu_Undo" Click="OnUndoClick" Text="Undo">
+                    <MenuFlyoutItem x:Name="UndoMenuItem" x:Uid="Menu_Undo" Click="OnUndoClick" Text="Undo" KeyboardAcceleratorTextOverride="Ctrl+Z">
                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A7;" /></MenuFlyoutItem.Icon>
                     </MenuFlyoutItem>
-                    <MenuFlyoutItem x:Uid="Menu_Redo" Click="OnRedoClick" Text="Redo">
+                    <MenuFlyoutItem x:Name="RedoMenuItem" x:Uid="Menu_Redo" Click="OnRedoClick" Text="Redo" KeyboardAcceleratorTextOverride="Ctrl+Y">
                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
                     </MenuFlyoutItem>
                     <MenuFlyoutSeparator />
@@ -261,10 +262,10 @@
                             </MenuFlyoutItem>
                         </MenuFlyoutSubItem>
                         <MenuFlyoutSubItem x:Uid="Menu_Edit" Text="Edit">
-                            <MenuFlyoutItem x:Uid="Menu_Undo" Click="OnUndoClick" Text="Undo">
+                            <MenuFlyoutItem x:Name="CompactUndoMenuItem" x:Uid="Menu_Undo" Click="OnUndoClick" Text="Undo" KeyboardAcceleratorTextOverride="Ctrl+Z">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A7;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Uid="Menu_Redo" Click="OnRedoClick" Text="Redo">
+                            <MenuFlyoutItem x:Name="CompactRedoMenuItem" x:Uid="Menu_Redo" Click="OnRedoClick" Text="Redo" KeyboardAcceleratorTextOverride="Ctrl+Y">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSeparator />

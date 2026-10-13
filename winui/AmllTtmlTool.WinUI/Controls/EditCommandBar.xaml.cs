@@ -20,6 +20,7 @@ namespace AmllTtmlTool.WinUI.Controls
         private bool _durationMode;
         private TextBox? _focusedBox;
         private readonly HashSet<TextBox> _composing = new();
+        private readonly HashSet<TextBox> _placeholderBoxes = new();
         private Brush? _errorBrush;
 
         public void BindSelection(SelectionService selection, LyricStore store)
@@ -49,11 +50,19 @@ namespace AmllTtmlTool.WinUI.Controls
             box.GotFocus -= OnFieldGotFocus;
             box.TextCompositionStarted -= OnFieldCompositionStarted;
             box.TextCompositionEnded -= OnFieldCompositionEnded;
+            box.TextChanged -= OnFieldTextChanged;
             box.KeyDown += OnFieldKeyDown;
             box.LostFocus += OnFieldLostFocus;
             box.GotFocus += OnFieldGotFocus;
             box.TextCompositionStarted += OnFieldCompositionStarted;
             box.TextCompositionEnded += OnFieldCompositionEnded;
+            box.TextChanged += OnFieldTextChanged;
+        }
+
+        private void OnFieldTextChanged(object sender, TextChangedEventArgs e)
+        {
+            // User typed: a showing multi-placeholder no longer describes it.
+            if (sender is TextBox box) _placeholderBoxes.Remove(box);
         }
 
         private void OnFieldGotFocus(object sender, RoutedEventArgs e)
@@ -301,6 +310,7 @@ namespace AmllTtmlTool.WinUI.Controls
                 {
                     if (_focusedBox != LineStartBox) LineStartBox.Text = "";
                     LineStartBox.PlaceholderText = multi;
+                    _placeholderBoxes.Add(LineStartBox);
                 }
                 var endsDiffer = _durationMode
                     ? lines.Select(l => l!.EndTimeMs - l!.StartTimeMs).Distinct().Count() > 1
@@ -309,16 +319,19 @@ namespace AmllTtmlTool.WinUI.Controls
                 {
                     if (_focusedBox != LineEndBox) LineEndBox.Text = "";
                     LineEndBox.PlaceholderText = multi;
+                    _placeholderBoxes.Add(LineEndBox);
                 }
                 if (lines.Select(l => l!.TranslatedLyric).Distinct().Count() > 1)
                 {
                     if (_focusedBox != TransBox) TransBox.Text = "";
                     TransBox.PlaceholderText = multi;
+                    _placeholderBoxes.Add(TransBox);
                 }
                 if (lines.Select(l => l!.RomanLyric).Distinct().Count() > 1)
                 {
                     if (_focusedBox != RomanBox) RomanBox.Text = "";
                     RomanBox.PlaceholderText = multi;
+                    _placeholderBoxes.Add(RomanBox);
                 }
             }
             if (_selection.SelectedWordIds.Count > 1)
@@ -334,6 +347,7 @@ namespace AmllTtmlTool.WinUI.Controls
                     {
                         if (_focusedBox != box) box.Text = "";
                         box.PlaceholderText = multi;
+                        _placeholderBoxes.Add(box);
                     }
                 }
                 Multi(WordStartBox, w => LyricTime.Format(w.StartTimeMs));
@@ -556,6 +570,51 @@ namespace AmllTtmlTool.WinUI.Controls
         }
 
         internal bool DurationMode() => _durationMode;
+
+        // Step-4 routing: the focused ribbon box owns Ctrl+Z/Y while its
+        // text is uncommitted (differs from the model and is not a freshly
+        // shown multi-placeholder); IME composing counts as uncommitted.
+        internal bool IsFocusedDirty()
+        {
+            if (_focusedBox is null) return false;
+            if (_composing.Contains(_focusedBox)) return true;
+            if (_placeholderBoxes.Contains(_focusedBox)
+                && _focusedBox.Text.Length == 0) return false;
+            return _focusedBox.Text != ExpectedText(_focusedBox);
+        }
+
+        private string ExpectedText(TextBox box)
+        {
+            var (line, word) = Targets();
+            if (box == LineStartBox) return line is null ? "" : LyricTime.Format(line.StartTimeMs);
+            if (box == LineEndBox) return LineEndText(line);
+            if (box == WordStartBox) return word is null ? "" : LyricTime.Format(word.StartTimeMs);
+            if (box == WordEndBox) return WordEndText(line, word);
+            if (box == WordContentBox) return word?.Text ?? "";
+            if (box == WordRomanBox) return word?.RomanWord ?? "";
+            if (box == EmptyBeatBox) return word is null ? "" : word.EmptyBeat.ToString();
+            if (box == TransBox) return MultipleOr(line, l => l.TranslatedLyric);
+            if (box == RomanBox) return MultipleOr(line, l => l.RomanLyric);
+            return box.Text;
+        }
+
+        internal bool FocusRibbon(string which)
+        {
+            var box = which switch
+            {
+                "linestart" => LineStartBox,
+                "lineend" => LineEndBox,
+                "wordstart" => WordStartBox,
+                "wordend" => WordEndBox,
+                "content" => WordContentBox,
+                "romanword" => WordRomanBox,
+                "beats" => EmptyBeatBox,
+                "trans" => TransBox,
+                "lineroman" => RomanBox,
+                _ => throw new ArgumentException($"Unknown field: {which}"),
+            };
+            return box.Focus(FocusState.Programmatic);
+        }
 
         internal void SetComposing(string which, bool composing)
         {
