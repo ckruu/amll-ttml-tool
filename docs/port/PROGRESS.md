@@ -270,3 +270,193 @@ Decisions locked for Phase 3 (Q&A): ribbon gains `romanWord` +
 extends to multi-select; split/replace go through small dialogs (stubs
 in test mode). Empty word text commits as `""` (original `onEnter`
 sets it verbatim; blank style covers display) — no auto-delete.
+
+## Steps 1–6: what was built (commits `f0f3a99`…`ac3a0c3`)
+
+- Step 1 (chip editing): chip text/roman + card Trans/Roman boxes are
+  real editable TextBoxes (code-managed text, not `x:Bind`, so model
+  notify never steals caret/focus — caret restored clamped). Commit on
+  Enter/blur as ONE step via commands, no-op when unchanged, Esc
+  reverts to model, Tab commits on the way out. IME composition guard
+  (`TextCompositionStarted/Ended`; composing Enter never commits).
+  Chips hug width (grid = max child, both stretch — instant, no
+  animation). `word|` suffix strips (C# `Ruby.Count==0` ≡ absent, so no
+  Core change needed). Raw text in boxes (alias never committed);
+  `Space ×N` survives as automation name + placeholder + dim cue.
+  Spellcheck/prediction off on all edit boxes. Focus selects line+word;
+  keyboard focus scrolls into view; uncommitted edits commit before any
+  scroll/recycle removes the box.
+- Step 2 (structure): multi-select `SelectionService` (sets + primary;
+  list `Extended` mode synced both ways; primary anchors on re-select).
+  `+` opens inline `Insert word here…` (Enter commits + keeps focus for
+  repeat adds, Esc cancels). `X` deletes (one step, no confirm,
+  neighbor selected). Ribbon `+ Line` inserts after selection + focuses
+  the insert box. `MenuFlyout` context menus on chips (word ops) and
+  cards (line ops: before/after, duplicate `Ctrl+D`, combine, move
+  `Alt+Up/Down`, BG/duet checks, delete `Delete`) with accelerator text;
+  one flyout instance per element. Word panels rebuild on
+  `Words.CollectionChanged` with focus restore. List-scoped `KeyDown`
+  dispatch (`Delete`, `Ctrl+D`, `Alt+Up/Down`, `Ctrl+A` scope toggle,
+  `Esc` clear) — NOT global accelerators, so TextBox keys never leak;
+  `Ctrl+I`/`Ctrl+F2` stay stubs exactly like the original.
+  Edit menu: select-all/deselect/delete-selection wired.
+- Step 3 (ribbon): all Edit-tab fields editable — line/word start/end,
+  content, new `romanWord` + `emptyBeat` fields, Trans/Roman; toggles
+  apply immediately (one step each). Times parse `mm:ss.mmm`
+  (`ss.mmm`/plain ints accepted, same regex as the original);
+  invalid → system-error border + revert; start>end red display-only
+  but still commits (original). Duration mode (shared, like
+  `showEndTimeAsDurationAtom`): delta/absolute, ignore-NaN,
+  ignore-non-positive-absolute, clamp end≥start, delta pushes abutting
+  next word start. Multi-select differing → `Multiple values...`
+  placeholder. Disabled with no selection. BG/duet tinted-border badges
+  + automation suffixes on cards.
+- Step 4 (undo/redo/shortcuts): `Ctrl+Z`/`Ctrl+Y` + `Ctrl+Shift+Z`
+  `KeyboardAccelerators`; menu items show shortcut text + follow
+  `CanUndo/CanRedo` (both menu copies); title-bar buttons keep
+  `Undo (Ctrl+Z)`/`Redo (Ctrl+Y)` tooltips. Focus semantics: dirty
+  (uncommitted, incl. IME-composing; untouched multi-placeholders
+  excluded) TextBox owns the keystroke, else document undo/redo runs
+  handled. Post-undo/redo selects + scrolls to the change (primary line
+  if alive, else same index). Dirty `●` flag unchanged (existing chrome).
+- Step 5 (animation): `AddDeleteThemeTransition` + `RepositionTheme`
+  on the list; FLIP glide + 150 ms fade/rise entrance for word chips
+  (same decelerate as Phase-2 toggles; `Storyboard`s stay in fields —
+  only composition animations are created per run). No animation while
+  typing; realized lines only; animations-off snaps; focused chip
+  excluded; undo/redo reuse the same paths.
+- Step 6 (tests): `--edit-test` self-driving harness (47 checks) +
+  `ui-edit.ps1` UIA (17 tests, real `send-input` keys) +
+  `EditCommandFixtureTests` (7: every command apply/undo/redo on real
+  TTML+LRC fixtures).
+
+## Step 6 results (measured numbers, not words)
+
+Final binary `AmllTtmlTool.WinUI.dll` 2026-10-13 10:42:47Z, launched via
+`scripts/run-harness.ps1 -Mode edit-test` (Start-Process/WaitForExit
+pattern) and `pwsh ui-edit.ps1` / `pwsh ui-lyrics.ps1`.
+
+- Core **413/413** (406 + 7 new). `edit-test` **47/47 + VERDICT PASS**.
+- UIA `ui-edit` **17/17** (type+Enter/blur/Esc/undo-button/width-hug/
+  menu/insert/delete/BG-toggle/video/6 screenshots).
+- Regression: `ui-lyrics` **30/30**, `ui-tests` **13/13**,
+  `ui-tests-playerbar` **24/24** — no regressions.
+- Stress: 200 seeded ops (seed `20261013`, printed) vs reference model,
+  161 applied (rest undo/redo/no-op/invalid), fingerprint-compared after
+  every step — green. Reference mirrors texts/counts/flags/times by
+  index (split times via unit-tested `SplitWeights`); undo pops
+  snapshots, redo re-applies; history-cap (100) oldest-drops mirrored.
+- Typing latency (300×10 doc, focused chip, 100 keys drop-first-10):
+  **p50=1.48ms, p95=2.06ms, max=1959ms** (single system stall; p95
+  budget <16ms MET). Breakdown last key: set=1.46ms, layout=0.12ms,
+  thread-CPU=0.00ms (15.6ms quantum — sub-tick). Series across runs:
+  2.5–3.3ms quiet, 11–68ms loaded (2 GHz clamp observed,
+  `MaxClockSpeed=2000`, 50+ background processes incl. global hooks,
+  `textinputframework.dll` in-process). Cost drivers fixed along the
+  way: panel-level (not list-wide) layout, spellcheck/prediction off,
+  minimal sets per key; a caret move pumping bring-into-view storms was
+  found by the breakdown and removed from the probe.
+- Structural commits (median-of-5, 300-line doc, Debug): insert-line
+  ~250–460ms (incl. scroll+open+focus), add-word ~80–310ms (10-word
+  line), delete-line ~13–43ms (empty line).
+- Virtualization: 5–7 realized lines / ~110–135 boxes top and bottom of
+  the 300-line doc during editing+scrolling.
+- Frames: in-app `CompositionTarget.Rendering` ticks **0 headless even
+  foregrounded** (occluded compositor) — instead, UIA-captured video of
+  delete+undo (foreground, 30 fps): **210/210 frames on time,
+  median=p95=max=33.33ms, 0 over 33.4ms**. `structural.mp4` kept in
+  `%TEMP%\edit-ui-artifacts\`.
+- Edge (no crash): empty doc, one-word line, 5000-char word commit +
+  undo, emoji + combining chars + undo — all green.
+- Screenshots (Light + Dark, eyeballed): focused chip + selected line,
+  BG line (+toggled), duet line (scrolled), context menu (mouse AND
+  Shift+F10 paths), insert box. In `%TEMP%\edit-ui-artifacts\`.
+
+## Bugs found by verification (all fixed, with regression cover)
+
+- **B1 stale-box commit (data loss + history desync).** Pooled
+  containers keep live sessions; model changes while pooled
+  (undo/redo/ops); rebind then committed stale text (+1 stray step,
+  desyncing all later undos — caught by the stress journal at u129).
+  Fix: `BoxSession.LastSeenModel` — commit only genuine local
+  divergence (text ≠ model AND ≠ snapshot); recycle-time commit
+  preserved (typing-on-scroll-away safe). Container-`Content` currency
+  was tried first and rejected (lags the model; skipped a legit
+  5000-char commit).
+- **B2 history-cap (100) divergence.** Depth stuck at cap misread as
+  no-op while the doc kept changing (caught by journal MULTISTEP at
+  u155+). Harness mirrors oldest-drops now; app behavior already
+  matches the original (drop oldest, depth 100).
+- **B3 TextBox native menu swallowed chip right-clicks.** Chip
+  `ContextFlyout` assigned to the chip AND both boxes (one instance
+  each); verified by screenshot.
+- **B4 emptyBeat alias regression** (Phase-2 `Word 2: Space ×2` name
+  assert): alias restored in automation name + placeholder; raw text
+  still commits (no model corruption).
+- **B5 SelectLineAt left a stale ribbon primary** (same-item reselect
+  fires no event): anchors when diverged, preserves surviving word
+  selection otherwise.
+- **B6 commit for a deleted line crashed the UI thread** (Unloaded
+  race): stale-target commits are no-ops (`InvalidOperationException`
+  swallowed).
+
+## Shortcut table (as implemented)
+
+| Shortcut | Scope | Action |
+|---|---|---|
+| Enter | chip/ribbon/insert box (not IME-composing) | commit (one history step) |
+| Esc | chip/ribbon/insert box | revert / cancel insert |
+| Tab / Shift+Tab | edit boxes | commit on the way out, move in reading order |
+| Delete | line list (not in TextBox) | delete selection (words else lines) |
+| Ctrl+D | line list | duplicate selected lines |
+| Alt+Up / Alt+Down | line list | move primary line |
+| Ctrl+A | line list | all words of selected lines else all lines |
+| Esc | line list | clear selection |
+| Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z | global accelerators | TextBox-own when dirty, else document undo/redo (handled) |
+| (Space never bound) | — | reserved for Sync word stamping |
+
+## Known gaps (not in Phase 3 scope)
+
+- Ruby editor UI (model carries ruby; `word|` seeds empty list only).
+- TimeShift dialog, metadata editor, replace-all-dialog UI (all commands
+  in Core and unit-tested).
+- Drag reorder (original has line/word drag; port defers to later).
+- Sync-mode end-time-link BUTTON (data ops in Core).
+- `+0`-style no-change duration deltas still push a history step
+  (original's immer-set path behaves the same; harmless).
+- Delete-key word path normalizes line times via Core (matches the
+  word-menu path; the original TopMenu path skips normalize — cosmetic).
+
+## What Phase 4 needs
+
+- Import formats YRC/QRC/LYS/ESLRC (registry `Register`; probes in
+  notes §b/f); save/export flows; close-with-unsaved-changes confirm
+  (dirty flag + history exist; dialog flow missing).
+- The items above (ruby UI, bulk dialogs, drag, link button, LRCLIB,
+  segmentation/smoothing/romanization tooling, outline panel).
+
+## Couldn't verify (manual steps for the user)
+
+1. **Real IME** (harness can't drive one; guard logic tested
+   simulated): focus a chip → type Japanese → Space converts (candidate
+   window) → Enter confirms (no commit, no newline, text stays
+   converting) → next Enter commits one step; Esc mid-composition
+   cancels IME first. Repeat for ribbon content + insert box.
+2. **Keyboard**: arrows move selection end-to-end; Tab order chips →
+   Trans/Roman → ribbon; Shift+F10 opens chip menu (screenshot proves
+   it opens; keyboard-select an item with arrows+Enter: Split dialog).
+3. **Ctrl+Z/Y/Shift+Z**: uncommitted typing → TextBox undo (character
+   restores); committed → document undo + selection jumps to the
+   change; tooltips show accelerators.
+4. **Split/replace dialogs**: split `hello` at `2` → two timed words
+   (weights); invalid positions ignored; replace exact-match single
+   word; dialogs never appear in test mode (stubs).
+5. **Duration mode**: ribbon End→Duration toggle; `+500` extends,
+   `1000` sets absolute, `abc` ignored; abutting next-word push.
+6. **Narrator**: line cards, chips, badges, menus, dialogs, insert box.
+7. **High Contrast**: badges/toggles/cards (Light/Dark eyeballed via
+   screenshots; HC needs the OS-level pass).
+8. **Smoothness eyeball**: `%TEMP%\edit-ui-artifacts\structural.mp4`
+   + live delete/undo/typing on the 300×10 doc.
+9. **Dirty flow**: `●` appears next to file name on first edit
+   (exists); save/close-confirm arrives in Phase 4.
