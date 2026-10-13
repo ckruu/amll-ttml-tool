@@ -578,11 +578,10 @@ namespace AmllTtmlTool.WinUI.Views
             if (box is null) return -1;
             var cpu0 = CurrentThreadCpuMs();
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            // Minimal sets per keystroke (extra property sets each pump
-            // messages through global hooks and inflate the probe on a
-            // loaded machine): replace + caret, then panel layout.
+            // One set per keystroke: appending to Text only. (A caret move
+            // here would pump bring-into-view requests up the tree and
+            // pollute the measurement; real keystrokes move it themselves.)
             box.Text += ch;
-            box.SelectionStart = box.Text.Length;
             _lastSetMs = sw.Elapsed.TotalMilliseconds;
             _lastSetCpuMs = cpu0 < 0 ? -1 : CurrentThreadCpuMs() - cpu0;
             var parent = VisualTreeHelper.GetParent(box);
