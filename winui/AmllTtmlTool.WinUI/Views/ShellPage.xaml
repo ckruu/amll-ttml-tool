@@ -179,14 +179,14 @@
                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
                     </MenuFlyoutItem>
                     <MenuFlyoutSeparator />
-                    <MenuFlyoutItem x:Uid="Menu_SelectAll" Click="OnStubClick" Text="Select all lines">
+                    <MenuFlyoutItem x:Uid="Menu_SelectAll" Click="OnSelectAllClick" Text="Select all lines">
                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B3;" /></MenuFlyoutItem.Icon>
                     </MenuFlyoutItem>
-                    <MenuFlyoutItem x:Uid="Menu_DeselectAll" Click="OnStubClick" Text="Deselect all" />
+                    <MenuFlyoutItem x:Uid="Menu_DeselectAll" Click="OnDeselectAllClick" Text="Deselect all" />
                     <MenuFlyoutItem x:Uid="Menu_InvertSelection" Click="OnStubClick" Text="Invert selection" />
                     <MenuFlyoutItem x:Uid="Menu_SelectWordMatches" Click="OnStubClick" Text="Select word matches" />
                     <MenuFlyoutSeparator />
-                    <MenuFlyoutItem x:Uid="Menu_DeleteWords" Click="OnStubClick" Text="Delete selected words">
+                    <MenuFlyoutItem x:Uid="Menu_DeleteWords" Click="OnDeleteSelectionClick" Text="Delete selected words">
                         <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
                     </MenuFlyoutItem>
                     <MenuFlyoutSeparator />
@@ -268,14 +268,14 @@
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE7A6;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSeparator />
-                            <MenuFlyoutItem x:Uid="Menu_SelectAll" Click="OnStubClick" Text="Select all lines">
+                            <MenuFlyoutItem x:Uid="Menu_SelectAll" Click="OnSelectAllClick" Text="Select all lines">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8B3;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem x:Uid="Menu_DeselectAll" Click="OnStubClick" Text="Deselect all" />
+                            <MenuFlyoutItem x:Uid="Menu_DeselectAll" Click="OnDeselectAllClick" Text="Deselect all" />
                             <MenuFlyoutItem x:Uid="Menu_InvertSelection" Click="OnStubClick" Text="Invert selection" />
                             <MenuFlyoutItem x:Uid="Menu_SelectWordMatches" Click="OnStubClick" Text="Select word matches" />
                             <MenuFlyoutSeparator />
-                            <MenuFlyoutItem x:Uid="Menu_DeleteWords" Click="OnStubClick" Text="Delete selected words">
+                            <MenuFlyoutItem x:Uid="Menu_DeleteWords" Click="OnDeleteSelectionClick" Text="Delete selected words">
                                 <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE74D;" /></MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <MenuFlyoutSeparator />

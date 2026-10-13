@@ -996,8 +996,15 @@ namespace AmllTtmlTool.WinUI.Views
             _audio.PositionChanged += RefreshAudioChrome;
             _audio.TrackEnded += RefreshAudioChrome;
             EditBar.NewLineRequested += () =>
-                _store.Execute(new AddLineCommand(
-                    _store.Document.Lines.Count, EditLine.New()));
+            {
+                // Inserts after the selected line (or at the end) and opens
+                // the new line's insert-word box, like the original New.
+                if (_attachedEditPage is not null)
+                    _attachedEditPage.AddLineAfterSelected();
+                else
+                    _store.Execute(new AddLineCommand(
+                        _store.Document.Lines.Count, EditLine.New()));
+            };
             EditBar.ImportRequested += () => _ = OpenLyricAsync();
             EditBar.BindSelection(_selection, _store);
             RefreshChrome();
@@ -2500,6 +2507,13 @@ namespace AmllTtmlTool.WinUI.Views
         private void OnUndoClick(object sender, RoutedEventArgs e) => _store.Undo();
         private void OnRedoClick(object sender, RoutedEventArgs e) => _store.Redo();
 
+        private void OnSelectAllClick(object sender, RoutedEventArgs e) =>
+            _attachedEditPage?.SelectAllLines();
+        private void OnDeselectAllClick(object sender, RoutedEventArgs e) =>
+            _attachedEditPage?.ClearEditSelection();
+        private void OnDeleteSelectionClick(object sender, RoutedEventArgs e) =>
+            _attachedEditPage?.DeleteSelected();
+
         private async void OnPasteClick(object sender, RoutedEventArgs e)
         {
             if (_intake is not null) await _intake.PasteAsync();
@@ -2630,6 +2644,54 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.EscapeLineField(line, translation);
         internal bool Test_Undo() => _store.Undo();
         internal bool Test_Redo() => _store.Redo();
+        internal int Test_SelectedLineCount() =>
+            _attachedEditPage?.SelectedLineCount() ?? -1;
+        internal int Test_SelectedWordCount() =>
+            _attachedEditPage?.SelectedWordCount() ?? -1;
+        internal void Test_SelectLines(int[] indices) =>
+            _attachedEditPage?.SelectLines(indices);
+        internal void Test_SelectAllLines() => _attachedEditPage?.SelectAllLines();
+        internal void Test_ClearEditSelection() => _attachedEditPage?.ClearEditSelection();
+        internal bool Test_ToggleChipWord(int line, int word) =>
+            _attachedEditPage?.ToggleChipWord(line, word) ?? false;
+        internal void Test_DeleteSelected() => _attachedEditPage?.DeleteSelected();
+        internal void Test_DeleteLineAt(int index) => _attachedEditPage?.DeleteLineAt(index);
+        internal void Test_InsertLineBefore(int index) =>
+            _attachedEditPage?.InsertLineBefore(index);
+        internal void Test_InsertLineAfter(int index) =>
+            _attachedEditPage?.InsertLineAfter(index);
+        internal void Test_AddLineAfterSelected() =>
+            _attachedEditPage?.AddLineAfterSelected();
+        internal void Test_DuplicateSelectedLines() =>
+            _attachedEditPage?.DuplicateSelectedLines();
+        internal void Test_MovePrimaryLine(int delta) =>
+            _attachedEditPage?.MovePrimaryLine(delta);
+        internal bool Test_CombineSelectedLines() =>
+            _attachedEditPage?.CombineSelectedLines() ?? false;
+        internal bool Test_MergeSelectedWords(string lineId) =>
+            _attachedEditPage?.MergeSelectedWords(lineId) ?? false;
+        internal bool Test_SplitWordAt(string lineId, string wordId, int[] indices) =>
+            _attachedEditPage?.SplitWordAt(lineId, wordId, indices) ?? false;
+        internal void Test_ReplaceWord(string lineId, string wordId, string target, string replacement) =>
+            _attachedEditPage?.ReplaceWord(lineId, wordId, target, replacement);
+        internal bool Test_MoveSelectedWordsToNewLine(string anchorLineId) =>
+            _attachedEditPage?.MoveSelectedWordsToNewLine(anchorLineId) ?? false;
+        internal bool Test_MoveFollowingWordsToNewLine(string lineId, string wordId) =>
+            _attachedEditPage?.MoveFollowingWordsToNewLine(lineId, wordId) ?? false;
+        internal void Test_AddWordToLine(string lineId, string text) =>
+            _attachedEditPage?.AddWordToLine(lineId, text);
+        internal bool Test_OpenInsertBox(int lineIndex) =>
+            _attachedEditPage?.OpenInsertBox(lineIndex) ?? false;
+        internal bool Test_InsertBoxOpen() =>
+            _attachedEditPage?.InsertBoxOpen() ?? false;
+        internal void Test_SetInsertText(string text) =>
+            _attachedEditPage?.SetInsertText(text);
+        internal string Test_InsertText() => _attachedEditPage?.InsertText() ?? "nopage";
+        internal bool Test_CommitInsertBox() =>
+            _attachedEditPage?.CommitInsertBox() ?? false;
+        internal string Test_LineId(int index) => _store.Document.Lines[index].Id;
+        internal string Test_WordId(int line, int word) =>
+            _store.Document.Lines[line].Words[word].Id;
         internal bool Test_ToggleState(string which) => which switch
         {
             "trans" => _viewState.ShowTranslation,
