@@ -327,6 +327,116 @@ only — no mutations to port.
     app shell concerns, NOT lyric core (excluded by design, listed so nobody
     ports them here).
 
+## h. Phase-3 finish: select/edit, space chips, ribbon, menus, drag (re-read 2026-10-14)
+
+Click/select (Edit mode):
+- Word `onWordSelect` (`lyric-word-view.tsx:135-179`): plain click =
+  single line+word (guarded clear+add, `166-178`); ctrl/meta = toggle word
+  only, lines untouched (`136-143`); shift = range WITHIN same `line.words`
+  (min/max over already-selected in that line + clicked index, `144-164`).
+  `onClick` = stopProp+preventDefault+select (`301-305`).
+- EDIT state: `onDoubleClick` prop (`300`) → `LyricWorldViewEdit:712-714`
+  `setEditing(true)` → inline TextField(autoFocus, defaultValue) + RubyEditor
+  (`677-689`); commit `onEnter/onKeyDown Enter/Blur` (`681-685`, `656-674`:
+  only writes when `parsedWord !== word.word || enableRuby`; `word|` suffix
+  seeds `ruby=[]`). Advance layout has no dbl-click edit (always fields).
+- Line: pointer-down capture (`useLyricListDrag.ts:392-437`, wired
+  `index.tsx:243-247`, `lyric-line-view.tsx:534-536`): button!==0 ignored;
+  3px move threshold starts drag (`271-326`); else deferred `handleSelect`
+  on pointer-up (`345-351`): ctrl = toggle line (`68-75`); shift = range
+  across `lyricLines` indices inclusive (`78-104`); plain = single line +
+  clear words (`106-107`). `handleDragStart` (`32-41`): unselected start →
+  select-single first, else keep multi.
+- Right-click: word (`182-194`, `691-703`) and line (`lyric-line-view:506-513`):
+  if id not selected → clear+select it (+ its line for words); inside a
+  selection → keep selection. Menus are Radix `ContextMenu` (word menu +
+  line menu stacked in `LyricWordViewEditSpan:310-317`).
+- Sync word clicks always clear+add (no ctrl/shift) — Sync-only, not ported.
+
+Space chips:
+- `useWordBlank = len===0 || trim===""` (`lyric-word-view:60-64`).
+- Display priority `getDisplayWordText` (`79-98`): sync-roman override →
+  `""`→`空白(empty)` → blank→`Space x{count}` with `count=word.length`
+  (`lyricWordView.spaceCount`, `en-US:561-563`) → else raw word. So `" "`→
+  `Space x1`, 5 spaces → `Space x5`; count changes live on Enter/Blur commit
+  (`WordEditField:354-379`). `emptyBeat` is NOT the count (orthogonal int
+  field, `parseInt→0`); port's old `EmptyBeat>0 && IsNullOrWhiteSpace` gate
+  was wrong — any whitespace-only text is a space chip, normally untimed.
+- Style `.blank{color:gray-a7}` (`index.module.css:275-277`), applied with
+  `cx(...isWordBlank&&blank)` (`448-468,635-654`); selectable/draggable/
+  deletable like any chip; `afterToNewLine` deletes a whitespace-only
+  untimed clicked word first (`lyric-word-menu:197-198`,
+  `/^\s*$/.test+!start+!end`).
+- Per-word romaji row (`lyric-line-view:608-616`): rendered per word when
+  `toolMode===Edit && showWordRomanizationInput` (default false,
+  `settings/states:34-37`, toggle `edit-mode:556-597` 显示逐字音译), EVEN for
+  blanks. `RomanWordView:93-127`: not-editing = soft Button showing
+  `romanWord||""` (placeholder italic style); click → edit index; Enter/Tab =
+  save + index+1 (`71-76`); Esc = cancel (`77-80`); Backspace on `""` = save
+  + index-1 (`81-87`); Blur = save (`104`); save writes by id (`37-53`).
+  Suggested romans from `predictLineRomanization(words, romanLyric)`
+  (`411-417`).
+
+Ribbon multi-value + layout:
+- Sections (`edit-mode:677-730`): Word Timing grid + Word Properties grid,
+  each `Grid(columns="0fr 1fr")`; field width 8em, secondary (trans/roman)
+  20em (`386`, `740,747`). No 3-column Word section in the original — the
+  port's 3-row×(Start/Content…​) grouping is a port invention; keep 2-row
+  target per brief.
+- Multi (`55` MULTIPLE_VALUES symbol): collect `Set(field)` across selected
+  words/lines (`149-155`/`161-166`); size===1 → formatted value, else
+  MULTIPLE (`156-169`); duration variant same for end-start (`175-204`).
+  Layout effect (`337-362`): MULTIPLE → `input=""` + placeholder
+  `多个值...` (`translation.json:46`); else input=current/duration.
+  `compareValue` handles duration toggle (`206-214`). End label is a
+  Duration↔label toggle Button (`366-375`); start>end → red soft variant
+  (`384-385`), display-only, still commits. Checkbox same Set logic,
+  `indeterminate` on MULTIPLE, disabled when 0 selected (`441-496`).
+- No count caption in the ribbon (grep `count` in RibbonBar hits only
+  selection-size logic). Counts live in menus with `one/other` plurals
+  (`translation.json:371-384`): copyLine/deleteLine/moveWord/deleteWords.
+
+Context menus (verbatim item order):
+- Word (`lyric-word-menu:43-157`): split…​(sel==1) / replace…​(sel==1) /
+  combine (>1 in ONE line: join `""`, span first→last, fresh id, splice at
+  first, `71-112`) / delete{count} (filter all lines + normalize iff
+  changed, `114-135`) / sep / following-to-new (sel==1; untimed-whitespace
+  clicked word deleted first; rest from clicked index; inherit BG/duet;
+  normalize both, `139-144,191-210`) / selected-to-new{count} (collect in
+  doc order; normalize iff deletedAtBounds; inherit BG/duet; normalize new,
+  `146-154,160-189`) / sep (+ line menu items follow in the same popup).
+- Line (`lyric-line-menu:64-122`): BG checkbox / duet checkbox (tri-state
+  true/false/indeterminate from selected lines, `22-31`) / sep / before /
+  after / copy{count} (clone each selected with fresh line+word ids inserted
+  after itself, `138-153`) / combine (≥2 CONTIGUOUS; words→lowest, end=last
+  end, splice, `32-43,124-136`) / delete{count} (0 → clicked line, else
+  filter selected, `103-120`).
+
+Drag:
+- Word = HTML5 DnD (`lyric-word-view:197-298`): `draggable` in Edit only;
+  INPUT-origin drags blocked (`199-212`); DragStart: select-if-unselected,
+  `effectAllowed=copyMove`, `dropEffect=move`, `isDraggingAtom=true`
+  (`206-218`); DragOver ignored unless dragging && !selected (`223-225`);
+  half-split by `rect.width/2` → `dropLeft/dropRight` 3px accent borders
+  (`229-236`, css `21-27`); copy = ctrl/meta at hover AND drop (`237,250`);
+  Drop (`240-294`): collect selected in LINE-MAJOR doc order (`251-266`);
+  move deletes + normalize iff deletedAtBounds; copy clones fresh ids +
+  reselect clones (`275-286`); insert at target±right-half (`287,291`);
+  normalize iff insertedAtBounds (`288-292`). Drop on selected = no-op
+  (`224,244`). Leave clears classes.
+- Line = pointer drag (`useLyricListDrag` + `drag-reorder:16-52`): copy flag
+  = ctrl/meta at pointerdown AND live keydown/up (`404,250-268`,
+  `isCopyModeAtom`); target = midpoint scan over `[data-absolute-index]`
+  with dragged-over hidden + end-append, indicator `--drop-indicator-y`
+  (`164-248`, css `392-405`); ghost `--drag-ghost-x/y` + dragged
+  `data-is-dragged` dim `opacity .4 scale .98` (`287-310`, css `179-182`);
+  auto-scroll 40px edge / 12px rAF (`135-162`); `reorderOrCopyLyricLines`:
+  copy clones via `uid()` + reselect new + clear words; move filters then
+  `adjustedDropIndex -= dragged-before-drop`, splice (order preserved,
+  `22,37-49`).
+- Timings: `normalizeLineTime` ONLY at touched bounds (both paths); no time
+  change otherwise. One atom set = one undo step for the whole drop.
+
 ## g. Source map + probe log (what was actually read/run)
 
 Fully read: `types/ttml.ts`, `states/main.ts`, `utils/timestamp.ts`,
