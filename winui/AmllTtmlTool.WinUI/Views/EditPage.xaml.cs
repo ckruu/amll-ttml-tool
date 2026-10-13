@@ -52,11 +52,15 @@ namespace AmllTtmlTool.WinUI.Views
             WatchLines();
             _compositor = ElementCompositionPreview.GetElementVisual(this).Compositor;
             _decelerate = _compositor.CreateCubicBezierEasingFunction(new Vector2(0, 0), new Vector2(0, 1));
-            // Glide for cards below a resized sibling. Set in code (not XAML)
-            // so the animations-off setting snaps instead.
+            // Glide for cards below a resized sibling + fade for add/remove.
+            // Set in code (not XAML) so the animations-off setting snaps.
             LineList.ItemContainerTransitions =
                 AnimationsOn()
-                    ? new TransitionCollection { new RepositionThemeTransition() }
+                    ? new TransitionCollection
+                    {
+                        new AddDeleteThemeTransition(),
+                        new RepositionThemeTransition(),
+                    }
                     : new TransitionCollection();
             LineList.ItemsSource = _store.Document.Lines;
             RefreshEmptyState();
@@ -145,6 +149,19 @@ namespace AmllTtmlTool.WinUI.Views
                 focusRoman = Grid.GetRow(focused) == 1;
                 caret = focused.SelectionStart;
             }
+            // FLIP snapshot: word-id -> position, so surviving chips glide
+            // to their new spots after the rebuild (same 150ms decelerate
+            // as the toggle animations). Typing never rebuilds: unaffected.
+            var before = new Dictionary<string, Windows.Foundation.Point>();
+            if (AnimationsOn())
+            {
+                foreach (var child in panel.Children)
+                {
+                    if (child is Grid chip && chip.Tag is string id)
+                        before[id] = chip.TransformToVisual(panel)
+                            .TransformPoint(new Windows.Foundation.Point(0, 0));
+                }
+            }
             BuildLinePanel(panel, _store.Document.Lines[index], index);
             if (focusWord is not null)
             {
@@ -154,6 +171,54 @@ namespace AmllTtmlTool.WinUI.Views
                 {
                     box.Focus(FocusState.Programmatic);
                     box.SelectionStart = Math.Min(caret, box.Text.Length);
+                }
+            }
+            if (AnimationsOn()) AnimatePanelFlip(panel, before);
+        }
+
+        // Entrance for added chips + glide for moved survivors. The chip
+        // holding focus is never touched (no visual disturbance).
+        private void AnimatePanelFlip(
+            LyricWrapPanel panel, Dictionary<string, Windows.Foundation.Point> before)
+        {
+            if (_compositor is null || _decelerate is null) return;
+            LineList.UpdateLayout();
+            var focused = FocusManager.GetFocusedElement(XamlRoot) as TextBox;
+            foreach (var child in panel.Children)
+            {
+                if (child is not Grid chip || chip.Tag is not string id) continue;
+                if (focused is not null && IsIn(chip, focused)) continue;
+                var visual = ElementCompositionPreview.GetElementVisual(chip);
+                visual.StopAnimation("Opacity");
+                visual.StopAnimation("Offset");
+                if (!before.ContainsKey(id))
+                {
+                    var start = visual.Offset;
+                    visual.Opacity = 0;
+                    visual.Offset = new Vector3(start.X, start.Y + 8, start.Z);
+                    var fade = _compositor.CreateScalarKeyFrameAnimation();
+                    fade.Duration = TimeSpan.FromMilliseconds(150);
+                    fade.InsertKeyFrame(1f, 1f, _decelerate);
+                    visual.StartAnimation("Opacity", fade);
+                    var slide = _compositor.CreateVector3KeyFrameAnimation();
+                    slide.Duration = TimeSpan.FromMilliseconds(150);
+                    slide.InsertKeyFrame(1f, start, _decelerate);
+                    visual.StartAnimation("Offset", slide);
+                }
+                else
+                {
+                    var now = chip.TransformToVisual(panel)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0));
+                    var old = before[id];
+                    var dx = (float)(old.X - now.X);
+                    var dy = (float)(old.Y - now.Y);
+                    if (Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5) continue;
+                    var baseOff = visual.Offset;
+                    visual.Offset = new Vector3(baseOff.X + dx, baseOff.Y + dy, baseOff.Z);
+                    var glide = _compositor.CreateVector3KeyFrameAnimation();
+                    glide.Duration = TimeSpan.FromMilliseconds(150);
+                    glide.InsertKeyFrame(1f, baseOff, _decelerate);
+                    visual.StartAnimation("Offset", glide);
                 }
             }
         }
@@ -585,6 +650,49 @@ namespace AmllTtmlTool.WinUI.Views
         // Returns "frames=N median=X p95=Y max=Z over13_9=A over2xmedian=B".
         internal async Task<string> SampleToggleFramesAsync(string which, int durationMs)
         {
+            var stamps = await SampleFramesAsync(() => FlipToggle(which), durationMs);
+            return FormatFrameStats(stamps);
+        }
+
+        // Frame stats around a structural op (same animation path as
+        // undo/redo of that op). Ops run through the real EditPage paths.
+        internal async Task<string> SampleStructuralFramesAsync(string op, int durationMs)
+        {
+            var stamps = await SampleFramesAsync(() => RunStructuralOp(op), durationMs);
+            return FormatFrameStats(stamps);
+        }
+
+        private void RunStructuralOp(string op)
+        {
+            if (_store is null) return;
+            switch (op)
+            {
+                case "addline":
+                    InsertLineAfter(Math.Min(2, _store.Document.Lines.Count - 1));
+                    break;
+                case "deleteline":
+                    if (_store.Document.Lines.Count > 3)
+                        DeleteLineAt(_store.Document.Lines.Count - 1);
+                    break;
+                case "addword":
+                    if (_store.Document.Lines.Count > 0)
+                        AddWordToLine(_store.Document.Lines[0].Id, "x");
+                    break;
+                case "removeword":
+                    if (_store.Document.Lines.Count > 0
+                        && _store.Document.Lines[0].Words.Count > 1)
+                    {
+                        var line = _store.Document.Lines[0];
+                        _store.Execute(new RemoveWordsCommand(line.Id,
+                            new[] { line.Words[^1].Id }));
+                    }
+                    break;
+                default: throw new ArgumentException($"Unknown op: {op}");
+            }
+        }
+
+        private static async Task<List<TimeSpan>> SampleFramesAsync(Action op, int durationMs)
+        {
             var stamps = new List<TimeSpan>();
             void Handler(object? sender, object args)
             {
@@ -594,13 +702,18 @@ namespace AmllTtmlTool.WinUI.Views
             CompositionTarget.Rendering += Handler;
             try
             {
-                FlipToggle(which);
+                op();
                 await Task.Delay(durationMs);
             }
             finally
             {
                 CompositionTarget.Rendering -= Handler;
             }
+            return stamps;
+        }
+
+        private static string FormatFrameStats(List<TimeSpan> stamps)
+        {
             if (stamps.Count < 2) return $"frames={stamps.Count} median=0 p95=0 max=0 over13_9=0 over2xmedian=0";
             var deltas = new List<double>();
             for (var i = 1; i < stamps.Count; i++)

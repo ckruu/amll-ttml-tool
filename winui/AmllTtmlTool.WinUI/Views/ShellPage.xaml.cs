@@ -2800,6 +2800,10 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage is null
                 ? throw new InvalidOperationException("No edit page.")
                 : _attachedEditPage.SampleToggleFramesAsync(which, durationMs);
+        internal Task<string> Test_StructuralFrames(string op, int durationMs) =>
+            _attachedEditPage is null
+                ? throw new InvalidOperationException("No edit page.")
+                : _attachedEditPage.SampleStructuralFramesAsync(op, durationMs);
         internal void Test_SetToggle(string which, bool value)
         {
             switch (which)
