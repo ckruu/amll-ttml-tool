@@ -2599,6 +2599,37 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.RowVisibility(line, which) ?? -1;
         internal string Test_ChipWidths(int line, int word) =>
             _attachedEditPage?.ChipWidths(line, word) ?? "nopage";
+        internal bool Test_FocusChip(int line, int word, bool roman) =>
+            _attachedEditPage?.FocusChip(line, word, roman) ?? false;
+        internal string Test_ChipBoxText(int line, int word, bool roman) =>
+            _attachedEditPage?.ChipBoxText(line, word, roman) ?? "nopage";
+        internal void Test_SetChipBoxText(int line, int word, bool roman, string text) =>
+            _attachedEditPage?.SetChipBoxText(line, word, roman, text);
+        internal double Test_TypeChipChar(int line, int word, bool roman, char ch) =>
+            _attachedEditPage?.TypeChipChar(line, word, roman, ch) ?? -1;
+        internal void Test_CommitChip(int line, int word, bool roman) =>
+            _attachedEditPage?.CommitChip(line, word, roman);
+        internal void Test_EscapeChip(int line, int word, bool roman) =>
+            _attachedEditPage?.EscapeChip(line, word, roman);
+        internal int Test_ChipCaret(int line, int word, bool roman) =>
+            _attachedEditPage?.ChipCaret(line, word, roman) ?? -1;
+        internal bool Test_ChipIsFocused(int line, int word, bool roman) =>
+            _attachedEditPage?.ChipIsFocused(line, word, roman) ?? false;
+        internal void Test_SetChipComposing(int line, int word, bool roman, bool composing) =>
+            _attachedEditPage?.SetChipComposing(line, word, roman, composing);
+        internal bool Test_HasUncommittedEdit() =>
+            _attachedEditPage?.HasUncommittedEdit() ?? false;
+        internal int Test_UndoDepth() => _store.Document.UndoDepth;
+        internal string Test_LineFieldText(int line, bool translation) =>
+            _attachedEditPage?.LineFieldText(line, translation) ?? "nopage";
+        internal void Test_SetLineFieldText(int line, bool translation, string text) =>
+            _attachedEditPage?.SetLineFieldText(line, translation, text);
+        internal void Test_CommitLineField(int line, bool translation) =>
+            _attachedEditPage?.CommitLineField(line, translation);
+        internal void Test_EscapeLineField(int line, bool translation) =>
+            _attachedEditPage?.EscapeLineField(line, translation);
+        internal bool Test_Undo() => _store.Undo();
+        internal bool Test_Redo() => _store.Redo();
         internal bool Test_ToggleState(string which) => which switch
         {
             "trans" => _viewState.ShowTranslation,

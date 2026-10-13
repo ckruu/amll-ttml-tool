@@ -1,4 +1,5 @@
 using AmllTtmlTool.Core.Lyrics;
+using AmllTtmlTool.Core.Lyrics.Commands;
 using AmllTtmlTool.WinUI.Controls;
 using AmllTtmlTool.WinUI.Services;
 using Microsoft.UI.Composition;
@@ -129,6 +130,7 @@ namespace AmllTtmlTool.WinUI.Views
         internal void ScrollLineIntoView(int index)
         {
             if (index < 0 || index >= LineList.Items.Count) return;
+            CommitActiveBox();
             LineList.ScrollIntoView(LineList.Items[index]);
             LineList.UpdateLayout();
         }
@@ -158,6 +160,121 @@ namespace AmllTtmlTool.WinUI.Views
                     return roman;
             }
             return null;
+        }
+
+        // --- Step-1 edit hooks (UI thread) ----------------------------------
+        internal TextBox? FindChipBox(int line, int word, bool roman)
+        {
+            if (_store is null || line < 0 || line >= _store.Document.Lines.Count) return null;
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return null;
+            if (container.ContentTemplateRoot is not Grid card) return null;
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return null;
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return null;
+            var wordId = docLine.Words[word].Id;
+            foreach (var child in panel.Children)
+            {
+                if (child is Grid chip && chip.Tag is string tag && tag == wordId
+                    && chip.Children.Count >= 2)
+                    return chip.Children[roman ? 1 : 0] as TextBox;
+            }
+            return null;
+        }
+
+        internal TextBox? FindLineFieldBox(int line, bool translation)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return null;
+            if (container.ContentTemplateRoot is not Grid card) return null;
+            return card.FindName(translation ? "TransBox" : "RomanBox") as TextBox;
+        }
+
+        internal bool FocusChip(int line, int word, bool roman)
+        {
+            var box = FindChipBox(line, word, roman);
+            if (box is null) return false;
+            return box.Focus(FocusState.Programmatic);
+        }
+
+        internal string ChipBoxText(int line, int word, bool roman) =>
+            FindChipBox(line, word, roman)?.Text ?? "nobox";
+
+        internal void SetChipBoxText(int line, int word, bool roman, string text)
+        {
+            if (FindChipBox(line, word, roman) is TextBox box) box.Text = text;
+        }
+
+        // Appends one char on the UI thread and returns the cost in ms
+        // (typing-latency probe: no model touch, layout only).
+        internal double TypeChipChar(int line, int word, bool roman, char ch)
+        {
+            var box = FindChipBox(line, word, roman);
+            if (box is null) return -1;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            box.Text += ch;
+            box.SelectionStart = box.Text.Length;
+            LineList.UpdateLayout();
+            sw.Stop();
+            return sw.Elapsed.TotalMilliseconds;
+        }
+
+        internal void CommitChip(int line, int word, bool roman)
+        {
+            if (FindChipBox(line, word, roman) is TextBox box) CommitBoxIfDirty(box);
+        }
+
+        internal void EscapeChip(int line, int word, bool roman)
+        {
+            var box = FindChipBox(line, word, roman);
+            if (box is null || !_sessions.TryGetValue(box, out var session)) return;
+            try { SetTextPreservingCaret(box, session.GetModel()); }
+            catch { }
+        }
+
+        internal int ChipCaret(int line, int word, bool roman) =>
+            FindChipBox(line, word, roman)?.SelectionStart ?? -1;
+
+        internal bool ChipIsFocused(int line, int word, bool roman) =>
+            FindChipBox(line, word, roman) is TextBox box
+            && ReferenceEquals(FocusManager.GetFocusedElement(XamlRoot), box);
+
+        internal void SetChipComposing(int line, int word, bool roman, bool composing)
+        {
+            if (FindChipBox(line, word, roman) is TextBox box) Test_SetComposing(box, composing);
+        }
+
+        internal bool HasUncommittedEdit()
+        {
+            foreach (var (box, session) in _sessions)
+            {
+                string model;
+                try { model = session.GetModel(); }
+                catch { continue; }
+                if (!session.Composing && box.Text != model) return true;
+            }
+            return false;
+        }
+
+        internal int UndoDepth() => _store?.Document.UndoDepth ?? -1;
+
+        internal string LineFieldText(int line, bool translation) =>
+            FindLineFieldBox(line, translation)?.Text ?? "nobox";
+
+        internal void SetLineFieldText(int line, bool translation, string text)
+        {
+            if (FindLineFieldBox(line, translation) is TextBox box) box.Text = text;
+        }
+
+        internal void CommitLineField(int line, bool translation)
+        {
+            if (FindLineFieldBox(line, translation) is TextBox box) CommitBoxIfDirty(box);
+        }
+
+        internal void EscapeLineField(int line, bool translation)
+        {
+            var box = FindLineFieldBox(line, translation);
+            if (box is null || !_sessions.TryGetValue(box, out var session)) return;
+            try { SetTextPreservingCaret(box, session.GetModel()); }
+            catch { }
         }
 
         internal string ChipWidths(int line, int word)
@@ -232,8 +349,50 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnStoreChanged()
         {
-            if (DispatcherQueue.HasThreadAccess) RefreshEmptyState();
-            else DispatcherQueue.TryEnqueue(RefreshEmptyState);
+            if (DispatcherQueue.HasThreadAccess) { RefreshEmptyState(); RefreshBoxTexts(); }
+            else DispatcherQueue.TryEnqueue(() => { RefreshEmptyState(); RefreshBoxTexts(); });
+        }
+
+        // Pushes model text into every realized box WITHOUT stealing focus:
+        // text is only assigned when it differs, and the caret is restored
+        // clamped, so typing never loses caret/focus on model notify.
+        private void RefreshBoxTexts()
+        {
+            if (_store is null) return;
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                var line = _store.Document.Lines[i];
+                if (card.FindName("TransBox") is TextBox trans)
+                    SetTextPreservingCaret(trans, line.TranslatedLyric);
+                if (card.FindName("RomanBox") is TextBox roman)
+                    SetTextPreservingCaret(roman, line.RomanLyric);
+                if (card.FindName("ChipPanel") is not LyricWrapPanel panel) continue;
+                foreach (var child in panel.Children)
+                {
+                    if (child is not Grid chip || chip.Tag is not string wordId) continue;
+                    if (chip.Children.Count < 2) continue;
+                    var word = line.Words.FirstOrDefault(w => w.Id == wordId);
+                    if (word is null) continue;
+                    if (chip.Children[0] is TextBox text)
+                        SetTextPreservingCaret(text, word.Text);
+                    if (chip.Children[1] is TextBox rom)
+                        SetTextPreservingCaret(rom, word.RomanWord);
+                    var blank = word.EmptyBeat > 0 && string.IsNullOrWhiteSpace(word.Text);
+                    chip.Opacity = blank ? 0.55 : 1;
+                }
+            }
+        }
+
+        private static void SetTextPreservingCaret(TextBox box, string text)
+        {
+            if (box.Text == text) return;
+            var start = box.SelectionStart;
+            var len = box.SelectionLength;
+            box.Text = text;
+            box.SelectionStart = Math.Min(start, text.Length);
+            box.SelectionLength = Math.Min(len, Math.Max(0, text.Length - box.SelectionStart));
         }
 
         private void RefreshEmptyState()
@@ -246,10 +405,199 @@ namespace AmllTtmlTool.WinUI.Views
         private void OnImportClick(object sender, RoutedEventArgs e) =>
             ImportRequested?.Invoke();
 
+        // Commit sessions for uncommitted edits. Every mutation goes through
+        // EditDocument commands: one committed edit = one history step, and
+        // unchanged text commits nothing.
+        private sealed class BoxSession
+        {
+            public Func<string> GetModel = () => "";
+            public Action<string> Commit = _ => { };
+            public bool Composing;
+        }
+
+        private readonly Dictionary<TextBox, BoxSession> _sessions = new();
+
+        private void WireBox(TextBox box, Func<string> getModel, Action<string> commit)
+        {
+            if (_sessions.TryGetValue(box, out var existing))
+            {
+                existing.GetModel = getModel;
+                existing.Commit = commit;
+                SetTextPreservingCaret(box, getModel());
+                return;
+            }
+            var session = new BoxSession { GetModel = getModel, Commit = commit };
+            _sessions[box] = session;
+            try { SetTextPreservingCaret(box, getModel()); }
+            catch { }
+            box.KeyDown += OnEditKeyDown;
+            box.LostFocus += OnEditLostFocus;
+            box.GotFocus += OnEditGotFocus;
+            box.TextCompositionStarted += OnCompositionStarted;
+            box.TextCompositionEnded += OnCompositionEnded;
+            box.Unloaded += OnBoxUnloaded;
+        }
+
+        private void DropSessions(DependencyObject root)
+        {
+            if (root is TextBox box)
+            {
+                CommitBoxIfDirty(box);
+                if (_sessions.TryGetValue(box, out _))
+                {
+                    box.KeyDown -= OnEditKeyDown;
+                    box.LostFocus -= OnEditLostFocus;
+                    box.GotFocus -= OnEditGotFocus;
+                    box.TextCompositionStarted -= OnCompositionStarted;
+                    box.TextCompositionEnded -= OnCompositionEnded;
+                    box.Unloaded -= OnBoxUnloaded;
+                    _sessions.Remove(box);
+                }
+                return;
+            }
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+                DropSessions(VisualTreeHelper.GetChild(root, i));
+        }
+
+        private void OnBoxUnloaded(object sender, RoutedEventArgs e)
+        {
+            // Recycle safety net: a box removed without ContainerChanging
+            // (e.g. panel child swap) commits before it disappears.
+            if (sender is TextBox box && _sessions.ContainsKey(box))
+                DropSessions(box);
+        }
+
+        private void CommitBoxIfDirty(TextBox box)
+        {
+            if (!_sessions.TryGetValue(box, out var session)) return;
+            if (session.Composing) return;
+            var current = box.Text;
+            string model;
+            try { model = session.GetModel(); }
+            catch { return; }
+            if (current != model) session.Commit(current);
+        }
+
+        // Commits the focused box (if any) before a scroll/recycle that
+        // would remove it. LostFocus usually got there first; this covers
+        // programmatic scrolls.
+        private void CommitActiveBox()
+        {
+            if (FocusManager.GetFocusedElement(XamlRoot) is TextBox box)
+                CommitBoxIfDirty(box);
+        }
+
+        private void OnCompositionStarted(TextBox sender, TextCompositionStartedEventArgs args)
+        {
+            if (_sessions.TryGetValue(sender, out var session)) session.Composing = true;
+        }
+
+        private void OnCompositionEnded(TextBox sender, TextCompositionEndedEventArgs args)
+        {
+            if (_sessions.TryGetValue(sender, out var session)) session.Composing = false;
+        }
+
+        internal void Test_SetComposing(TextBox box, bool composing)
+        {
+            if (_sessions.TryGetValue(box, out var session)) session.Composing = composing;
+        }
+
+        private void OnEditKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (sender is not TextBox box) return;
+            if (!_sessions.TryGetValue(box, out var session)) return;
+            if (e.Key == Windows.System.VirtualKey.Enter)
+            {
+                // The Enter that confirms an IME candidate must NOT commit
+                // and must not insert a newline (single-line boxes can't
+                // take one anyway). Only the next Enter commits.
+                if (session.Composing) return;
+                CommitBoxIfDirty(box);
+                e.Handled = true;
+            }
+            else if (e.Key == Windows.System.VirtualKey.Escape)
+            {
+                try { SetTextPreservingCaret(box, session.GetModel()); }
+                catch { }
+                e.Handled = true;
+            }
+        }
+
+        private void OnEditLostFocus(object sender, RoutedEventArgs e)
+        {
+            // Tab/Shift+Tab commit on the way out through this same path.
+            if (sender is TextBox box) CommitBoxIfDirty(box);
+        }
+
+        private void OnEditGotFocus(object sender, RoutedEventArgs e)
+        {
+            // Focusing a box selects its line AND word; the ribbon Word
+            // group follows the focused word. List selection is set first
+            // (its change event selects the line), then the word.
+            if (sender is not TextBox box || _selection is null || _store is null) return;
+            var container = FindListViewItem(box);
+            if (container is null) return;
+            var index = LineList.IndexFromContainer(container);
+            if (index < 0 || index >= _store.Document.Lines.Count) return;
+            var line = _store.Document.Lines[index];
+            LineList.SelectedItem = line;
+            if (box.Tag is string wordId && line.Words.Any(w => w.Id == wordId))
+                _selection.SelectWord(line.Id, wordId);
+            else
+                _selection.SelectLine(line.Id);
+            LineList.ScrollIntoView(line);
+        }
+
+        private EditLine? LineOf(TextBox box)
+        {
+            if (_store is null) return null;
+            var container = FindListViewItem(box);
+            if (container is null) return null;
+            var index = LineList.IndexFromContainer(container);
+            return index < 0 || index >= _store.Document.Lines.Count
+                ? null : _store.Document.Lines[index];
+        }
+
+        private void CommitWordTextBox(TextBox box, EditLine line, string wordId, bool roman)
+        {
+            var word = line.Words.FirstOrDefault(w => w.Id == wordId);
+            if (word is null || _store is null) return;
+            var raw = box.Text;
+            if (roman)
+            {
+                if (raw != word.RomanWord)
+                    _store.Execute(new SetWordRomanCommand(line.Id, wordId, raw));
+                return;
+            }
+            // Trailing "|" seeds an (empty) ruby list, like the original's
+            // parseRubyShortcut. The C# model holds Ruby as a collection
+            // where empty == absent, so stripping the suffix is the whole op.
+            var text = raw.EndsWith("|") ? raw[..^1] : raw;
+            if (text != word.Text)
+                _store.Execute(new SetWordTextCommand(line.Id, wordId, text));
+        }
+
+        private void CommitLineFieldBox(TextBox box, EditLine line, bool translation)
+        {
+            if (_store is null) return;
+            var raw = box.Text;
+            if (translation)
+            {
+                if (raw != line.TranslatedLyric)
+                    _store.Execute(new SetTranslationCommand(line.Id, raw));
+            }
+            else if (raw != line.RomanLyric)
+            {
+                _store.Execute(new SetRomanizationCommand(line.Id, raw));
+            }
+        }
+
         // Line numbers, chip units, per-chip automation and the trailing "+"
         // are applied here (they need container indices, which templates
-        // cannot see). Render-only: text is set once per realization; no
-        // edits happen in this phase, so no live rebinding is needed.
+        // cannot see). Chip text boxes are the real editable boxes: commit
+        // on Enter/blur as ONE history step, Esc reverts, unchanged = no
+        // step. Uncommitted edits commit before recycle clears the panel.
         private void OnLineContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
             if (args.ItemContainer.ContentTemplateRoot is not Grid card) return;
@@ -261,11 +609,12 @@ namespace AmllTtmlTool.WinUI.Views
                 number.Text = (index + 1).ToString();
                 AutomationProperties.SetName(number, $"Line number {index + 1}");
             }
-            AutomationProperties.SetName(args.ItemContainer, $"Line {index + 1}");
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return;
+            foreach (var child in panel.Children.OfType<Grid>().ToList())
+                DropSessions(child);
             panel.Children.Clear();
             for (var i = 0; i < line.Words.Count; i++)
-                panel.Children.Add(BuildChip(line.Words[i], i));
+                panel.Children.Add(BuildChip(line, line.Words[i], i, index));
             var add = new Button
             {
                 Content = new FontIcon { FontSize = 14, Glyph = "\uE710" },
@@ -275,6 +624,17 @@ namespace AmllTtmlTool.WinUI.Views
             ToolTipService.SetToolTip(add, "Add word (editing arrives in the next update)");
             AutomationProperties.SetName(add, $"Add word to line {index + 1}");
             panel.Children.Add(add);
+            // Line field boxes persist across recycles: refresh delegates +
+            // text instead of rewiring. BG/duet visuals follow flags.
+            if (card.FindName("TransBox") is TextBox transField)
+                WireBox(transField,
+                    () => line.TranslatedLyric,
+                    _ => CommitLineFieldBox(transField, line, translation: true));
+            if (card.FindName("RomanBox") is TextBox romanField)
+                WireBox(romanField,
+                    () => line.RomanLyric,
+                    _ => CommitLineFieldBox(romanField, line, translation: false));
+            ApplyFlagVisual(args.ItemContainer, index, line);
             if (card.FindName("DeleteButton") is Button delete)
                 AutomationProperties.SetName(delete, $"Delete line {index + 1}");
             // Stable per-line automation identities for the row boxes: the
@@ -492,7 +852,17 @@ namespace AmllTtmlTool.WinUI.Views
                 sv.ChangeView(null, sv.VerticalOffset + (after - anchor.Y), null, true);
         }
 
-        private Grid BuildChip(EditWord word, int index)
+        // Flag visuals live here in code (no template change): automation
+        // names carry BG/duet for AT; the visible badges land in Step 3.
+        private void ApplyFlagVisual(DependencyObject container, int index, EditLine line)
+        {
+            var name = $"Line {index + 1}";
+            if (line.IsBg) name += ", BG";
+            if (line.IsDuet) name += ", duet";
+            AutomationProperties.SetName(container, name);
+        }
+
+        private Grid BuildChip(EditLine line, EditWord word, int index, int lineIndex)
         {
             var chip = new Grid
             {
@@ -501,27 +871,45 @@ namespace AmllTtmlTool.WinUI.Views
             };
             chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            // Raw model text (never the "Space ×N" display alias: committing
+            // that alias would write it into the model). EmptyBeat shows as
+            // a dimmed cue only.
             var isSpace = word.EmptyBeat > 0 && string.IsNullOrWhiteSpace(word.Text);
             var text = new TextBox
             {
-                Text = isSpace ? $"Space \u00D7{word.EmptyBeat}" : word.Text,
-                IsReadOnly = true,
-                IsTabStop = false,
+                Text = word.Text,
+                AcceptsReturn = false,
+                IsTabStop = true,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
+                Tag = word.Id,
             };
             var roman = new TextBox
             {
                 Text = word.RomanWord,
-                IsReadOnly = true,
-                IsTabStop = false,
+                AcceptsReturn = false,
+                IsTabStop = true,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
+                Tag = word.Id,
             };
             Grid.SetRow(roman, 1);
             if (isSpace) chip.Opacity = 0.55;
-            AutomationProperties.SetName(text, $"Word {index + 1}: {text.Text}");
+            // The two boxes share the chip width (grid = max child width,
+            // both stretch): widths hug the wider content instantly while
+            // typing, with no animation and no rebuild, so caret/focus stay.
+            AutomationProperties.SetAutomationId(text, $"ChipText{lineIndex + 1}_{index + 1}");
+            AutomationProperties.SetName(text, $"Word {index + 1}: {word.Text}");
+            AutomationProperties.SetAutomationId(roman, $"ChipRoman{lineIndex + 1}_{index + 1}");
             AutomationProperties.SetName(roman, $"Romanization of word {index + 1}");
-            // handledEventsToo: read-only TextBoxes mark pointer input handled,
-            // which would otherwise starve both this handler and item select.
+            var wordId = word.Id;
+            WireBox(text,
+                () => line.Words.FirstOrDefault(w => w.Id == wordId)?.Text ?? "",
+                _ => CommitWordTextBox(text, line, wordId, roman: false));
+            WireBox(roman,
+                () => line.Words.FirstOrDefault(w => w.Id == wordId)?.RomanWord ?? "",
+                _ => CommitWordTextBox(roman, line, wordId, roman: true));
+            // handledEventsToo: TextBoxes mark pointer input handled, which
+            // would otherwise starve both this handler and item select.
+            // (GotFocus covers keyboard focus; this covers pointer select.)
             chip.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnChipPointerPressed), true);
             chip.Children.Add(text);

@@ -154,9 +154,7 @@
                                     x:Name="TransBox"
                                     Grid.Row="0"
                                     Grid.Column="1"
-                                    Text="{x:Bind TranslatedLyric, Mode=OneWay}"
-                                    IsReadOnly="True"
-                                    IsTabStop="False" />
+                                    AcceptsReturn="False" />
                                 <TextBlock
                                     x:Uid="EditPage_RomanLabel"
                                     x:Name="RomanLabel"
@@ -168,9 +166,7 @@
                                     x:Name="RomanBox"
                                     Grid.Row="1"
                                     Grid.Column="1"
-                                    Text="{x:Bind RomanLyric, Mode=OneWay}"
-                                    IsReadOnly="True"
-                                    IsTabStop="False" />
+                                    AcceptsReturn="False" />
                             </Grid>
                         </StackPanel>
                         <Button
