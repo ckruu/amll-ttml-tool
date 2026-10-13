@@ -122,6 +122,13 @@ namespace AmllTtmlTool.WinUI.Controls
         {
             if (_store is null) return;
             if (_composing.Contains(box)) return;
+            // Stale-target commits (selection died mid-flight) are no-ops.
+            try { CommitFieldCore(box); }
+            catch (InvalidOperationException) { }
+        }
+
+        private void CommitFieldCore(TextBox box)
+        {
             var (line, word) = Targets();
             var raw = box.Text;
             if (box == LineStartBox && line is not null)

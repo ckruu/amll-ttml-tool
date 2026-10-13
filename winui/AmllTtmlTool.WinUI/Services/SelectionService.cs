@@ -99,8 +99,16 @@ public sealed class SelectionService
         IEnumerable<string> added, IEnumerable<string> removed,
         Func<string, string?> lineOfWord)
     {
-        foreach (var id in added) _lineIds.Add(id);
+        var addedList = added.ToList();
+        foreach (var id in addedList) _lineIds.Add(id);
         foreach (var id in removed) _lineIds.Remove(id);
+        // Anchor the primary to the newest list selection (drives the
+        // ribbon for pattern-driven selects); words clear on line change.
+        if (addedList.Count > 0)
+        {
+            SelectedLineId = addedList[^1];
+            SelectedWordId = null;
+        }
         RetainWords(lineOfWord);
     }
 

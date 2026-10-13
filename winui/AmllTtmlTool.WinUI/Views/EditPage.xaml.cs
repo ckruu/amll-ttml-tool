@@ -163,6 +163,9 @@ namespace AmllTtmlTool.WinUI.Views
                 }
             }
             BuildLinePanel(panel, _store.Document.Lines[index], index);
+            // Panel-level layout only: a list-wide UpdateLayout on a large
+            // doc costs ~100ms+ per structural op for no benefit here.
+            panel.UpdateLayout();
             if (focusWord is not null)
             {
                 var line = _store.Document.Lines[index];
@@ -182,7 +185,7 @@ namespace AmllTtmlTool.WinUI.Views
             LyricWrapPanel panel, Dictionary<string, Windows.Foundation.Point> before)
         {
             if (_compositor is null || _decelerate is null) return;
-            LineList.UpdateLayout();
+            // Layout is already current (caller ran panel.UpdateLayout()).
             var focused = FocusManager.GetFocusedElement(XamlRoot) as TextBox;
             foreach (var child in panel.Children)
             {
@@ -270,6 +273,8 @@ namespace AmllTtmlTool.WinUI.Views
                 {
                     PlaceholderText = "Insert word here...",
                     AcceptsReturn = false,
+                    IsSpellCheckEnabled = false,
+                    IsTextPredictionEnabled = false,
                     MinWidth = 120,
                     VerticalAlignment = VerticalAlignment.Center,
                     Text = _insertTextStash,
@@ -407,7 +412,14 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (_store is null) return;
             if (index < 0 || index >= _store.Document.Lines.Count) return;
-            LineList.SelectedItem = _store.Document.Lines[index];
+            var line = _store.Document.Lines[index];
+            LineList.SelectedItem = line;
+            // Anchor the primary when it points elsewhere (a re-select of
+            // the same item fires no event, leaving a stale ribbon target).
+            // Skipped when already anchored: SelectLine would clear a
+            // surviving word selection.
+            if (_selection is not null && _selection.SelectedLineId != line.Id)
+                _selection.SelectLine(line.Id);
         }
 
         internal int SelectedLineIndex()
@@ -519,35 +531,94 @@ namespace AmllTtmlTool.WinUI.Views
         internal string ChipBoxText(int line, int word, bool roman) =>
             FindChipBox(line, word, roman)?.Text ?? "nobox";
 
-        internal void SetChipBoxText(int line, int word, bool roman, string text)
+        internal bool SetChipBoxText(int line, int word, bool roman, string text)
         {
-            if (FindChipBox(line, word, roman) is TextBox box) box.Text = text;
+            if (FindChipBox(line, word, roman) is not TextBox box) return false;
+            try { box.Text = text; }
+            catch { return false; }
+            return true;
         }
 
         // Appends one char on the UI thread and returns the cost in ms
-        // (typing-latency probe: no model touch, layout only).
+        // (typing-latency probe: no model touch, layout only). Layout is
+        // panel-level: a list-wide UpdateLayout per keystroke costs ~10ms+
+        // on a large doc for no benefit (only the chip row reflows).
+        private double _lastSetMs;
+        private double _lastLayoutMs;
+        private double _lastSetCpuMs;
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentThread();
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        [return: System.Runtime.InteropServices.MarshalAs(
+            System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool GetThreadTimes(IntPtr hThread,
+            out System.Runtime.InteropServices.ComTypes.FILETIME creation,
+            out System.Runtime.InteropServices.ComTypes.FILETIME exit,
+            out System.Runtime.InteropServices.ComTypes.FILETIME kernel,
+            out System.Runtime.InteropServices.ComTypes.FILETIME user);
+
+        private static double CurrentThreadCpuMs()
+        {
+            try
+            {
+                if (!GetThreadTimes(GetCurrentThread(), out _, out _, out var k, out var u))
+                    return -1;
+                static long ToLong(System.Runtime.InteropServices.ComTypes.FILETIME f) =>
+                    ((long)(uint)f.dwHighDateTime << 32) | (uint)f.dwLowDateTime;
+                return (ToLong(k) + ToLong(u)) / 10000.0;
+            }
+            catch { return -1; }
+        }
+
         internal double TypeChipChar(int line, int word, bool roman, char ch)
         {
             var box = FindChipBox(line, word, roman);
             if (box is null) return -1;
+            var cpu0 = CurrentThreadCpuMs();
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            box.Text += ch;
+            // Insertion (like a real keystroke), not full-string replace:
+            // caret to end, then insert one char through SelectedText.
             box.SelectionStart = box.Text.Length;
-            LineList.UpdateLayout();
+            box.SelectionLength = 0;
+            box.SelectedText = ch.ToString();
+            _lastSetMs = sw.Elapsed.TotalMilliseconds;
+            _lastSetCpuMs = cpu0 < 0 ? -1 : CurrentThreadCpuMs() - cpu0;
+            var parent = VisualTreeHelper.GetParent(box);
+            while (parent is not null && parent is not LyricWrapPanel)
+                parent = VisualTreeHelper.GetParent(parent);
+            if (parent is FrameworkElement panel) panel.UpdateLayout();
+            else LineList.UpdateLayout();
+            _lastLayoutMs = sw.Elapsed.TotalMilliseconds - _lastSetMs;
             sw.Stop();
             return sw.Elapsed.TotalMilliseconds;
         }
 
-        internal void CommitChip(int line, int word, bool roman)
+        internal string TypeBreakdown() => $"{_lastSetMs:F2},{_lastLayoutMs:F2},{_lastSetCpuMs:F2}";
+
+        // Returns true when a history step resulted (false = box missing
+        // or nothing to commit). Lets the harness tell silent no-ops apart
+        // from real commits.
+        internal bool CommitChip(int line, int word, bool roman)
         {
-            if (FindChipBox(line, word, roman) is TextBox box) CommitBoxIfDirty(box);
+            if (FindChipBox(line, word, roman) is not TextBox box) return false;
+            var before = _store?.Document.UndoDepth ?? -1;
+            CommitBoxIfDirty(box);
+            var after = _store?.Document.UndoDepth ?? -1;
+            return after != before;
         }
 
         internal void EscapeChip(int line, int word, bool roman)
         {
             var box = FindChipBox(line, word, roman);
             if (box is null || !_sessions.TryGetValue(box, out var session)) return;
-            try { SetTextPreservingCaret(box, session.GetModel()); }
+            try
+            {
+                var model = session.GetModel();
+                SetTextPreservingCaret(box, model);
+                session.LastSeenModel = model;
+            }
             catch { }
         }
 
@@ -605,7 +676,12 @@ namespace AmllTtmlTool.WinUI.Views
         {
             var box = FindLineFieldBox(line, translation);
             if (box is null || !_sessions.TryGetValue(box, out var session)) return;
-            try { SetTextPreservingCaret(box, session.GetModel()); }
+            try
+            {
+                var model = session.GetModel();
+                SetTextPreservingCaret(box, model);
+                session.LastSeenModel = model;
+            }
             catch { }
         }
 
@@ -745,9 +821,9 @@ namespace AmllTtmlTool.WinUI.Views
                 if (container.ContentTemplateRoot is not Grid card) continue;
                 var line = _store.Document.Lines[i];
                 if (card.FindName("TransBox") is TextBox trans)
-                    SetTextPreservingCaret(trans, line.TranslatedLyric);
+                    SyncBox(trans, line.TranslatedLyric);
                 if (card.FindName("RomanBox") is TextBox roman)
-                    SetTextPreservingCaret(roman, line.RomanLyric);
+                    SyncBox(roman, line.RomanLyric);
                 if (card.FindName("ChipPanel") is not LyricWrapPanel panel) continue;
                 foreach (var child in panel.Children)
                 {
@@ -756,13 +832,24 @@ namespace AmllTtmlTool.WinUI.Views
                     var word = line.Words.FirstOrDefault(w => w.Id == wordId);
                     if (word is null) continue;
                     if (chip.Children[0] is TextBox text)
-                        SetTextPreservingCaret(text, word.Text);
+                        SyncBox(text, word.Text);
                     if (chip.Children[1] is TextBox rom)
-                        SetTextPreservingCaret(rom, word.RomanWord);
+                        SyncBox(rom, word.RomanWord);
                     var blank = word.EmptyBeat > 0 && string.IsNullOrWhiteSpace(word.Text);
                     chip.Opacity = blank ? 0.55 : 1;
                 }
             }
+        }
+
+        // Model→box sync that also re-baselines the session snapshot, so a
+        // later commit test sees only user-typed divergence. (Deliberately
+        // overwrites uncommitted typing, like the original's editing-state
+        // reset; caret/focus are preserved.)
+        private void SyncBox(TextBox box, string model)
+        {
+            SetTextPreservingCaret(box, model);
+            if (_sessions.TryGetValue(box, out var session))
+                session.LastSeenModel = model;
         }
 
         private static void SetTextPreservingCaret(TextBox box, string text)
@@ -898,7 +985,11 @@ namespace AmllTtmlTool.WinUI.Views
                 isDuet: isBg ? null : value));
         }
 
-        private void AttachWordMenu(Grid chip, EditLine line, string wordId)
+        // The flyout sits on the chip AND both boxes: a TextBox shows its
+        // own native menu on right-click and would otherwise swallow the
+        // word menu (only the 6px chip gaps would open it). An explicit
+        // ContextFlyout replaces the native one, including for Shift+F10.
+        private MenuFlyout AttachWordMenu(Grid chip, TextBox text, TextBox roman, EditLine line, string wordId)
         {
             var flyout = new MenuFlyout();
             flyout.Opening += (_, _) =>
@@ -908,6 +999,9 @@ namespace AmllTtmlTool.WinUI.Views
                     flyout.Items.Add(item);
             };
             chip.ContextFlyout = flyout;
+            text.ContextFlyout = flyout;
+            roman.ContextFlyout = flyout;
+            return flyout;
         }
 
         private List<MenuFlyoutItemBase> BuildWordMenuItems(EditLine line, string wordId)
@@ -1015,6 +1109,15 @@ namespace AmllTtmlTool.WinUI.Views
         // unchanged text commits nothing.
         private sealed class BoxSession
         {
+            // Model text as of the last sync (wire/refresh/commit/revert).
+            // A commit is legitimate only when the box text differs from
+            // BOTH the live model and this snapshot: untouched pooled boxes
+            // (text == snapshot, model moved on) must NOT commit their stale
+            // text over the current model (observed: reverted word text +
+            // stray history step desyncing later undos). Container-based
+            // currency was tried and rejected: container.Content can lag the
+            // model (observed: skipping a legitimate 5000-char commit).
+            public string LastSeenModel = "";
             public Func<string> GetModel = () => "";
             public Action<string> Commit = _ => { };
             public bool Composing;
@@ -1022,17 +1125,34 @@ namespace AmllTtmlTool.WinUI.Views
 
         private readonly Dictionary<TextBox, BoxSession> _sessions = new();
 
+        private void DropSessionOnly(TextBox box)
+        {
+            if (!_sessions.TryGetValue(box, out _)) return;
+            box.KeyDown -= OnEditKeyDown;
+            box.LostFocus -= OnEditLostFocus;
+            box.GotFocus -= OnEditGotFocus;
+            box.TextCompositionStarted -= OnCompositionStarted;
+            box.TextCompositionEnded -= OnCompositionEnded;
+            box.Unloaded -= OnBoxUnloaded;
+            _sessions.Remove(box);
+        }
+
         private void WireBox(TextBox box, Func<string> getModel, Action<string> commit)
         {
+            string current;
+            try { current = getModel(); }
+            catch { current = box.Text; }
             if (_sessions.TryGetValue(box, out var existing))
             {
+                existing.LastSeenModel = current;
                 existing.GetModel = getModel;
                 existing.Commit = commit;
-                SetTextPreservingCaret(box, getModel());
+                SetTextPreservingCaret(box, current);
                 return;
             }
-            var session = new BoxSession { GetModel = getModel, Commit = commit };
+            var session = new BoxSession { LastSeenModel = current, GetModel = getModel, Commit = commit };
             _sessions[box] = session;
+            SetTextPreservingCaret(box, current);
             try { SetTextPreservingCaret(box, getModel()); }
             catch { }
             box.KeyDown += OnEditKeyDown;
@@ -1048,16 +1168,7 @@ namespace AmllTtmlTool.WinUI.Views
             if (root is TextBox box)
             {
                 CommitBoxIfDirty(box);
-                if (_sessions.TryGetValue(box, out _))
-                {
-                    box.KeyDown -= OnEditKeyDown;
-                    box.LostFocus -= OnEditLostFocus;
-                    box.GotFocus -= OnEditGotFocus;
-                    box.TextCompositionStarted -= OnCompositionStarted;
-                    box.TextCompositionEnded -= OnCompositionEnded;
-                    box.Unloaded -= OnBoxUnloaded;
-                    _sessions.Remove(box);
-                }
+                DropSessionOnly(box);
                 return;
             }
             var count = VisualTreeHelper.GetChildrenCount(root);
@@ -1081,7 +1192,20 @@ namespace AmllTtmlTool.WinUI.Views
             string model;
             try { model = session.GetModel(); }
             catch { return; }
-            if (current != model) session.Commit(current);
+            // Commit only genuine local divergence: text differing from BOTH
+            // the live model and the last-synced snapshot. Untouched pooled
+            // boxes (text == snapshot, model moved on) are stale — skip.
+            if (current == model || current == session.LastSeenModel) return;
+            // The target may be gone (line/word deleted while the box was
+            // alive, e.g. recycle racing a structural undo): commands throw
+            // InvalidOperationException for missing targets, and a commit
+            // for a dead target is a no-op — never crash the UI thread.
+            try
+            {
+                session.Commit(current);
+                session.LastSeenModel = current;
+            }
+            catch (InvalidOperationException) { }
         }
 
         // Commits the focused box (if any) before a scroll/recycle that
@@ -1111,6 +1235,16 @@ namespace AmllTtmlTool.WinUI.Views
         // --- Step-2 structure hooks (UI thread) ----------------------------
         internal int SelectedLineCount() => _selection?.SelectedLineIds.Count ?? -1;
         internal int SelectedWordCount() => _selection?.SelectedWordIds.Count ?? -1;
+
+        internal void SelectWord(int line, int word)
+        {
+            if (_store is null || _selection is null) return;
+            if (line < 0 || line >= _store.Document.Lines.Count) return;
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return;
+            LineList.SelectedItem = docLine;
+            _selection.SelectWord(docLine.Id, docLine.Words[word].Id);
+        }
 
         internal void SelectLines(IEnumerable<int> indices)
         {
@@ -1159,12 +1293,23 @@ namespace AmllTtmlTool.WinUI.Views
 
         internal bool EscapeInsertBox()
         {
+            // Same path as the Esc key: close + rebuild (drops the box).
             if (_insertBox is null) return false;
+            var lineId = _insertLineId;
             CloseInsertBox();
+            if (_store is not null && lineId is not null)
+            {
+                var idx = _store.Document.Lines.ToList().FindIndex(l => l.Id == lineId);
+                if (idx >= 0) RebuildLinePanel(idx);
+            }
             return true;
         }
 
         internal int LineIndexOfSelected() => SelectedLineIndex();
+
+        internal bool IsLineRealized(int index) =>
+            index >= 0 && index < LineList.Items.Count
+            && LineList.ContainerFromIndex(index) is not null;
 
         private void OnEditKeyDown(object sender, KeyRoutedEventArgs e)
         {
@@ -1181,7 +1326,12 @@ namespace AmllTtmlTool.WinUI.Views
             }
             else if (e.Key == Windows.System.VirtualKey.Escape)
             {
-                try { SetTextPreservingCaret(box, session.GetModel()); }
+                try
+                {
+                    var model = session.GetModel();
+                    SetTextPreservingCaret(box, model);
+                    session.LastSeenModel = model;
+                }
                 catch { }
                 e.Handled = true;
             }
@@ -1263,6 +1413,26 @@ namespace AmllTtmlTool.WinUI.Views
         // step. Uncommitted edits commit before recycle clears the panel.
         private void OnLineContainerChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
+            // Pooled containers keep their boxes (and live sessions) until
+            // rebind, and the model can change while pooled (undo/redo/ops).
+            // Committing the stale text AT REBIND would regress the model
+            // (observed: word text reverted + stray history step). So commit
+            // while current (now) and drop: rebind then starts clean. At
+            // recycle time realized boxes are always model-current (every
+            // store change refreshes them first), so this preserves genuine
+            // uncommitted typing and is a no-op otherwise.
+            if (args.InRecycleQueue)
+            {
+                // Pooled containers keep their boxes (and live sessions)
+                // until rebind, and the model can change while pooled
+                // (undo/redo/ops). Committing a box whose text the user did
+                // not touch since the last sync would regress the model, so
+                // DropSessions (which skips untouched boxes via LastSeenModel
+                // but preserves genuine typing) runs here, at recycle time.
+                if (args.ItemContainer.ContentTemplateRoot is Grid oldCard)
+                    DropSessions(oldCard);
+                return;
+            }
             if (args.ItemContainer.ContentTemplateRoot is not Grid card) return;
             if (args.Item is not EditLine line) return;
             var index = LineList.IndexFromContainer(args.ItemContainer);
@@ -1286,7 +1456,10 @@ namespace AmllTtmlTool.WinUI.Views
                     _ => CommitLineFieldBox(romanField, line, translation: false));
             ApplyFlagVisual(args.ItemContainer, index, line);
             if (card.FindName("DeleteButton") is Button delete)
+            {
+                AutomationProperties.SetAutomationId(delete, $"DeleteLine{index + 1}");
                 AutomationProperties.SetName(delete, $"Delete line {index + 1}");
+            }
             // Stable per-line automation identities for the row boxes: the
             // UI-verification driver addresses rows by direct AutomationId
             // lookup (tree walks omit nodes), and an explicit Name keeps the
@@ -1549,15 +1722,22 @@ namespace AmllTtmlTool.WinUI.Views
             };
             chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            // Raw model text (never the "Space ×N" display alias: committing
-            // that alias would write it into the model). EmptyBeat shows as
-            // a dimmed cue only.
+            // Raw model text in the box (never the "Space ×N" display alias:
+            // committing that alias would write it into the model). The
+            // alias survives as the automation name + placeholder + dim cue,
+            // so AT and the empty-beat render test keep working.
             var isSpace = word.EmptyBeat > 0 && string.IsNullOrWhiteSpace(word.Text);
+            // Spellcheck/prediction off: lyric text is often non-dictionary
+            // (and CJK); predictions interfere with commit/IME flows and add
+            // per-keystroke text-service cost. IME composition itself is
+            // unaffected (guarded separately via TextComposition events).
             var text = new TextBox
             {
                 Text = word.Text,
                 AcceptsReturn = false,
                 IsTabStop = true,
+                IsSpellCheckEnabled = false,
+                IsTextPredictionEnabled = false,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Tag = word.Id,
             };
@@ -1566,16 +1746,24 @@ namespace AmllTtmlTool.WinUI.Views
                 Text = word.RomanWord,
                 AcceptsReturn = false,
                 IsTabStop = true,
+                IsSpellCheckEnabled = false,
+                IsTextPredictionEnabled = false,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Tag = word.Id,
             };
             Grid.SetRow(roman, 1);
-            if (isSpace) chip.Opacity = 0.55;
+            if (isSpace)
+            {
+                chip.Opacity = 0.55;
+                text.PlaceholderText = $"Space \u00D7{word.EmptyBeat}";
+            }
             // The two boxes share the chip width (grid = max child width,
             // both stretch): widths hug the wider content instantly while
             // typing, with no animation and no rebuild, so caret/focus stay.
             AutomationProperties.SetAutomationId(text, $"ChipText{lineIndex + 1}_{index + 1}");
-            AutomationProperties.SetName(text, $"Word {index + 1}: {word.Text}");
+            AutomationProperties.SetName(text, isSpace
+                ? $"Word {index + 1}: Space \u00D7{word.EmptyBeat}"
+                : $"Word {index + 1}: {word.Text}");
             AutomationProperties.SetAutomationId(roman, $"ChipRoman{lineIndex + 1}_{index + 1}");
             AutomationProperties.SetName(roman, $"Romanization of word {index + 1}");
             var wordId = word.Id;
@@ -1590,9 +1778,9 @@ namespace AmllTtmlTool.WinUI.Views
             // (GotFocus covers keyboard focus; this covers pointer select.)
             chip.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnChipPointerPressed), true);
-            AttachWordMenu(chip, line, wordId);
             chip.Children.Add(text);
             chip.Children.Add(roman);
+            AttachWordMenu(chip, text, roman, line, wordId);
             return chip;
         }
 
@@ -1648,24 +1836,32 @@ namespace AmllTtmlTool.WinUI.Views
         // marks text-editing keys handled, so typing never triggers these).
         private void OnLineListKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (_store is null || _selection is null) return;
-            if (FocusManager.GetFocusedElement(XamlRoot) is TextBox) return;
-            if (e.Key == Windows.System.VirtualKey.Delete)
+            if (HandleListKey(e.Key, IsCtrlDown(), IsAltDown()))
+                e.Handled = true;
+        }
+
+        // Factored for the Test_ hook so every list shortcut is covered
+        // deterministically (real key routing is framework behavior).
+        internal bool HandleListKey(Windows.System.VirtualKey key, bool ctrl, bool alt)
+        {
+            if (_store is null || _selection is null) return false;
+            if (FocusManager.GetFocusedElement(XamlRoot) is TextBox) return false;
+            if (key == Windows.System.VirtualKey.Delete)
             {
                 DeleteSelected();
-                e.Handled = true;
+                return true;
             }
-            else if (e.Key == Windows.System.VirtualKey.Escape)
+            if (key == Windows.System.VirtualKey.Escape)
             {
                 _selection.Clear();
-                e.Handled = true;
+                return true;
             }
-            else if (e.Key == Windows.System.VirtualKey.D && IsCtrlDown())
+            if (key == Windows.System.VirtualKey.D && ctrl)
             {
                 DuplicateSelectedLines();
-                e.Handled = true;
+                return true;
             }
-            else if (e.Key == Windows.System.VirtualKey.A && IsCtrlDown())
+            if (key == Windows.System.VirtualKey.A && ctrl)
             {
                 // Original Ctrl+A toggles word/line scope: words selected →
                 // all words of the selected lines; else all lines.
@@ -1677,14 +1873,15 @@ namespace AmllTtmlTool.WinUI.Views
                         _selection.SelectAllWords(lid, selLine.Words.Select(w => w.Id));
                 }
                 else SelectAllLines();
-                e.Handled = true;
+                return true;
             }
-            else if ((e.Key == Windows.System.VirtualKey.Up
-                || e.Key == Windows.System.VirtualKey.Down) && IsAltDown())
+            if ((key == Windows.System.VirtualKey.Up
+                || key == Windows.System.VirtualKey.Down) && alt)
             {
-                MovePrimaryLine(e.Key == Windows.System.VirtualKey.Up ? -1 : 1);
-                e.Handled = true;
+                MovePrimaryLine(key == Windows.System.VirtualKey.Up ? -1 : 1);
+                return true;
             }
+            return false;
         }
 
         // --- structure ops (each Execute = one history step) ----------------

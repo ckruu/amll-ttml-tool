@@ -316,10 +316,10 @@
                 Orientation="Horizontal"
                 Spacing="2"
                 VerticalAlignment="Center">
-                <Button x:Name="UndoButton" x:Uid="ShellPage_Undo" Click="OnUndoClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Undo (Ctrl+Z)">
+                <Button x:Name="UndoButton" x:Uid="ShellPage_Undo" Click="OnUndoClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Undo (Ctrl+Z)" AutomationProperties.AutomationId="UndoButton" AutomationProperties.Name="Undo">
                     <FontIcon FontSize="14" Glyph="&#xE7A7;" />
                 </Button>
-                <Button x:Name="RedoButton" x:Uid="ShellPage_Redo" Click="OnRedoClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Redo (Ctrl+Y)">
+                <Button x:Name="RedoButton" x:Uid="ShellPage_Redo" Click="OnRedoClick" Style="{StaticResource SubtleTitleBarButtonStyle}" ToolTipService.ToolTip="Redo (Ctrl+Y)" AutomationProperties.AutomationId="RedoButton" AutomationProperties.Name="Redo">
                     <FontIcon FontSize="14" Glyph="&#xE7A6;" />
                 </Button>
             </StackPanel>

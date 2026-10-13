@@ -691,6 +691,41 @@ namespace AmllTtmlTool.WinUI.Views
                             await Services.LyricsCheck.RunHoldAsync(win, _intake, _store, lyricFile);
                     });
                 }
+                // Self-driving edit verification: --edit-test <file>
+                // [report]. Imports, drives chip commits/structure/ribbon/
+                // undo-routing/perf/stress/edge through the Test_ hooks,
+                // writes the verdict, self-closes. DEBUG-only.
+                var editTestIdx = Array.IndexOf(audioArgs, "--edit-test");
+                if (editTestIdx >= 0)
+                {
+                    var editTestFile = editTestIdx + 1 < audioArgs.Length ? audioArgs[editTestIdx + 1] : "";
+                    var editTestReport = editTestIdx + 2 < audioArgs.Length ? audioArgs[editTestIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            if (_intake is not null)
+                                await Services.EditCheck.RunAsync(win, this, _store, _intake, editTestFile, editTestReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.EditCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
                 // Self-driving lyrics verification: --lyrics-test <file>
                 // [report]. Imports, asserts model/combos/widths/errors/perf,
                 // writes the verdict, self-closes. DEBUG-only.
@@ -732,6 +767,52 @@ namespace AmllTtmlTool.WinUI.Views
         private nint _windowHwnd;
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool IsIconic(nint hWnd);
+#if DEBUG
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(nint hWnd, int nCmdShow);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(nint hWnd);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern nint GetForegroundWindow();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(nint hWnd, out uint pid);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint a, uint b, bool c);
+
+        // Foregrounds the app window for frame sampling (headless runs are
+        // occluded and CompositionTarget.Rendering barely ticks). Same
+        // AttachThreadInput trick as the ps1 drivers; test-only.
+        internal bool Test_BringToFront()
+        {
+            try
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(
+                    ((App)Application.Current).MainWindow);
+                ShowWindow(hwnd, 9);
+                if (GetForegroundWindow() == hwnd) return true;
+                var us = GetCurrentThreadId();
+                var fg = GetForegroundWindow();
+                uint fgTid = 0, fgPid = 0;
+                if (fg != nint.Zero) fgTid = GetWindowThreadProcessId(fg, out fgPid);
+                var appTid = GetWindowThreadProcessId(hwnd, out _);
+                try
+                {
+                    if (fgTid != 0) AttachThreadInput(us, fgTid, true);
+                    AttachThreadInput(us, appTid, true);
+                    SetForegroundWindow(hwnd);
+                }
+                finally
+                {
+                    try { AttachThreadInput(us, appTid, false); } catch { }
+                    try { if (fgTid != 0) AttachThreadInput(us, fgTid, false); } catch { }
+                }
+                return GetForegroundWindow() == hwnd;
+            }
+            catch { return false; }
+        }
+#endif
 
         // True while the window is minimized. Windows reports a minimized
         // window as zero-sized, which the title-bar layout math must never
@@ -2659,6 +2740,37 @@ namespace AmllTtmlTool.WinUI.Views
             _store.Document.Lines[line].Words[word].RomanWord;
         internal int Test_WordEmptyBeat(int line, int word) =>
             _store.Document.Lines[line].Words[word].EmptyBeat;
+        internal string Test_LineTimes(int line) =>
+            $"{_store.Document.Lines[line].StartTimeMs},{_store.Document.Lines[line].EndTimeMs}";
+        internal string Test_LineFlags(int line)
+        {
+            var l = _store.Document.Lines[line];
+            return $"{l.IsBg},{l.IsDuet},{l.IgnoreSync}";
+        }
+        internal string Test_WordTimes(int line, int word)
+        {
+            var w = _store.Document.Lines[line].Words[word];
+            return $"{w.StartTimeMs},{w.EndTimeMs}";
+        }
+        internal string Test_WordFlags(int line, int word)
+        {
+            var w = _store.Document.Lines[line].Words[word];
+            return $"{w.Obscene},{w.EmptyBeat}";
+        }
+        internal double Test_TimedInsertLineAfter(int index)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            _attachedEditPage?.InsertLineAfter(index);
+            sw.Stop();
+            return sw.Elapsed.TotalMilliseconds;
+        }
+        internal double Test_TimedDeleteLineAt(int index)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            _attachedEditPage?.DeleteLineAt(index);
+            sw.Stop();
+            return sw.Elapsed.TotalMilliseconds;
+        }
         internal string Test_LineTranslation(int line) =>
             _store.Document.Lines[line].TranslatedLyric;
         internal string Test_LineRomanization(int line) =>
@@ -2679,12 +2791,14 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.FocusChip(line, word, roman) ?? false;
         internal string Test_ChipBoxText(int line, int word, bool roman) =>
             _attachedEditPage?.ChipBoxText(line, word, roman) ?? "nopage";
-        internal void Test_SetChipBoxText(int line, int word, bool roman, string text) =>
-            _attachedEditPage?.SetChipBoxText(line, word, roman, text);
+        internal bool Test_SetChipBoxText(int line, int word, bool roman, string text) =>
+            _attachedEditPage?.SetChipBoxText(line, word, roman, text) ?? false;
         internal double Test_TypeChipChar(int line, int word, bool roman, char ch) =>
             _attachedEditPage?.TypeChipChar(line, word, roman, ch) ?? -1;
-        internal void Test_CommitChip(int line, int word, bool roman) =>
-            _attachedEditPage?.CommitChip(line, word, roman);
+        internal string Test_TypeBreakdown() =>
+            _attachedEditPage?.TypeBreakdown() ?? "nopage";
+        internal bool Test_CommitChip(int line, int word, bool roman) =>
+            _attachedEditPage?.CommitChip(line, word, roman) ?? false;
         internal void Test_EscapeChip(int line, int word, bool roman) =>
             _attachedEditPage?.EscapeChip(line, word, roman);
         internal int Test_ChipCaret(int line, int word, bool roman) =>
@@ -2724,6 +2838,16 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.SelectedWordCount() ?? -1;
         internal void Test_SelectLines(int[] indices) =>
             _attachedEditPage?.SelectLines(indices);
+        internal void Test_SelectWord(int line, int word) =>
+            _attachedEditPage?.SelectWord(line, word);
+        internal double Test_TimedAddWord(int line)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var l = _store.Document.Lines[line];
+            _attachedEditPage?.AddWordToLine(l.Id, "x");
+            sw.Stop();
+            return sw.Elapsed.TotalMilliseconds;
+        }
         internal void Test_SelectAllLines() => _attachedEditPage?.SelectAllLines();
         internal void Test_ClearEditSelection() => _attachedEditPage?.ClearEditSelection();
         internal bool Test_ToggleChipWord(int line, int word) =>
@@ -2760,9 +2884,40 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.InsertBoxOpen() ?? false;
         internal void Test_SetInsertText(string text) =>
             _attachedEditPage?.SetInsertText(text);
+        internal bool Test_ListKey(int key, bool ctrl, bool alt) =>
+            _attachedEditPage?.HandleListKey((Windows.System.VirtualKey)key, ctrl, alt) ?? false;
         internal string Test_InsertText() => _attachedEditPage?.InsertText() ?? "nopage";
         internal bool Test_CommitInsertBox() =>
             _attachedEditPage?.CommitInsertBox() ?? false;
+        internal bool Test_EscapeInsertBox() =>
+            _attachedEditPage?.EscapeInsertBox() ?? false;
+        internal bool Test_IsLineRealized(int index) =>
+            _attachedEditPage?.IsLineRealized(index) ?? false;
+        internal void Test_NewDocument() => _store.NewDocument();
+        internal void Test_BuildPerfDoc()
+        {
+            // Deterministic 300 lines x 10 words for perf probes.
+            var lines = new List<EditLine>();
+            for (var li = 0; li < 300; li++)
+            {
+                var line = EditLine.New();
+                line.StartTimeMs = li * 2000;
+                line.EndTimeMs = li * 2000 + 1800;
+                line.TranslatedLyric = $"trans {li}";
+                line.RomanLyric = $"roman {li}";
+                for (var wi = 0; wi < 10; wi++)
+                {
+                    var word = EditWord.New();
+                    word.StartTimeMs = li * 2000 + wi * 180;
+                    word.EndTimeMs = li * 2000 + wi * 180 + 170;
+                    word.Text = $"w{li}_{wi}";
+                    word.RomanWord = $"r{li}_{wi}";
+                    line.Words.Add(word);
+                }
+                lines.Add(line);
+            }
+            _store.Execute(new BulkReplaceCommand(lines, new List<EditMetadata>()));
+        }
         internal string Test_LineId(int index) => _store.Document.Lines[index].Id;
         internal string Test_WordId(int line, int word) =>
             _store.Document.Lines[line].Words[word].Id;

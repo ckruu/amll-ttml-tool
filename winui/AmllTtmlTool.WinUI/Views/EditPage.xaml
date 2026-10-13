@@ -185,7 +185,7 @@
                                     x:Name="TransBox"
                                     Grid.Row="0"
                                     Grid.Column="1"
-                                    AcceptsReturn="False" />
+                                    AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" />
                                 <TextBlock
                                     x:Uid="EditPage_RomanLabel"
                                     x:Name="RomanLabel"
@@ -197,7 +197,7 @@
                                     x:Name="RomanBox"
                                     Grid.Row="1"
                                     Grid.Column="1"
-                                    AcceptsReturn="False" />
+                                    AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" />
                             </Grid>
                         </StackPanel>
                         <Button
