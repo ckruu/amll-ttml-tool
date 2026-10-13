@@ -985,11 +985,20 @@ namespace AmllTtmlTool.WinUI.Views
                 isDuet: isBg ? null : value));
         }
 
-        // The flyout sits on the chip AND both boxes: a TextBox shows its
-        // own native menu on right-click and would otherwise swallow the
-        // word menu (only the 6px chip gaps would open it). An explicit
+        // The menu sits on the chip AND both boxes: a TextBox shows its own
+        // native menu on right-click and would otherwise swallow the word
+        // menu (only the 6px chip gaps would open it). An explicit
         // ContextFlyout replaces the native one, including for Shift+F10.
-        private MenuFlyout AttachWordMenu(Grid chip, TextBox text, TextBox roman, EditLine line, string wordId)
+        // One instance per element (never shared): reparenting a single
+        // open flyout across elements is a needless crash risk.
+        private void AttachWordMenu(Grid chip, TextBox text, TextBox roman, EditLine line, string wordId)
+        {
+            chip.ContextFlyout = MakeWordMenuFlyout(line, wordId);
+            text.ContextFlyout = MakeWordMenuFlyout(line, wordId);
+            roman.ContextFlyout = MakeWordMenuFlyout(line, wordId);
+        }
+
+        private MenuFlyout MakeWordMenuFlyout(EditLine line, string wordId)
         {
             var flyout = new MenuFlyout();
             flyout.Opening += (_, _) =>
@@ -998,9 +1007,6 @@ namespace AmllTtmlTool.WinUI.Views
                 foreach (var item in BuildWordMenuItems(line, wordId))
                     flyout.Items.Add(item);
             };
-            chip.ContextFlyout = flyout;
-            text.ContextFlyout = flyout;
-            roman.ContextFlyout = flyout;
             return flyout;
         }
 
