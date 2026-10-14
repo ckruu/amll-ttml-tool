@@ -61,6 +61,41 @@ public sealed class SelectionService
         Changed?.Invoke();
     }
 
+    // Shift-range within one line (original: min/max over the already
+    // selected words of that line plus the clicked index, unioned in).
+    public void SelectWordRange(string lineId, IEnumerable<string> wordIds, string primaryWordId)
+    {
+        _lineIds.Add(lineId);
+        foreach (var id in wordIds) _wordIds.Add(id);
+        SelectedLineId = lineId;
+        SelectedWordId = primaryWordId;
+        Changed?.Invoke();
+    }
+
+    // Primary-only moves (focus/keyboard follow without touching the sets:
+    // the original never changes selection on focus; clicks own the sets).
+    // The line is ensured selected (a word implies its line); the word set
+    // is left alone so multi-selections survive tabbing.
+    public void AnchorLine(string lineId)
+    {
+        _lineIds.Add(lineId);
+        SelectedLineId = lineId;
+        PrunePrimary();
+        Changed?.Invoke();
+    }
+
+    public void AnchorWord(string lineId, string wordId)
+    {
+        _lineIds.Add(lineId);
+        SelectedLineId = lineId;
+        // Primary may point outside the word set (focus != selection); the
+        // ribbon follows it while ops act on the set. Never prune here.
+        SelectedWordId = wordId;
+        if (SelectedLineId is not null && !_lineIds.Contains(SelectedLineId))
+            SelectedLineId = _lineIds.FirstOrDefault();
+        Changed?.Invoke();
+    }
+
     public void SelectAllLines(IEnumerable<string> lineIds)
     {
         _lineIds.Clear();
@@ -91,6 +126,42 @@ public sealed class SelectionService
         SelectedLineId = null;
         SelectedWordId = null;
         Changed?.Invoke();
+    }
+
+    // Deterministic single-line pin (no-op when already exact, so surviving
+    // word selections are never cleared by a re-select — the B5 rule).
+    // Service writers that bypass the ListView must still converge, so a
+    // reselect always lands exactly on {lineId} + its own words.
+    public void PinLine(string lineId, Func<string, string?> lineOfWord)
+    {
+        if (_lineIds.Count == 1 && _lineIds.Contains(lineId) && SelectedLineId == lineId)
+            return;
+        _lineIds.Clear();
+        _lineIds.Add(lineId);
+        SelectedLineId = lineId;
+        RetainWords(lineOfWord);
+    }
+
+    // Exact-set replacement (mirrors what a ListView replace-diff converges
+    // to; primary anchors to the last id like SyncLineSet).
+    public void SetLines(IEnumerable<string> lineIds, Func<string, string?> lineOfWord)
+    {
+        _lineIds.Clear();
+        string? last = null;
+        foreach (var id in lineIds) { _lineIds.Add(id); last = id; }
+        SelectedLineId = last ?? _lineIds.FirstOrDefault();
+        SelectedWordId = null;
+        RetainWords(lineOfWord);
+    }
+
+    // Additive range (mirrors a native shift-extend's convergence: the word
+    // primary clears exactly like SyncLineSet does on list adds).
+    public void AddLines(IEnumerable<string> lineIds, string primaryLineId, Func<string, string?> lineOfWord)
+    {
+        foreach (var id in lineIds) _lineIds.Add(id);
+        SelectedLineId = primaryLineId;
+        SelectedWordId = null;
+        RetainWords(lineOfWord);
     }
 
     // Syncs the line set from the ListView (Extended mode). Words of

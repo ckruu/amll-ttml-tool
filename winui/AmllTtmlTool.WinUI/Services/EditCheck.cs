@@ -159,6 +159,7 @@ internal static class EditCheck
             // Restore readable state for later sections.
             await OnUiAsync(window, () => page.Test_SetChipBoxText(0, 0, false, orig0));
             await OnUiAsync(window, () => page.Test_CommitChip(0, 0, false));
+            await NoteShape(window, page, report, "post-s1", Check);
 
             // --- 1b. space chips + hug + pads ------------------------------
             // Self-contained: appends 3 scratch words to line 0, drives them
@@ -318,15 +319,23 @@ internal static class EditCheck
                 $"counts {n0}/{nDel}/{nUndo}/{nRedo}/{nUndo2} depth={dd}");
 
             await OnUiAsync(window, () => page.Test_SelectLine(Math.Min(2, n0 - 1)));
+            var lastW0 = await OnUiAsync(window, () => page.Test_LyricWordCount(n0 - 1));
             await OnUiAsync(window, () => page.Test_AddLineAfterSelected());
             var nAdd = await OnUiAsync(window, () => page.Test_LyricLineCount());
             var addFocus = await OnUiAsync(window, () => page.Test_InsertBoxOpen());
             Check("addline-focus", nAdd == n0 + 1 && addFocus, $"lines={nAdd}");
             await OnUiAsync(window, () => page.Test_EscapeInsertBox());
-            // Remove the added line to restore the baseline for later sections.
-            await OnUiAsync(window, () => page.Test_DeleteLineAt(nAdd - 1));
+            // Remove THE added line (inserted right after the selected one),
+            // not the last line: nAdd-1 only coincides when appending at the
+            // end. Deleting the wrong line passed the count check while
+            // silently dropping an original line (caught by docshape notes);
+            // the last line's word count proves it survived.
+            var addedAt = Math.Min(2, n0 - 1) + 1;
+            await OnUiAsync(window, () => page.Test_DeleteLineAt(addedAt));
             var nRestored = await OnUiAsync(window, () => page.Test_LyricLineCount());
-            Check("addline-cleanup", nRestored == n0, $"lines={nRestored}");
+            var lastW1 = await OnUiAsync(window, () => page.Test_LyricWordCount(n0 - 1));
+            Check("addline-cleanup", nRestored == n0 && lastW1 == lastW0,
+                $"lines={nRestored} lastwords={lastW0}->{lastW1}");
 
             // Split + merge with undo symmetry.
             var splitLine = -1; var splitWord = -1; var splitText = "";
@@ -422,6 +431,7 @@ internal static class EditCheck
             Check("key-ctrla-esc", kSelAll == kLines && kSelClear == 0,
                 $"sel={kSelAll}->{kSelClear}");
             await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await NoteShape(window, page, report, "post-s3", Check);
 
             // --- 4. ribbon ------------------------------------------------
             // (Direct word select: focusing an already-focused box would not
@@ -490,6 +500,291 @@ internal static class EditCheck
                 page.Test_RibbonEnabled("linestart") || page.Test_RibbonEnabled("content")
                 || page.Test_RibbonEnabled("trans") || page.Test_RibbonEnabled("bg"));
             Check("ribbon-disabled-empty", !enAll, "all disabled");
+            await NoteShape(window, page, report, "post-s4", Check);
+
+            // --- 4b. ribbon word section: 2 rows, roman collapse, multi ---
+            var wgRows = await OnUiAsync(window, () => page.Test_WordGroupRows());
+            Check("ribbon-2row", wgRows == 2, $"rows={wgRows}");
+            // Roman visible with the toggle on; collapsed (Beats keeps the
+            // columns: group shrinks by about the roman pair) with it off.
+            var wrWas = await OnUiAsync(window, () => page.Test_ToggleState("wordroman"));
+            if (!wrWas) await OnUiAsync(window, () => page.Test_FlipToggle("wordroman"));
+            var wOn = await OnUiAsync(window, () => page.Test_WordGroupWidth());
+            var romanOn = await OnUiAsync(window, () => page.Test_WordRomanVisible());
+            await OnUiAsync(window, () => page.Test_FlipToggle("wordroman"));
+            await Task.Delay(200);
+            var romanOff = await OnUiAsync(window, () => page.Test_WordRomanVisible());
+            var wOff = await OnUiAsync(window, () => page.Test_WordGroupWidth());
+            await OnUiAsync(window, () => page.Test_FlipToggle("wordroman"));
+            await Task.Delay(200);
+            var romanBack = await OnUiAsync(window, () => page.Test_WordRomanVisible());
+            // Beats shares Roman's columns, so hiding Roman only sheds the
+            // roman-over-beats excess (~15-20px: label 42->35, box 88->80);
+            // ~0 with roman still visible would mean a leftover column (the
+            // visibility asserts already pin the collapsed state).
+            var romanOk = romanOn && !romanOff && romanBack
+                && wOn - wOff >= 10 && wOn - wOff <= 40;
+            Check("ribbon-roman-toggle", romanOk,
+                $"vis={romanOn}/{romanOff}/{romanBack} w={wOn:F2}->{wOff:F2}");
+            // Multi-select: caption "3 selected"; short placeholder + full
+            // tooltip on every word field; placeholder text fits its box.
+            // (Beats needs a differing value first: the fixture has all 0.)
+            await OnUiAsync(window, () => page.Test_SelectWord(0, 2));
+            await OnUiAsync(window, () => page.Test_SetRibbonText("beats", "3"));
+            await OnUiAsync(window, () => page.Test_CommitRibbon("beats"));
+            await OnUiAsync(window, () => page.Test_SelectWord(0, 0));
+            await OnUiAsync(window, () => page.Test_ToggleChipWord(0, 1));
+            await OnUiAsync(window, () => page.Test_ToggleChipWord(0, 2));
+            var caption = await OnUiAsync(window, () => page.Test_WordCaption());
+            Check("ribbon-count", caption == "3 selected|Visible", $"'{caption}'");
+            var multiOk = true;
+            var multiDetail = "";
+            foreach (var which in new[] { "wordstart", "wordend", "content", "romanword", "beats" })
+            {
+                var st = await OnUiAsync(window, () => page.Test_MultiState(which));
+                var parts = st.Split('|');
+                if (parts.Length != 4 || parts[0] != "Multiple\u2026" || parts[1] != "Multiple values"
+                    || !TryParseDouble(parts[2], out var textW)
+                    || !TryParseDouble(parts[3], out var boxW)
+                    || textW > boxW - 6)
+                {
+                    multiOk = false;
+                    multiDetail += $"{which}=[{st}] ";
+                }
+            }
+            Check("ribbon-multi", multiOk, multiDetail);
+            // Same-row baselines align.
+            var baselines = await OnUiAsync(window, () => page.Test_BarBaselines());
+            var bParts = baselines.Split(',');
+            var baseOk = bParts.Length == 2
+                && TryParseDouble(bParts[0], out var r0dev) && r0dev <= 1.0
+                && TryParseDouble(bParts[1], out var r1dev) && r1dev <= 1.0;
+            Check("ribbon-baselines", baseOk, $"dev=[{baselines}]");
+            // Width tiers: no clipping at 1400/1116/900/750/672.
+            var tierOk = true;
+            var tierDetail = "";
+            foreach (var w in new[] { 1400, 1116, 900, 750, 672 })
+            {
+                var setW = await OnUiAsync(window, () => page.Test_SetWindowWidth(w));
+                await Task.Delay(500);
+                var rep = await OnUiAsync(window, () => page.Test_BarReport());
+                Write(report, $"  note tier w={w} [{rep}] set=[{setW}]");
+                if (!rep.StartsWith("ok:"))
+                {
+                    tierOk = false;
+                    tierDetail += $"{w}=[{rep}] set=[{setW}] ";
+                }
+            }
+            Check("ribbon-tiers", tierOk, tierDetail);
+            await OnUiAsync(window, () => page.Test_SetWindowWidth(1280));
+            await Task.Delay(300);
+            // Single selection hides the caption again (no leftover column).
+            await OnUiAsync(window, () => page.Test_SelectWord(0, 0));
+            var caption1 = await OnUiAsync(window, () => page.Test_WordCaption());
+            Check("ribbon-count-single", caption1.EndsWith("|Collapsed"), $"'{caption1}'");
+
+            // --- 4c. selection model, visible selection, right-click -------
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(0));
+            await Task.Delay(200);
+            // Word gestures: single / ctrl-toggle / shift-range; the line
+            // follows every word selection (original).
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 1, false, false));
+            var g0w = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            var g0l = await OnUiAsync(window, () => page.Test_SelectedIndices());
+            var g0p = await OnUiAsync(window, () => page.Test_Primary());
+            Check("gesture-single", g0w == "0:1" && g0l == "0" && g0p == "0,1",
+                $"words=[{g0w}] lines=[{g0l}] primary=[{g0p}]");
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 2, true, false));
+            var g1w = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 1, true, false));
+            var g2w = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            Check("gesture-ctrl", g1w == "0:1,0:2" && g2w == "0:2",
+                $"add=[{g1w}] toggle-off=[{g2w}]");
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 0, false, false));
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 2, false, true));
+            var g3w = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            var g3p = await OnUiAsync(window, () => page.Test_Primary());
+            var g3l = await OnUiAsync(window, () => page.Test_SelectedIndices());
+            Check("gesture-shift", g3w == "0:0,0:1,0:2" && g3p == "0,2" && g3l == "0",
+                $"range=[{g3w}] primary=[{g3p}] lines=[{g3l}]");
+            // Lines: single / ctrl / shift-range / Ctrl+A / Esc.
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await OnUiAsync(window, () => page.Test_LineGesture(1, false, false));
+            var l0 = await OnUiAsync(window, () => page.Test_SelectedIndices());
+            await OnUiAsync(window, () => page.Test_LineGesture(2, true, false));
+            var l1 = await OnUiAsync(window, () => page.Test_SelectedIndices());
+            await OnUiAsync(window, () => page.Test_LineGesture(1, true, false));
+            var l2 = await OnUiAsync(window, () => page.Test_SelectedIndices());
+            Check("line-ctrl", l0 == "1" && l1 == "1,2" && l2 == "2",
+                $"single=[{l0}] add=[{l1}] off=[{l2}]");
+            await OnUiAsync(window, () => page.Test_LineGesture(0, false, true));
+            var l3 = await OnUiAsync(window, () => page.Test_SelectedIndices());
+            Check("line-shift", l3 == "0,1,2", $"range=[{l3}]");
+            await OnUiAsync(window, () => page.Test_ListKey(65, true, false));
+            var lAll = await OnUiAsync(window, () => page.Test_SelectedLineCount());
+            var lc = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            await OnUiAsync(window, () => page.Test_ListKey(27, false, false));
+            var lCleared = await OnUiAsync(window, () => page.Test_SelectedLineCount());
+            Check("line-ctrla-esc", lAll == lc && lCleared == 0,
+                $"all={lAll}/{lc} cleared={lCleared}");
+            // Visible selection: outlines + fills + ribbon caption agree.
+            await OnUiAsync(window, () => page.Test_SelectLines(new[] { 1, 2 }));
+            await OnUiAsync(window, () => page.Test_ToggleChipWord(0, 0));
+            await OnUiAsync(window, () => page.Test_ToggleChipWord(0, 1));
+            await Task.Delay(150);
+            var vLines = await OnUiAsync(window, () => page.Test_SelectedIndices());
+            var vWords = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            var vInd = await OnUiAsync(window, () => page.Test_IndicatedIndices());
+            var vWind = await OnUiAsync(window, () => page.Test_WordIndicated());
+            var vCap = await OnUiAsync(window, () => page.Test_WordCaption());
+            var vFill1 = await OnUiAsync(window, () => page.Test_LineFill(1));
+            var vFill3 = await OnUiAsync(window, () => page.Test_LineFill(3));
+            var vOut00 = await OnUiAsync(window, () => page.Test_ChipOutline(0, 0));
+            var vOut02 = await OnUiAsync(window, () => page.Test_ChipOutline(0, 2));
+            var visOk = vLines == "0,1,2" && vWords == "0:0,0:1"
+                && vInd == "0,1,2" && vWind == "0:0,0:1"
+                && vCap == "2 selected|Visible"
+                && vFill1 == "selected" && vFill3 == "default"
+                && vOut00 == "shown" && vOut02 == "hidden";
+            Check("visible-selection", visOk,
+                $"lines=[{vLines}] words=[{vWords}] ind=[{vInd}] wind=[{vWind}] cap=[{vCap}] fill={vFill1}/{vFill3} out={vOut00}/{vOut02}");
+            var shotSel = await await OnUiAsync(window, () =>
+                page.Test_ShotCard(0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-selected-card.png")));
+            Check("shot-selected", shotSel.StartsWith("ok:"), shotSel);
+            var shotOut = await await OnUiAsync(window, () =>
+                page.Test_ShotChip(0, 0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-selected-chipunit.png")));
+            Check("shot-outline", shotOut.StartsWith("ok:"), shotOut);
+            // Focus preserves the set, moves the primary (tab-friendly).
+            // The GotFocus handler logic is driven directly (deterministic):
+            // this headless run proves Focus() moves XAML focus state
+            // without routing the event (got=0 below), so event delivery
+            // itself is a manual active-window step.
+            await OnUiAsync(window, () => page.Test_AnchorBox(0, 2, false));
+            var fWords = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            var fPrim = await OnUiAsync(window, () => page.Test_Primary());
+            await OnUiAsync(window, () => page.Test_FocusChip(0, 2, false));
+            var fsWait = "";
+            for (var w = 0; w < 20; w++)
+            {
+                fsWait = await OnUiAsync(window, () => page.Test_FocusState());
+                if (fsWait == "chipbox 0:2:M") break;
+                await Task.Delay(100);
+            }
+            var fGot = await OnUiAsync(window, () => page.Test_GotFocusCount());
+            Check("focus-anchor", fWords == "0:0,0:1" && fPrim == "0,2",
+                $"words=[{fWords}] primary=[{fPrim}]");
+            Write(report, $"  note focus-delivery focus=[{fsWait}] got={fGot}");
+            // EDIT entry: double-click path via hook + focus state.
+            await OnUiAsync(window, () => page.Test_EnterWordEdit(0, 0, false));
+            var fState = await OnUiAsync(window, () => page.Test_FocusState());
+            Check("edit-entry", fState == "chipbox 0:0:M", $"focus=[{fState}]");
+            // F2 enters EDIT on the primary word from list focus (113=F2).
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 1, false, false));
+            var f2ok = await OnUiAsync(window, () => page.Test_ListKey(113, false, false));
+            var f2State = await OnUiAsync(window, () => page.Test_FocusState());
+            Check("edit-f2", f2ok && f2State == "chipbox 0:1:M",
+                $"ok={f2ok} focus=[{f2State}]");
+            // Right-click: six card zones on an unselected line select it
+            // and open the same line menu; hit-testable backgrounds.
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            var hit = await OnUiAsync(window, () => page.Test_CardHittestable(0));
+            var ctxOk = hit == "card:1;panel:1";
+            var ctxDetail = $"hit=[{hit}] ";
+            for (var zone = 0; zone < 6; zone++)
+            {
+                await OnUiAsync(window, () => page.Test_ClearEditSelection());
+                var ctx = await OnUiAsync(window, () => page.Test_LineContext(3, zone));
+                if (!ctx.Contains("sel:3;") || !ctx.Contains("Delete line"))
+                {
+                    ctxOk = false;
+                    ctxDetail += $"zone{zone}=[{ctx}] ";
+                }
+            }
+            Check("line-context", ctxOk, ctxDetail);
+            // Inside a multi-selection the set is kept with count labels.
+            await OnUiAsync(window, () => page.Test_SelectLines(new[] { 1, 2, 3 }));
+            var ctxM = await OnUiAsync(window, () => page.Test_LineContext(2, 1));
+            Check("line-context-multi",
+                ctxM.Contains("sel:1,2,3") && ctxM.Contains("Delete 3 lines")
+                && ctxM.Contains("Duplicate 3 lines") && ctxM.Contains("Move 3 lines up"),
+                $"[{ctxM}]");
+            // Word menu on an unselected word selects it first.
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            var ctxW = await OnUiAsync(window, () => page.Test_WordContext(0, 2));
+            Check("word-context",
+                ctxW.StartsWith("sel:0:2;") && ctxW.Contains("Split word...")
+                && ctxW.Contains("Delete selected word"),
+                $"[{ctxW}]");
+            // Multi-selection ops (each exactly one history step).
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 0, false, false));
+            await OnUiAsync(window, () => page.Test_ToggleChipWord(0, 1));
+            var mDepth0 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            await OnUiAsync(window, () => page.Test_ClickRibbonToggle("obscene"));
+            var mOb0 = await OnUiAsync(window, () => page.Test_WordFlags(0, 0));
+            var mOb1 = await OnUiAsync(window, () => page.Test_WordFlags(0, 1));
+            var mDepth1 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            Check("multi-obscene", mOb0.StartsWith("True,") && mOb1.StartsWith("True,")
+                && mDepth1 == mDepth0 + 1, $"flags={mOb0}/{mOb1} depth {mDepth0}->{mDepth1}");
+            await OnUiAsync(window, () => page.Test_SelectLines(new[] { 0, 1 }));
+            var mDepth2 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            await OnUiAsync(window, () => page.Test_ClickRibbonToggle("bg"));
+            var mBg0 = await OnUiAsync(window, () => page.Test_LineFlags(0));
+            var mBg1 = await OnUiAsync(window, () => page.Test_LineFlags(1));
+            var mDepth3 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            Check("multi-bg", mBg0.StartsWith("True,") && mBg1.StartsWith("True,")
+                && mDepth3 == mDepth2 + 1, $"flags={mBg0}/{mBg1} depth {mDepth2}->{mDepth3}");
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 0, false, false));
+            await OnUiAsync(window, () => page.Test_ToggleChipWord(0, 1));
+            await OnUiAsync(window, () => page.Test_SetRibbonText("content", "multi-word"));
+            var mDepth4 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            await OnUiAsync(window, () => page.Test_CommitRibbon("content"));
+            var mTx0 = await OnUiAsync(window, () => page.Test_WordText(0, 0));
+            var mTx1 = await OnUiAsync(window, () => page.Test_WordText(0, 1));
+            var mDepth5 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            Check("multi-content", mTx0 == "multi-word" && mTx1 == "multi-word"
+                && mDepth5 == mDepth4 + 1, $"'{mTx0}'/'{mTx1}' depth {mDepth4}->{mDepth5}");
+            await OnUiAsync(window, () => page.Test_SetRibbonText("wordstart", "00:01.000"));
+            var mDepth6 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            await OnUiAsync(window, () => page.Test_CommitRibbon("wordstart"));
+            var mTs0 = await OnUiAsync(window, () => page.Test_WordTimes(0, 0));
+            var mTs1 = await OnUiAsync(window, () => page.Test_WordTimes(0, 1));
+            var mDepth7 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            Check("multi-times", mTs0.StartsWith("1000,") && mTs1.StartsWith("1000,")
+                && mDepth7 == mDepth6 + 1, $"times={mTs0}/{mTs1} depth {mDepth6}->{mDepth7}");
+            // Block move down by one (one step, undone below). Verified
+            // through lines known non-empty (line 0 has words, line 3 is the
+            // untouched duet line): moving {1,2} down yields [L0,L3,L1,L2].
+            var shapeParts = new List<string>();
+            var shapeN = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            for (var si = 0; si < shapeN; si++)
+                shapeParts.Add(await OnUiAsync(window, () => page.Test_LyricWordCount(si)) + "w");
+            Write(report, $"  note docshape lines={shapeN} words=[{string.Join(",", shapeParts)}]");
+            var bAnchor = await OnUiAsync(window, () => page.Test_WordText(0, 0));
+            var bThird = await OnUiAsync(window, () => page.Test_WordText(3, 0));
+            await OnUiAsync(window, () => page.Test_SelectLines(new[] { 1, 2 }));
+            var mSvc = await OnUiAsync(window, () => page.Test_ServiceLineIdx());
+            var mLst = await OnUiAsync(window, () => page.Test_SelectedIndices());
+            var mDepth8 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            await OnUiAsync(window, () => page.Test_MoveSelectedLines(1));
+            var bStayed = await OnUiAsync(window, () => page.Test_WordText(0, 0));
+            var bShifted = await OnUiAsync(window, () => page.Test_WordText(1, 0));
+            var mDepth9 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            Check("multi-move", bStayed == bAnchor && bShifted == bThird
+                && mDepth9 == mDepth8 + 1, $"'{bStayed}'/'{bShifted}' anchor='{bAnchor}' third='{bThird}' svc=[{mSvc}] lst=[{mLst}] depth {mDepth8}->{mDepth9}");
+            await OnUiAsync(window, () => page.Test_Undo());
+            var bBack = await OnUiAsync(window, () => page.Test_WordText(1, 0));
+            var bBack3 = await OnUiAsync(window, () => page.Test_WordText(3, 0));
+            Check("multi-move-undo", bBack != bThird && bBack3 == bThird,
+                $"'{bBack}'/'{bBack3}'");
+            // Restore the words/flags touched above (times/flags/content).
+            await OnUiAsync(window, () => page.Test_Undo());
+            await OnUiAsync(window, () => page.Test_Undo());
+            await OnUiAsync(window, () => page.Test_Undo());
+            await OnUiAsync(window, () => page.Test_Undo());
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
 
             // --- 5. undo routing + reveal ---------------------------------
             await OnUiAsync(window, () => page.Test_FocusChip(0, 0, false));
@@ -632,24 +927,34 @@ internal static class EditCheck
             Check("perf-doc", perfLines == 300, $"lines={perfLines}");
             await OnUiAsync(window, () => page.Test_ScrollLineIntoView(150));
             await Task.Delay(400);
-            var lat = new List<double>();
-            for (var i = 0; i < 100; i++)
+            // Median-of-3 rounds (same load-tolerance pattern as the toggle
+            // budget): a single congested sample with system stalls must not
+            // fail the run; each round drops its first 10 (warmup) as before.
+            var p95s = new List<double>();
+            for (var round = 0; round < 3; round++)
             {
-                var ms = await OnUiAsync(window, () =>
-                    page.Test_TypeChipChar(150, 5, false, (char)('a' + (i % 26))));
-                if (ms >= 0) lat.Add(ms);
+                var lat = new List<double>();
+                for (var i = 0; i < 100; i++)
+                {
+                    var ms = await OnUiAsync(window, () =>
+                        page.Test_TypeChipChar(150, 5, false, (char)('a' + ((i + round * 7) % 26))));
+                    if (ms >= 0) lat.Add(ms);
+                }
+                lat.Sort();
+                var warm = lat.Count > 10 ? lat.Skip(10).ToList() : lat;
+                lat = warm;
+                var rp50 = lat.Count > 0 ? lat[lat.Count / 2] : -1;
+                var rp95 = lat.Count > 0 ? lat[(int)(lat.Count * 0.95)] : -1;
+                var rmax = lat.Count > 0 ? lat[^1] : -1;
+                Write(report, $"  note typing-latency r{round} n={lat.Count} p50={rp50:F2} p95={rp95:F2} max={rmax:F2}");
+                if (rp95 >= 0) p95s.Add(rp95);
             }
-            lat.Sort();
-            // Drop the first 10 (template/JIT/layout warmup) before stats.
-            var warm = lat.Count > 10 ? lat.Skip(10).ToList() : lat;
-            lat = warm;
             var breakdown = await OnUiAsync(window, () => page.Test_TypeBreakdown());
             Write(report, $"  note type-breakdown setWall/layout/setCpu ms of last key: [{breakdown}]");
-            var p50 = lat.Count > 0 ? lat[lat.Count / 2] : -1;
-            var p95 = lat.Count > 0 ? lat[(int)(lat.Count * 0.95)] : -1;
-            var max = lat.Count > 0 ? lat[^1] : -1;
-            Write(report, $"  note typing-latency n={lat.Count} p50={p50:F2} p95={p95:F2} max={max:F2}");
-            Check("typing-budget", p95 >= 0 && p95 < 16, $"p95={p95:F2}ms");
+            p95s.Sort();
+            var p95med = p95s.Count > 0 ? p95s[p95s.Count / 2] : -1;
+            Check("typing-budget", p95med >= 0 && p95med < 16,
+                $"median-p95={p95med:F2}ms rounds=[{string.Join(",", p95s.Select(v => v.ToString("F2")))}]");
             var wEq = await OnUiAsync(window, () => page.Test_ChipWidths(150, 5));
             Check("perf-width-hug", WidthsEqual(wEq), $"[{wEq}]");
             var topReal = await OnUiAsync(window, () => page.Test_RealizedLineCount());
@@ -794,6 +1099,32 @@ internal static class EditCheck
     private static bool TryParseDouble(string s, out double v) =>
         double.TryParse(s, System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out v);
+
+    // One-line doc-shape note (line count + per-line word counts) to
+    // pinpoint where a shape change happens.
+    private static async Task NoteShape(
+        Window window, Views.ShellPage page, string report, string tag,
+        Action<string, bool, string> check)
+    {
+        try
+        {
+            var n = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            var parts = new List<string>();
+            for (var i = 0; i < n; i++)
+            {
+                var nw = await OnUiAsync(window, () => page.Test_LyricWordCount(i));
+                var first = nw > 0
+                    ? await OnUiAsync(window, () => page.Test_WordText(i, 0))
+                    : "-";
+                parts.Add($"{nw}w:{first}");
+            }
+            Write(report, $"  note docshape-{tag} lines={n} words=[{string.Join(",", parts)}]");
+        }
+        catch (Exception ex)
+        {
+            Write(report, $"  note docshape-{tag} ERROR {ex.GetType().Name}");
+        }
+    }
 
     // 200 deterministic random ops against a simple reference model.
     // Reference mirrors texts/counts/flags/times by index (split times via

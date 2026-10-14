@@ -109,7 +109,9 @@
             </ListView.ItemContainerStyle>
             <ListView.ItemTemplate>
                 <DataTemplate x:DataType="lyrics:EditLine">
-                    <Grid x:Name="CardRoot" ColumnSpacing="12">
+                    <!-- Transparent (not null) background: hit-testable
+                         everywhere for press + right-click, visually unchanged. -->
+                    <Grid x:Name="CardRoot" ColumnSpacing="12" Background="Transparent">
                         <Grid.ColumnDefinitions>
                             <!-- Fixed number column: the line number and the
                                  first chip start at the same x on EVERY line,
@@ -138,6 +140,7 @@
                                 </Grid.ColumnDefinitions>
                                 <controls:LyricWrapPanel
                                     x:Name="ChipPanel"
+                                    Background="Transparent"
                                     HorizontalSpacing="6"
                                     VerticalSpacing="6" />
                                 <Button

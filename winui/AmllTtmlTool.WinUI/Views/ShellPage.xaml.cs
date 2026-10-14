@@ -1087,7 +1087,7 @@ namespace AmllTtmlTool.WinUI.Views
                         _store.Document.Lines.Count, EditLine.New()));
             };
             EditBar.ImportRequested += () => _ = OpenLyricAsync();
-            EditBar.BindSelection(_selection, _store);
+            EditBar.BindSelection(_selection, _store, _viewState);
             RefreshChrome();
             RefreshAudioChrome();
             LoadMasterToggles();
@@ -2811,6 +2811,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.IndicatedIndices() ?? "nopage";
         internal string Test_SelectedIndices() =>
             _attachedEditPage?.SelectedIndices() ?? "nopage";
+        internal string Test_ServiceLineIdx() =>
+            _attachedEditPage?.Test_ServiceLineIdx() ?? "nopage";
         internal string Test_FirstChipX(int line) =>
             _attachedEditPage?.FirstChipX(line) ?? "nopage";
         internal string Test_CardHeight(int line) =>
@@ -2909,6 +2911,36 @@ namespace AmllTtmlTool.WinUI.Views
         internal void Test_ClearEditSelection() => _attachedEditPage?.ClearEditSelection();
         internal bool Test_ToggleChipWord(int line, int word) =>
             _attachedEditPage?.ToggleChipWord(line, word) ?? false;
+        internal bool Test_WordGesture(int line, int word, bool ctrl, bool shift) =>
+            _attachedEditPage?.Test_WordGesture(line, word, ctrl, shift) ?? false;
+        internal bool Test_LineGesture(int index, bool ctrl, bool shift) =>
+            _attachedEditPage?.Test_LineGesture(index, ctrl, shift) ?? false;
+        internal string Test_Primary() => _attachedEditPage?.Test_Primary() ?? "nopage";
+        internal string Test_SelectedWordIdx() =>
+            _attachedEditPage?.Test_SelectedWordIdx() ?? "nopage";
+        internal string Test_WordIndicated() =>
+            _attachedEditPage?.Test_WordIndicated() ?? "nopage";
+        internal string Test_LineFill(int line) =>
+            _attachedEditPage?.Test_LineFill(line) ?? "nopage";
+        internal string Test_ChipOutline(int line, int word) =>
+            _attachedEditPage?.Test_ChipOutline(line, word) ?? "nopage";
+        internal string Test_FocusState() => _attachedEditPage?.Test_FocusState() ?? "nopage";
+        internal int Test_GotFocusCount() => _attachedEditPage?.Test_GotFocusCount() ?? -1;
+        internal bool Test_EnterWordEdit(int line, int word, bool roman) =>
+            _attachedEditPage?.Test_EnterWordEdit(line, word, roman) ?? false;
+        internal bool Test_AnchorBox(int line, int word, bool roman) =>
+            _attachedEditPage?.Test_AnchorBox(line, word, roman) ?? false;
+
+        internal string Test_LineContext(int line, int zone) =>
+            _attachedEditPage?.Test_LineContext(line, zone) ?? "nopage";
+        internal string Test_WordContext(int line, int word) =>
+            _attachedEditPage?.Test_WordContext(line, word) ?? "nopage";
+        internal string Test_CardHittestable(int line) =>
+            _attachedEditPage?.Test_CardHittestable(line) ?? "nopage";
+        internal bool Test_EnterPrimaryWordEdit() =>
+            _attachedEditPage?.EnterPrimaryWordEdit() ?? false;
+        internal void Test_MoveSelectedLines(int delta) =>
+            _attachedEditPage?.MoveSelectedLines(delta);
         internal void Test_DeleteSelected() => _attachedEditPage?.DeleteSelected();
         internal void Test_DeleteLineAt(int index) => _attachedEditPage?.DeleteLineAt(index);
         internal void Test_InsertLineBefore(int index) =>
@@ -2985,6 +3017,27 @@ namespace AmllTtmlTool.WinUI.Views
         internal bool Test_RibbonEnabled(string which) => EditBar.RibbonEnabled(which);
         internal void Test_ClickRibbonToggle(string which) => EditBar.ClickRibbonToggle(which);
         internal bool Test_DurationMode() => EditBar.DurationMode();
+        internal int Test_WordGroupRows() => EditBar.WordGroupRows();
+        internal bool Test_WordRomanVisible() => EditBar.WordRomanVisible();
+        internal string Test_WordCaption() => EditBar.WordCaption();
+        internal double Test_WordGroupWidth() => EditBar.WordGroupWidth();
+        internal string Test_MultiState(string which) => EditBar.MultiState(which);
+        internal string Test_BarBaselines() => EditBar.BarBaselines();
+        internal string Test_BarReport() => EditBar.BarReport();
+        internal string Test_SetWindowWidth(int widthDip)
+        {
+            try
+            {
+                var window = ((App)Application.Current).MainWindow;
+                if (window is null) return "nowindow";
+                var scale = XamlRoot.RasterizationScale;
+                var size = window.AppWindow.Size;
+                window.AppWindow.Resize(new Windows.Graphics.SizeInt32(
+                    (int)(widthDip * scale), size.Height));
+                return $"ok:{widthDip}";
+            }
+            catch (Exception ex) { return "error:" + ex.GetType().Name; }
+        }
         internal void Test_SetRibbonComposing(string which, bool composing) =>
             EditBar.SetComposing(which, composing);
         internal bool Test_ToggleState(string which) => which switch

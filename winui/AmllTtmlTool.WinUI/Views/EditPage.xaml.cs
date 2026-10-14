@@ -339,6 +339,9 @@ namespace AmllTtmlTool.WinUI.Views
             var word = EditWord.New();
             word.Text = text;
             _store.Execute(new AddWordCommand(line.Id, line.Words.Count, word));
+            // Pair the ListView (service writers must never leave phantom
+            // lines the list doesn't show: multi-ops read the service set).
+            LineList.SelectedItem = line;
             _selection?.SelectWord(line.Id, word.Id);
             _insertBox.Text = "";
             _insertTextStash = "";
@@ -414,12 +417,11 @@ namespace AmllTtmlTool.WinUI.Views
             if (index < 0 || index >= _store.Document.Lines.Count) return;
             var line = _store.Document.Lines[index];
             LineList.SelectedItem = line;
-            // Anchor the primary when it points elsewhere (a re-select of
-            // the same item fires no event, leaving a stale ribbon target).
-            // Skipped when already anchored: SelectLine would clear a
-            // surviving word selection.
-            if (_selection is not null && _selection.SelectedLineId != line.Id)
-                _selection.SelectLine(line.Id);
+            // Deterministic single pin (a re-select of the same item fires
+            // no ListView event, and unwired writers may have left phantom
+            // lines behind — PinLine converges exactly, keeping the line's
+            // own surviving word selection per the B5 rule).
+            _selection?.PinLine(line.Id, LineOfWord);
         }
 
         internal int SelectedLineIndex()
@@ -615,11 +617,11 @@ namespace AmllTtmlTool.WinUI.Views
             if (FindChipBox(line, word, roman) is not TextBox box) return false;
             var before = _store?.Document.UndoDepth ?? -1;
             CommitBoxIfDirty(box);
-            // Leaving space-edit mode restores the label (a store change
-            // already refreshes it; this covers no-op commits too).
-            if (!roman && _store is not null && line >= 0 && line < _store.Document.Lines.Count
+            // A no-op commit leaves focus (and EDIT) in place; refreshes
+            // already re-sync the label after real commits.
+            if (_store is not null && line >= 0 && line < _store.Document.Lines.Count
                 && word >= 0 && word < _store.Document.Lines[line].Words.Count)
-                ExitSpaceEdit(_store.Document.Lines[line].Words[word].Id);
+                SyncSpaceVisual(_store.Document.Lines[line].Words[word].Id);
             var after = _store?.Document.UndoDepth ?? -1;
             return after != before;
         }
@@ -635,9 +637,9 @@ namespace AmllTtmlTool.WinUI.Views
                 session.LastSeenModel = model;
             }
             catch { }
-            if (!roman && _store is not null && line >= 0 && line < _store.Document.Lines.Count
+            if (_store is not null && line >= 0 && line < _store.Document.Lines.Count
                 && word >= 0 && word < _store.Document.Lines[line].Words.Count)
-                ExitSpaceEdit(_store.Document.Lines[line].Words[word].Id);
+                SyncSpaceVisual(_store.Document.Lines[line].Words[word].Id);
         }
 
         internal int ChipCaret(int line, int word, bool roman) =>
@@ -782,6 +784,18 @@ namespace AmllTtmlTool.WinUI.Views
                 if (pill is not null && pill.Visibility == Visibility.Visible) shown.Add(i);
             }
             return string.Join(",", shown);
+        }
+
+        // Service-side line selection as doc indices (what multi-ops read).
+        internal string Test_ServiceLineIdx()
+        {
+            if (_store is null || _selection is null) return "nostore";
+            var lines = _store.Document.Lines.ToList();
+            var idx = lines
+                .Select((l, i) => (l, i))
+                .Where(t => _selection.SelectedLineIds.Contains(t.l.Id))
+                .Select(t => t.i).OrderBy(i => i);
+            return string.Join(",", idx);
         }
 
         // Realized-or-not selected indices from the ListView itself.
@@ -1145,7 +1159,7 @@ namespace AmllTtmlTool.WinUI.Views
                         label.Text = SpaceLabelFor(word);
                         AutomationProperties.SetName(label, $"Space \u00D7{word.Text.Length}");
                     }
-                    UpdateSpaceVisual(chip, showEditor: false);
+                    SyncSpaceVisual(wordId);
                 }
             }
         }
@@ -1191,6 +1205,88 @@ namespace AmllTtmlTool.WinUI.Views
             DeleteLineAt(LineList.IndexFromContainer(container));
         }
 
+        // Empty card area selects the line (single click; ctrl/shift extend
+        // through the native ListView pipeline like anywhere else — the
+        // press here only ensures the line joins single selection; with
+        // modifiers the native item handling applies).
+        private void OnCardPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is not Grid card || _selection is null || _store is null) return;
+            if (IsInCardControl(card, e.OriginalSource as DependencyObject)) return;
+            var container = FindListViewItem(card);
+            if (container is null) return;
+            var index = LineList.IndexFromContainer(container);
+            if (index < 0 || index >= _store.Document.Lines.Count) return;
+            var line = _store.Document.Lines[index];
+            if (IsCtrlDown() || IsShiftDown())
+            {
+                // Let the ListView own modifier selection: route through the
+                // same Test_LineGesture-equivalent list membership so the
+                // service follows via SelectionChanged.
+                if (IsCtrlDown() && !IsShiftDown())
+                {
+                    if (LineList.SelectedItems.Contains(line))
+                        LineList.SelectedItems.Remove(line);
+                    else
+                        LineList.SelectedItems.Add(line);
+                }
+                else if (IsShiftDown())
+                {
+                    var anchor = _selection.SelectedLineId is string aid
+                        ? _store.Document.Lines.ToList().FindIndex(l => l.Id == aid)
+                        : -1;
+                    if (anchor < 0) LineList.SelectedItem = line;
+                    else
+                    {
+                        var lo = Math.Min(anchor, index);
+                        var hi = Math.Max(anchor, index);
+                        for (var i = lo; i <= hi; i++)
+                            if (!LineList.SelectedItems.Contains(_store.Document.Lines[i]))
+                                LineList.SelectedItems.Add(_store.Document.Lines[i]);
+                    }
+                }
+            }
+            else
+            {
+                LineList.SelectedItem = line;
+                _selection.SelectLine(line.Id);
+            }
+            container.Focus(FocusState.Programmatic);
+            e.Handled = true;
+        }
+
+        // True when a press originates inside a chip, an edit box, a button
+        // or the insert box (those own their presses); everything else on
+        // the card (number, badges, chip gaps, trailing area) is line area.
+        private static bool IsInCardControl(Grid card, DependencyObject? src)
+        {
+            var current = src;
+            while (current is not null && !ReferenceEquals(current, card))
+            {
+                if (current is TextBox || current is Button) return true;
+                if (current is Grid grid && grid.Tag is string) return true;
+                current = VisualTreeHelper.GetParent(current);
+            }
+            return false;
+        }
+
+        // Right-click / Shift+F10 / Menu key on an unselected line selects
+        // it first (single); inside a multi-selection the set is kept.
+        private void EnsureLineSelectedForContext(Grid card)
+        {
+            if (_store is null || _selection is null) return;
+            var container = FindListViewItem(card);
+            if (container is null) return;
+            var index = LineList.IndexFromContainer(container);
+            if (index < 0 || index >= _store.Document.Lines.Count) return;
+            var line = _store.Document.Lines[index];
+            if (!_selection.SelectedLineIds.Contains(line.Id))
+            {
+                LineList.SelectedItem = line;
+                _selection.SelectLine(line.Id);
+            }
+        }
+
         // --- context menus (standard MenuFlyout, accelerator text shown) ---
 
         private void RebuildLineMenu(MenuFlyout flyout, Grid card)
@@ -1210,22 +1306,29 @@ namespace AmllTtmlTool.WinUI.Views
         {
             var items = new List<MenuFlyoutItemBase>();
             var selCount = _selection?.SelectedLineIds.Count ?? 0;
+            // The Opening handler selects the line first, so the count below
+            // covers the clicked line; inside a multi-selection the menu
+            // acts on all ("Delete 5 lines", original).
+            var scope = selCount <= 1 ? 1 : selCount;
             var before = new MenuFlyoutItem { Text = "Insert line before" };
             before.Click += (_, _) => InsertLineBefore(index);
             var after = new MenuFlyoutItem { Text = "Insert line after" };
             after.Click += (_, _) => InsertLineAfter(index);
             var dup = new MenuFlyoutItem
             {
-                Text = "Duplicate line",
+                Text = scope == 1 ? "Duplicate line" : $"Duplicate {scope} lines",
                 KeyboardAcceleratorTextOverride = "Ctrl+D",
             };
             dup.Click += (_, _) => DuplicateSelectedLines();
-            var combine = new MenuFlyoutItem { Text = "Combine lines" };
+            var combine = new MenuFlyoutItem
+            {
+                Text = selCount >= 2 ? $"Combine {selCount} lines" : "Combine lines",
+            };
             combine.IsEnabled = selCount >= 2;
             combine.Click += (_, _) => CombineSelectedLines();
             var up = new MenuFlyoutItem
             {
-                Text = "Move line up",
+                Text = scope == 1 ? "Move line up" : $"Move {scope} lines up",
                 KeyboardAcceleratorTextOverride = "Alt+Up",
             };
             up.Click += (_, _) =>
@@ -1236,11 +1339,11 @@ namespace AmllTtmlTool.WinUI.Views
                     LineList.SelectedItem = l;
                     _selection?.SelectLine(l.Id);
                 }
-                MovePrimaryLine(-1);
+                MoveSelectedLines(-1);
             };
             var down = new MenuFlyoutItem
             {
-                Text = "Move line down",
+                Text = scope == 1 ? "Move line down" : $"Move {scope} lines down",
                 KeyboardAcceleratorTextOverride = "Alt+Down",
             };
             down.Click += (_, _) =>
@@ -1251,22 +1354,25 @@ namespace AmllTtmlTool.WinUI.Views
                     LineList.SelectedItem = l;
                     _selection?.SelectLine(l.Id);
                 }
-                MovePrimaryLine(1);
+                MoveSelectedLines(1);
             };
+            // Tri-state from the scope: all-set reads checked, else clear;
+            // one click applies to every in-scope line (original, one step).
+            var scopeIds = ScopeLineIds(lineId);
             var bg = new ToggleMenuFlyoutItem { Text = "BG lyric" };
             var duet = new ToggleMenuFlyoutItem { Text = "Duet lyric" };
             if (_store is not null)
             {
-                var cur = _store.Document.Lines
-                    .FirstOrDefault(l => l.Id == lineId);
-                bg.IsChecked = cur?.IsBg == true;
-                duet.IsChecked = cur?.IsDuet == true;
+                var scopeLines = _store.Document.Lines
+                    .Where(l => scopeIds.Contains(l.Id)).ToList();
+                bg.IsChecked = scopeLines.Count > 0 && scopeLines.All(l => l.IsBg);
+                duet.IsChecked = scopeLines.Count > 0 && scopeLines.All(l => l.IsDuet);
             }
             bg.Click += (_, _) => ToggleLineFlag(lineId, isBg: true, bg.IsChecked);
             duet.Click += (_, _) => ToggleLineFlag(lineId, isBg: false, duet.IsChecked);
             var del = new MenuFlyoutItem
             {
-                Text = "Delete line",
+                Text = scope == 1 ? "Delete line" : $"Delete {scope} lines",
                 KeyboardAcceleratorTextOverride = "Delete",
             };
             del.Click += (_, _) => DeleteLineAt(index);
@@ -1285,13 +1391,33 @@ namespace AmllTtmlTool.WinUI.Views
             return items;
         }
 
+        // Menu scope: the selection when the clicked line is in it (the
+        // Opening handler guarantees it for right-clicks), else the line.
+        private List<string> ScopeLineIds(string lineId)
+        {
+            if (_selection is not null && _selection.SelectedLineIds.Contains(lineId)
+                && _selection.SelectedLineIds.Count > 0)
+                return _selection.SelectedLineIds.ToList();
+            return new List<string> { lineId };
+        }
+
         private void ToggleLineFlag(string lineId, bool isBg, bool value)
         {
-            if (_store is null) return;
+            if (_store is null || _selection is null) return;
             CommitActiveBox();
-            _store.Execute(new SetLineFlagsCommand(lineId,
-                isBg: isBg ? value : null,
-                isDuet: isBg ? null : value));
+            var ordered = _store.Document.Lines
+                .Where(l => ScopeLineIds(lineId).Contains(l.Id))
+                .Select(l => l.Id).ToList();
+            if (ordered.Count == 0) return;
+            ILyricCommand cmd = ordered.Count == 1
+                ? new SetLineFlagsCommand(ordered[0],
+                    isBg: isBg ? value : null,
+                    isDuet: isBg ? null : value)
+                : new CompositeCommand("Set line flags", ordered
+                    .Select(id => (ILyricCommand)new SetLineFlagsCommand(id,
+                        isBg: isBg ? value : null,
+                        isDuet: isBg ? null : value)).ToList());
+            _store.Execute(cmd);
         }
 
         // The menu sits on the chip AND both boxes: a TextBox shows its own
@@ -1300,45 +1426,72 @@ namespace AmllTtmlTool.WinUI.Views
         // ContextFlyout replaces the native one, including for Shift+F10.
         // One instance per element (never shared): reparenting a single
         // open flyout across elements is a needless crash risk.
-        private void AttachWordMenu(Grid chip, TextBox text, TextBox roman, EditLine line, string wordId)
+        private void AttachWordMenu(Grid chip, TextBox text, TextBox roman, string lineId, string wordId)
         {
-            chip.ContextFlyout = MakeWordMenuFlyout(line, wordId);
-            text.ContextFlyout = MakeWordMenuFlyout(line, wordId);
-            roman.ContextFlyout = MakeWordMenuFlyout(line, wordId);
+            chip.ContextFlyout = MakeWordMenuFlyout(lineId, wordId);
+            text.ContextFlyout = MakeWordMenuFlyout(lineId, wordId);
+            roman.ContextFlyout = MakeWordMenuFlyout(lineId, wordId);
         }
 
-        private MenuFlyout MakeWordMenuFlyout(EditLine line, string wordId)
+        private MenuFlyout MakeWordMenuFlyout(string lineId, string wordId)
         {
             var flyout = new MenuFlyout();
             flyout.Opening += (_, _) =>
             {
+                // Right-click on an unselected word selects it (+ its line)
+                // first; inside a multi-selection the set is kept (original).
+                EnsureWordSelectedForContext(lineId, wordId);
                 flyout.Items.Clear();
-                foreach (var item in BuildWordMenuItems(line, wordId))
+                foreach (var item in BuildWordMenuItems(lineId, wordId))
                     flyout.Items.Add(item);
             };
             return flyout;
         }
 
-        private List<MenuFlyoutItemBase> BuildWordMenuItems(EditLine line, string wordId)
+        private void EnsureWordSelectedForContext(string lineId, string wordId)
+        {
+            if (_store is null || _selection is null) return;
+            var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
+            if (line is null || !line.Words.Any(w => w.Id == wordId)) return;
+            if (!_selection.SelectedWordIds.Contains(wordId))
+            {
+                LineList.SelectedItem = line;
+                _selection.SelectWord(lineId, wordId);
+            }
+            else if (!LineList.SelectedItems.Contains(line))
+            {
+                LineList.SelectedItems.Add(line);
+            }
+        }
+
+        private List<MenuFlyoutItemBase> BuildWordMenuItems(string lineId, string wordId)
         {
             var items = new List<MenuFlyoutItemBase>();
+            if (_store is null) return items;
+            var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
+            if (line is null) return items;
             var wordCount = _selection?.SelectedWordIds.Count ?? 0;
             var lineWordSel = line.Words.Count(w => _selection?.SelectedWordIds.Contains(w.Id) == true);
             var split = new MenuFlyoutItem { Text = "Split word..." };
+            split.IsEnabled = wordCount == 1;
             split.Click += (_, _) => ShowSplitDialog(line.Id, wordId);
             var replace = new MenuFlyoutItem { Text = "Replace word..." };
+            replace.IsEnabled = wordCount == 1;
             replace.Click += (_, _) => ShowReplaceDialog(line.Id, wordId);
             var merge = new MenuFlyoutItem { Text = "Merge words" };
             merge.IsEnabled = lineWordSel > 1;
             merge.Click += (_, _) => MergeSelectedWords(line.Id);
             var delWords = new MenuFlyoutItem
             {
-                Text = "Delete selected words",
+                Text = wordCount == 1 ? "Delete selected word" : $"Delete {wordCount} selected words",
                 KeyboardAcceleratorTextOverride = "Delete",
             };
             delWords.IsEnabled = wordCount > 0;
             delWords.Click += (_, _) => DeleteSelected();
-            var toNew = new MenuFlyoutItem { Text = "Move selected words to new line" };
+            var toNew = new MenuFlyoutItem
+            {
+                Text = wordCount == 1 ? "Move selected word to new line" : $"Move {wordCount} selected words to new line",
+            };
             toNew.IsEnabled = wordCount > 0;
             toNew.Click += (_, _) => MoveSelectedWordsToNewLine(line.Id);
             var following = new MenuFlyoutItem { Text = "Move this and following words to new line" };
@@ -1352,7 +1505,7 @@ namespace AmllTtmlTool.WinUI.Views
             items.Add(following);
             items.Add(new MenuFlyoutSeparator());
             foreach (var item in BuildLineMenuItems(
-                _store?.Document.Lines.IndexOf(line) ?? -1, line.Id))
+                _store.Document.Lines.IndexOf(line), line.Id))
                 items.Add(item);
             return items;
         }
@@ -1563,19 +1716,28 @@ namespace AmllTtmlTool.WinUI.Views
 
         internal void SelectLines(IEnumerable<int> indices)
         {
-            if (_store is null) return;
+            if (_store is null || _selection is null) return;
+            var ids = indices
+                .Where(i => i >= 0 && i < _store.Document.Lines.Count)
+                .Select(i => _store.Document.Lines[i].Id).ToList();
             LineList.SelectedItems.Clear();
-            foreach (var i in indices)
+            foreach (var id in ids)
             {
-                if (i >= 0 && i < _store.Document.Lines.Count)
-                    LineList.SelectedItems.Add(_store.Document.Lines[i]);
+                var line = _store.Document.Lines.FirstOrDefault(l => l.Id == id);
+                if (line is not null) LineList.SelectedItems.Add(line);
             }
+            // Converge the service NOW (ListView change events may arrive
+            // after the next hook reads the set; the event re-applies the
+            // same end-state idempotently when it lands).
+            _selection.SetLines(ids, LineOfWord);
         }
 
         internal void SelectAllLines()
         {
+            if (_store is null || _selection is null) return;
             CommitActiveBox();
             LineList.SelectAll();
+            _selection.SetLines(_store.Document.Lines.Select(l => l.Id), LineOfWord);
         }
 
         internal void ClearEditSelection()
@@ -1637,6 +1799,8 @@ namespace AmllTtmlTool.WinUI.Views
                 // take one anyway). Only the next Enter commits.
                 if (session.Composing) return;
                 CommitBoxIfDirty(box);
+                // Enter returns to SELECT: focus back on the line container.
+                FindListViewItem(box)?.Focus(FocusState.Programmatic);
                 e.Handled = true;
             }
             else if (e.Key == Windows.System.VirtualKey.Escape)
@@ -1648,6 +1812,8 @@ namespace AmllTtmlTool.WinUI.Views
                     session.LastSeenModel = model;
                 }
                 catch { }
+                // Esc returns to SELECT (reverted): focus back on the line.
+                FindListViewItem(box)?.Focus(FocusState.Programmatic);
                 e.Handled = true;
             }
         }
@@ -1655,26 +1821,53 @@ namespace AmllTtmlTool.WinUI.Views
         private void OnEditLostFocus(object sender, RoutedEventArgs e)
         {
             // Tab/Shift+Tab commit on the way out through this same path.
-            if (sender is TextBox box) CommitBoxIfDirty(box);
+            // Blur also returns space chips to their label (SELECT).
+            if (sender is TextBox box)
+            {
+                CommitBoxIfDirty(box);
+                if (box.Tag is string wordId && IsSpaceId(wordId))
+                    SyncSpaceVisual(wordId);
+            }
         }
+
+        // GotFocus delivery counter (test hook: proves the event reached the
+        // handler even when an inactive headless window routes focus oddly).
+        private int _gotFocusCount;
+        internal int Test_GotFocusCount() => _gotFocusCount;
 
         private void OnEditGotFocus(object sender, RoutedEventArgs e)
         {
-            // Focusing a box selects its line AND word; the ribbon Word
-            // group follows the focused word. List selection is set first
-            // (its change event selects the line), then the word.
+            // Focus moves the primary (the ribbon Word group follows the
+            // focused word) but NEVER the sets: clicks own the sets via
+            // PointerPressed, so multi-selections survive tabbing, exactly
+            // like the original (selection is click-driven). For pointer the
+            // press already selected; the anchor is then a no-op.
             if (sender is not TextBox box || _selection is null || _store is null) return;
+            _gotFocusCount++;
+            // Resolve by Tag first (always accurate, no visual-tree
+            // dependency); fall back to the container for line-field boxes.
+            if (box.Tag is string wordId && LineOfWord(wordId) is string lineId)
+            {
+                var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
+                if (line is null) return;
+                if (!LineList.SelectedItems.Contains(line))
+                    LineList.SelectedItems.Add(line);
+                _selection.AnchorWord(lineId, wordId);
+                // A space label can only be reached via its box: focusing it
+                // swaps in the editor (double-click/F2/Tab all land here).
+                if (IsSpaceId(wordId)) SyncSpaceVisual(wordId);
+                LineList.ScrollIntoView(line);
+                return;
+            }
             var container = FindListViewItem(box);
             if (container is null) return;
             var index = LineList.IndexFromContainer(container);
             if (index < 0 || index >= _store.Document.Lines.Count) return;
-            var line = _store.Document.Lines[index];
-            LineList.SelectedItem = line;
-            if (box.Tag is string wordId && line.Words.Any(w => w.Id == wordId))
-                _selection.SelectWord(line.Id, wordId);
-            else
-                _selection.SelectLine(line.Id);
-            LineList.ScrollIntoView(line);
+            var fieldLine = _store.Document.Lines[index];
+            if (!LineList.SelectedItems.Contains(fieldLine))
+                LineList.SelectedItems.Add(fieldLine);
+            _selection.AnchorLine(fieldLine.Id);
+            LineList.ScrollIntoView(fieldLine);
         }
 
         private EditLine? LineOf(TextBox box)
@@ -1816,8 +2009,20 @@ namespace AmllTtmlTool.WinUI.Views
                     deleteBtn.Click += OnDeleteButtonClick;
                 if (card.FindName("AddWordButton") is Button addWordBtn)
                     addWordBtn.Click += OnAddWordClick;
+                // Empty-area press selects the line (chips, boxes and
+                // buttons own theirs). The card + panel are Transparent
+                // (hit-testable) so number/badges/gaps/trailing all work.
+                card.AddHandler(UIElement.PointerPressedEvent,
+                    new PointerEventHandler(OnCardPointerPressed), true);
                 var flyout = new MenuFlyout();
-                flyout.Opening += (_, _) => RebuildLineMenu(flyout, card);
+                flyout.Opening += (_, _) =>
+                {
+                    // Right-click (or Shift+F10/Menu key) on an unselected
+                    // line selects it first; inside a multi-selection the
+                    // set is kept and the menu acts on all (original).
+                    EnsureLineSelectedForContext(card);
+                    RebuildLineMenu(flyout, card);
+                };
                 card.ContextFlyout = flyout;
             }
             // Rows snap to the current toggle state on realization;
@@ -2080,8 +2285,15 @@ namespace AmllTtmlTool.WinUI.Views
             return (root, pill);
         }
 
+        // Selected lines get an accent-tinted fill (theme resource: follows
+        // light/dark/high-contrast); keyboard focus stays a border ring, so
+        // selected vs focused never confuse.
         private static Brush? SelectedCardBrush =>
-            Application.Current.Resources.TryGetValue("ControlFillColorSecondaryBrush", out var v)
+            Application.Current.Resources.TryGetValue("AccentFillColorSecondaryBrush", out var v)
+            && v is Brush b ? b : null;
+
+        private static Brush? SelectedWordWashBrush =>
+            Application.Current.Resources.TryGetValue("AccentFillColorTertiaryBrush", out var v)
             && v is Brush b ? b : null;
 
         private static Brush? DefaultCardBrush =>
@@ -2112,6 +2324,42 @@ namespace AmllTtmlTool.WinUI.Views
                 if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
                 ApplySelectionVisual(container, selected.Contains(_store.Document.Lines[i].Id));
             }
+            ApplyWordSelectionVisualsNow();
+        }
+
+        // Selected words: accent outline + subtle accent wash on their own
+        // boxes (behind their text, so it stays crisp) — the original's
+        // outlined chips on a filled line. From theme resources throughout.
+        private void ApplyWordSelectionVisualsNow()
+        {
+            if (_store is null || _selection is null) return;
+            var selected = _selection.SelectedWordIds;
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                if (card.FindName("ChipPanel") is not LyricWrapPanel panel) continue;
+                var line = _store.Document.Lines[i];
+                foreach (var child in panel.Children)
+                {
+                    if (child is not Grid chip || chip.Tag is not string wordId) continue;
+                    if (!line.Words.Any(w => w.Id == wordId)) continue;
+                    var on = selected.Contains(wordId);
+                    if (chip.Children.Count >= 4 && chip.Children[3] is Border outline)
+                        outline.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                    Brush? wash = on ? SelectedWordWashBrush : null;
+                    if (chip.Children.Count >= 1 && chip.Children[0] is TextBox text)
+                    {
+                        if (wash is null) text.ClearValue(TextBox.BackgroundProperty);
+                        else text.Background = wash;
+                    }
+                    if (chip.Children.Count >= 2 && chip.Children[1] is TextBox roman)
+                    {
+                        if (wash is null) roman.ClearValue(TextBox.BackgroundProperty);
+                        else roman.Background = wash;
+                    }
+                }
+            }
         }
 
         private void ResetSelectionVisual(ListViewItem container) =>
@@ -2135,10 +2383,10 @@ namespace AmllTtmlTool.WinUI.Views
             Application.Current.Resources.TryGetValue("ChipRowSpacing", out var v)
             && v is double d ? d : 6;
 
-        // Word ids whose space label is temporarily swapped for the raw-text
-        // box while editing (double-click / Test hook). Commits and Esc
-        // remove the id again; refreshes never show the box otherwise.
-        private readonly HashSet<string> _editingSpaces = new(StringComparer.Ordinal);
+        private static bool IsShiftDown() =>
+            Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(
+                Windows.System.VirtualKey.Shift)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
         private Grid BuildChip(EditLine line, EditWord word, int index, int lineIndex)
         {
@@ -2154,7 +2402,6 @@ namespace AmllTtmlTool.WinUI.Views
             chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             var isSpace = IsSpaceWord(word);
-            var editingSpace = _editingSpaces.Contains(word.Id);
             // Spellcheck/prediction off: lyric text is often non-dictionary
             // (and CJK); predictions interfere with commit/IME flows and add
             // per-keystroke text-service cost. IME composition itself is
@@ -2204,7 +2451,12 @@ namespace AmllTtmlTool.WinUI.Views
                 IsHitTestVisible = false,
                 Tag = word.Id,
             };
-            var showLabel = isSpace && !editingSpace;
+            // SELECT state (unfocused box) shows the dim label for space
+            // words; EDIT state (focused box) shows the raw-text box. Boxes
+            // are always editable: the two states are focus location (item =
+            // select, box = edit), never a property toggle — so commit, IME,
+            // caret and undo paths stay byte-identical to Phase 3.
+            var showLabel = isSpace;
             text.Visibility = showLabel ? Visibility.Collapsed : Visibility.Visible;
             label.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;
             // The two boxes share the chip width (grid = max child width,
@@ -2233,31 +2485,51 @@ namespace AmllTtmlTool.WinUI.Views
             // (GotFocus covers keyboard focus; this covers pointer select.)
             chip.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnChipPointerPressed), true);
-            // Double-click a space label swaps in the raw-text box for
-            // editing (single click still selects via PointerPressed).
+            // Double-click enters EDIT (focuses the box); single click stays
+            // SELECT (PointerPressed selects + focuses the item, no caret).
             chip.DoubleTapped += (_, e) =>
             {
-                if (FindSpaceChip(e.OriginalSource) is Grid tapped
-                    && tapped.Tag is string tappedId
-                    && IsSpaceId(tappedId) && !IsCtrlDown())
-                    EnterSpaceEdit(tappedId);
+                if (IsCtrlDown() || IsShiftDown()) return;
+                var (tappedId, tappedRoman) = ChipFieldFromSource(e.OriginalSource);
+                if (tappedId is not null) EnterWordEdit(tappedId, tappedRoman);
             };
             chip.Children.Add(text);
             chip.Children.Add(roman);
             chip.Children.Add(label);
-            AttachWordMenu(chip, text, roman, line, wordId);
+            // Selected-word outline: accent border over the unit. The wash
+            // goes on the boxes' own Background (behind their text); the
+            // overlay carries the border only, so text stays crisp.
+            var selOutline = new Border
+            {
+                BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
+                BorderThickness = new Thickness(2),
+                CornerRadius = new CornerRadius(4),
+                Visibility = _selection?.SelectedWordIds.Contains(wordId) == true
+                    ? Visibility.Visible : Visibility.Collapsed,
+                IsHitTestVisible = false,
+            };
+            Grid.SetRowSpan(selOutline, 2);
+            chip.Children.Add(selOutline);
+            AttachWordMenu(chip, text, roman, line.Id, wordId);
             return chip;
         }
 
-        private static Grid? FindSpaceChip(object source)
+        // Resolves (wordId, romanField) from a DoubleTapped OriginalSource:
+        // a box gives its field, the space label (hit-transparent, so the
+        // source is the chip) gives the main field.
+        private static (string? WordId, bool Roman) ChipFieldFromSource(object source)
         {
             var current = source as DependencyObject;
             while (current is not null)
             {
-                if (current is Grid grid && grid.Tag is string) return grid;
+                if (current is TextBox box && box.Tag is string boxId)
+                    return (boxId, Grid.GetRow(box) == 1);
+                if (current is Grid grid && grid.Tag is string gridId)
+                    return (gridId, false);
                 current = VisualTreeHelper.GetParent(current);
             }
-            return null;
+            return (null, false);
         }
 
         private bool IsSpaceId(string wordId)
@@ -2271,21 +2543,70 @@ namespace AmllTtmlTool.WinUI.Views
             return false;
         }
 
-        // Swaps a space label for its raw-text box and focuses it (double-
-        // click path + Test hook). Selects the raw spaces so typing replaces
-        // the count; Esc reverts via the normal box session.
-        internal bool EnterSpaceEdit(string wordId)
+        // EDIT entry (double-click / F2 / Enter / Test hook): swaps a space
+        // label for its raw-text box if needed, focuses the box and selects
+        // its content. Selection is left alone (focus only anchors it).
+        internal bool EnterWordEdit(string wordId, bool roman)
         {
-            if (_store is null) return false;
-            _editingSpaces.Add(wordId);
+            if (_store is null || _selection is null) return false;
+            // Editing implies the primary (focus and ribbon follow the word
+            // being edited). Done here — not only in GotFocus — so the
+            // primary is deterministic even where focus-event routing is
+            // limited; GotFocus re-anchors identically for Tab users.
+            if (LineOfWord(wordId) is string lineId)
+            {
+                var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
+                if (line is not null && !LineList.SelectedItems.Contains(line))
+                    LineList.SelectedItems.Add(line);
+                _selection.AnchorWord(lineId, wordId);
+            }
             foreach (var chip in FindChips(wordId))
-                UpdateSpaceVisual(chip, showEditor: true);
-            var box = FindChipBoxById(wordId, roman: false);
+                ShowChipEditor(chip, roman);
+            var box = FindChipBoxById(wordId, roman);
             if (box is null) return false;
             box.Focus(FocusState.Programmatic);
             box.SelectionStart = 0;
             box.SelectionLength = box.Text.Length;
             return true;
+        }
+
+        // Drives the real GotFocus handler directly (same logic as keyboard
+        // Tab focus; Focus() event delivery itself is observed separately
+        // since inactive headless windows route focus state without events).
+        internal bool Test_AnchorBox(int line, int word, bool roman)
+        {
+            var box = FindChipBox(line, word, roman);
+            if (box is null) return false;
+            OnEditGotFocus(box, new RoutedEventArgs());
+            return true;
+        }
+
+        internal bool EnterSpaceEdit(string wordId) => EnterWordEdit(wordId, roman: false);
+
+        // SELECT return: focus back on the line container (no caret
+        // anywhere). Commit/revert themselves run through the normal box
+        // session before this is called.
+        internal void ExitWordEdit(string wordId)
+        {
+            foreach (var chip in FindChips(wordId))
+            {
+                var container = FindListViewItem(chip);
+                container?.Focus(FocusState.Programmatic);
+            }
+        }
+
+        // Shows the raw-text editor of one field (space-label swap for the
+        // main field; no-op for already-visible boxes).
+        private void ShowChipEditor(Grid chip, bool roman)
+        {
+            if (chip.Children.Count < 3) return;
+            if (roman) return;
+            if (chip.Children[0] is TextBox text
+                && chip.Children[2] is TextBlock label)
+            {
+                text.Visibility = Visibility.Visible;
+                label.Visibility = Visibility.Collapsed;
+            }
         }
 
         private List<Grid> FindChips(string wordId)
@@ -2312,27 +2633,22 @@ namespace AmllTtmlTool.WinUI.Views
             return null;
         }
 
-        // Applies label-vs-editor visibility for one chip. Editor shows only
-        // while explicitly editing; otherwise a space word shows its dim
-        // "Space xN" label. Non-space words always show the editor.
-        private void UpdateSpaceVisual(Grid chip, bool showEditor)
+        // Applies label-vs-editor visibility for one chip's word: the editor
+        // shows while its main box is focused (EDIT), otherwise a space word
+        // shows its dim "Space xN" label (SELECT). Non-space words always
+        // show the editor.
+        private void SyncSpaceVisual(string wordId)
         {
-            if (chip.Children.Count < 3) return;
-            if (chip.Children[0] is not TextBox text) return;
-            if (chip.Children[2] is not TextBlock label) return;
-            if (chip.Tag is not string wordId) return;
-            // Non-space words always edit; space words edit only while
-            // explicitly editing (the caller's wish is just a hint).
-            showEditor = !IsSpaceId(wordId) || _editingSpaces.Contains(wordId);
-            text.Visibility = showEditor ? Visibility.Visible : Visibility.Collapsed;
-            label.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
-        }
-
-        private void ExitSpaceEdit(string wordId)
-        {
-            _editingSpaces.Remove(wordId);
+            var focused = FocusManager.GetFocusedElement(XamlRoot) as TextBox;
             foreach (var chip in FindChips(wordId))
-                UpdateSpaceVisual(chip, showEditor: false);
+            {
+                if (chip.Children.Count < 3) continue;
+                if (chip.Children[0] is not TextBox text) continue;
+                if (chip.Children[2] is not TextBlock label) continue;
+                var showEditor = !IsSpaceId(wordId) || ReferenceEquals(focused, text);
+                text.Visibility = showEditor ? Visibility.Visible : Visibility.Collapsed;
+                label.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
+            }
         }
 
         private static bool IsCtrlDown() =>
@@ -2345,6 +2661,12 @@ namespace AmllTtmlTool.WinUI.Views
                 Windows.System.VirtualKey.Menu)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
+        // Chip gestures (SELECT state): single click selects; ctrl+click
+        // toggles; shift+click selects a range within the line (original).
+        // Focus goes to the line container — never the box — so no caret or
+        // text selection can appear: EDIT needs double-click/F2/Enter.
+        // Factored as WordPressGesture for the Test_ hook (same pipeline as
+        // real pointer input).
         private void OnChipPointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (sender is not Grid chip || chip.Tag is not string wordId) return;
@@ -2353,8 +2675,29 @@ namespace AmllTtmlTool.WinUI.Views
             if (container is null) return;
             var index = LineList.IndexFromContainer(container);
             if (index < 0 || index >= _store.Document.Lines.Count) return;
-            var line = _store.Document.Lines[index];
-            if (IsCtrlDown())
+            WordPressGesture(_store.Document.Lines[index], index, wordId,
+                IsCtrlDown(), IsShiftDown());
+            container.Focus(FocusState.Programmatic);
+            e.Handled = true;
+        }
+
+        internal bool Test_WordGesture(int line, int word, bool ctrl, bool shift)
+        {
+            if (_store is null || _selection is null) return false;
+            if (line < 0 || line >= _store.Document.Lines.Count) return false;
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return false;
+            CommitActiveBox();
+            WordPressGesture(docLine, line, docLine.Words[word].Id, ctrl, shift);
+            if (LineList.ContainerFromIndex(line) is ListViewItem container)
+                container.Focus(FocusState.Programmatic);
+            return true;
+        }
+
+        private void WordPressGesture(EditLine line, int index, string wordId, bool ctrl, bool shift)
+        {
+            if (_selection is null) return;
+            if (ctrl && !shift)
             {
                 // Multi-select: toggle the word, keep the line selected.
                 if (!LineList.SelectedItems.Contains(line))
@@ -2362,12 +2705,254 @@ namespace AmllTtmlTool.WinUI.Views
                 _selection.ToggleWord(line.Id, wordId);
                 _selection.RetainWords(LineOfWord);
             }
+            else if (shift)
+            {
+                // Range within this line over the already-selected words of
+                // the line plus the clicked index (original); lines untouched.
+                if (!LineList.SelectedItems.Contains(line))
+                    LineList.SelectedItems.Add(line);
+                var order = line.Words.ToList();
+                var clicked = order.FindIndex(w => w.Id == wordId);
+                if (clicked < 0) return;
+                var bounds = order
+                    .Select((w, i) => (w, i))
+                    .Where(t => _selection.SelectedWordIds.Contains(t.w.Id))
+                    .Select(t => t.i).ToList();
+                bounds.Add(clicked);
+                var range = order.Skip(bounds.Min()).Take(bounds.Max() - bounds.Min() + 1)
+                    .Select(w => w.Id);
+                _selection.SelectWordRange(line.Id, range, wordId);
+            }
             else
             {
                 LineList.SelectedItem = line;
                 _selection.SelectWord(line.Id, wordId);
             }
-            e.Handled = true;
+        }
+
+        // Primary indices ("lineIdx,wordIdx", -1 when none) for the hooks.
+        internal string Test_Primary()
+        {
+            if (_store is null || _selection is null) return "nostore";
+            var lines = _store.Document.Lines.ToList();
+            var li = _selection.SelectedLineId is string lid
+                ? lines.FindIndex(l => l.Id == lid) : -1;
+            var wi = -1;
+            if (li >= 0 && _selection.SelectedWordId is string wid)
+                wi = lines[li].Words.ToList().FindIndex(w => w.Id == wid);
+            return $"{li},{wi}";
+        }
+
+        // Selected words as "lineIdx:wordIdx,..." in document order.
+        internal string Test_SelectedWordIdx()
+        {
+            if (_store is null || _selection is null) return "nostore";
+            var parts = new List<string>();
+            var lines = _store.Document.Lines.ToList();
+            for (var li = 0; li < lines.Count; li++)
+                for (var wi = 0; wi < lines[li].Words.Count; wi++)
+                    if (_selection.SelectedWordIds.Contains(lines[li].Words[wi].Id))
+                        parts.Add($"{li}:{wi}");
+            return string.Join(",", parts);
+        }
+
+        // Realized chips showing the selection outline, "lineIdx:wordIdx".
+        internal string Test_WordIndicated()
+        {
+            if (_store is null) return "nostore";
+            var parts = new List<string>();
+            var lines = _store.Document.Lines.ToList();
+            for (var li = 0; li < lines.Count; li++)
+            {
+                if (LineList.ContainerFromIndex(li) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                if (card.FindName("ChipPanel") is not LyricWrapPanel panel) continue;
+                for (var wi = 0; wi < lines[li].Words.Count; wi++)
+                {
+                    var wordId = lines[li].Words[wi].Id;
+                    foreach (var child in panel.Children)
+                    {
+                        if (child is Grid chip && chip.Tag is string tag && tag == wordId
+                            && chip.Children.Count >= 4 && chip.Children[3] is Border outline
+                            && outline.Visibility == Visibility.Visible)
+                            parts.Add($"{li}:{wi}");
+                    }
+                }
+            }
+            return string.Join(",", parts);
+        }
+
+        // Which fill a realized card shows ("selected"/"default").
+        internal string Test_LineFill(int line)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            var (root, _) = FindCardChrome(container);
+            if (root?.Background is null) return "nobg";
+            return ReferenceEquals(root.Background, SelectedCardBrush) ? "selected"
+                : ReferenceEquals(root.Background, DefaultCardBrush) ? "default"
+                : "other";
+        }
+
+        // Outline state of one chip ("shown"/"hidden"/"nochip").
+        internal string Test_ChipOutline(int line, int word)
+        {
+            if (_store is null) return "nostore";
+            if (line < 0 || line >= _store.Document.Lines.Count) return "noline";
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return "noword";
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            var wordId = docLine.Words[word].Id;
+            foreach (var child in panel.Children)
+                if (child is Grid chip && chip.Tag is string tag && tag == wordId
+                    && chip.Children.Count >= 4 && chip.Children[3] is Border outline)
+                    return outline.Visibility == Visibility.Visible ? "shown" : "hidden";
+            return "nochip";
+        }
+
+        // Edit-state probe: where focus sits ("chipbox li:wi:M/R",
+        // "linebox li:T/R", "item li", "box", "none").
+        internal string Test_FocusState()
+        {
+            var focused = FocusManager.GetFocusedElement(XamlRoot);
+            if (focused is TextBox box)
+            {
+                if (box.Tag is string wordId && _store is not null)
+                {
+                    var lines = _store.Document.Lines.ToList();
+                    for (var li = 0; li < lines.Count; li++)
+                    {
+                        var wi = lines[li].Words.ToList().FindIndex(w => w.Id == wordId);
+                        if (wi >= 0)
+                            return $"chipbox {li}:{wi}:{(Grid.GetRow(box) == 1 ? "R" : "M")}";
+                    }
+                }
+                if (FindListViewItem(box) is ListViewItem container)
+                {
+                    var li = LineList.IndexFromContainer(container);
+                    return $"linebox {li}";
+                }
+                return "box";
+            }
+            if (focused is ListViewItem item)
+                return $"item {LineList.IndexFromContainer(item)}";
+            return "none";
+        }
+
+        internal bool Test_EnterWordEdit(int line, int word, bool roman)
+        {
+            if (_store is null) return false;
+            if (line < 0 || line >= _store.Document.Lines.Count) return false;
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return false;
+            return EnterWordEdit(docLine.Words[word].Id, roman);
+        }
+
+
+
+        // Right-click simulation (hook): runs the same select-first +
+        // menu-build as the ContextFlyout Opening handler. Zones cover the
+        // six line-card positions (all share the card handler; the zone is
+        // recorded for coverage): 0 number, 1 chip gap, 2 trailing area,
+        // 3 badges, 4 next to X, 5 card edge.
+        internal string Test_LineContext(int line, int zone)
+        {
+            if (_store is null || _selection is null) return "nostore";
+            if (line < 0 || line >= _store.Document.Lines.Count) return "noline";
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            EnsureLineSelectedForContext(card);
+            var selIdx = _store.Document.Lines
+                .Select((l, i) => (l, i))
+                .Where(t => _selection.SelectedLineIds.Contains(t.l.Id))
+                .Select(t => t.i);
+            var labels = BuildLineMenuItems(line, _store.Document.Lines[line].Id)
+                .OfType<MenuFlyoutItem>().Select(i => i.Text);
+            return $"zone:{zone};sel:{string.Join(",", selIdx)};items:{string.Join("|", labels)}";
+        }
+
+        internal string Test_WordContext(int line, int word)
+        {
+            if (_store is null || _selection is null) return "nostore";
+            if (line < 0 || line >= _store.Document.Lines.Count) return "noline";
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return "noword";
+            var lineId = docLine.Id;
+            var wordId = docLine.Words[word].Id;
+            EnsureWordSelectedForContext(lineId, wordId);
+            var selW = Test_SelectedWordIdx();
+            var labels = BuildWordMenuItems(lineId, wordId)
+                .OfType<MenuFlyoutItem>().Select(i => i.Text);
+            return $"sel:{selW};items:{string.Join("|", labels)}";
+        }
+
+        // Hit-testability: Transparent (not null) backgrounds on the card
+        // root and the chip panel, so number/gaps/trailing/badges all open
+        // the line menu ("card:1;panel:1").
+        internal string Test_CardHittestable(int line)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            var cardHit = card.Background is not null ? 1 : 0;
+            var panelHit = card.FindName("ChipPanel") is LyricWrapPanel panel
+                && panel.Background is not null ? 1 : 0;
+            return $"card:{cardHit};panel:{panelHit}";
+        }
+
+        // Line gestures for the hook (the real path is native ListView
+        // Extended selection through SelectionChanged; same pipeline).
+        internal bool Test_LineGesture(int index, bool ctrl, bool shift)
+        {
+            if (_store is null || _selection is null) return false;
+            if (index < 0 || index >= _store.Document.Lines.Count) return false;
+            CommitActiveBox();
+            var line = _store.Document.Lines[index];
+            if (!ctrl && !shift)
+            {
+                LineList.SelectedItem = line;
+                _selection.PinLine(line.Id, LineOfWord);
+            }
+            else if (ctrl)
+            {
+                if (LineList.SelectedItems.Contains(line))
+                    LineList.SelectedItems.Remove(line);
+                else
+                    LineList.SelectedItems.Add(line);
+                // Converge now (see SelectLines: the event repeats this).
+                _selection.ToggleLine(line.Id);
+                _selection.RetainWords(LineOfWord);
+            }
+            else
+            {
+                var anchor = _selection.SelectedLineId is string aid
+                    ? _store.Document.Lines.ToList().FindIndex(l => l.Id == aid)
+                    : -1;
+                if (anchor < 0)
+                {
+                    LineList.SelectedItem = line;
+                    _selection.PinLine(line.Id, LineOfWord);
+                    if (LineList.ContainerFromIndex(index) is ListViewItem container0)
+                        container0.Focus(FocusState.Programmatic);
+                    return true;
+                }
+                var lo = Math.Min(anchor, index);
+                var hi = Math.Max(anchor, index);
+                var added = new List<string>();
+                for (var i = lo; i <= hi; i++)
+                {
+                    if (!LineList.SelectedItems.Contains(_store.Document.Lines[i]))
+                    {
+                        LineList.SelectedItems.Add(_store.Document.Lines[i]);
+                        added.Add(_store.Document.Lines[i].Id);
+                    }
+                }
+                if (added.Count > 0)
+                    _selection.AddLines(added, line.Id, LineOfWord);
+            }
+            if (LineList.ContainerFromIndex(index) is ListViewItem container)
+                container.Focus(FocusState.Programmatic);
+            return true;
         }
 
         private string? LineOfWord(string wordId) =>
@@ -2404,7 +2989,9 @@ namespace AmllTtmlTool.WinUI.Views
             }
             if (key == Windows.System.VirtualKey.Escape)
             {
-                _selection.Clear();
+                // Clear both (the service alone would leave a stale
+                // ListView selection behind for multi-ops to trip on).
+                ClearEditSelection();
                 return true;
             }
             if (key == Windows.System.VirtualKey.D && ctrl)
@@ -2429,10 +3016,39 @@ namespace AmllTtmlTool.WinUI.Views
             if ((key == Windows.System.VirtualKey.Up
                 || key == Windows.System.VirtualKey.Down) && alt)
             {
-                MovePrimaryLine(key == Windows.System.VirtualKey.Up ? -1 : 1);
+                MoveSelectedLines(key == Windows.System.VirtualKey.Up ? -1 : 1);
                 return true;
             }
+            // F2 / Enter enter EDIT on the primary word (double-click path
+            // for the keyboard; original has no keyboard edit-entry, so F2
+            // — free, since the original binds Ctrl+F2 — is the port key).
+            // Enter must not steal button activation (focused Add/Delete
+            // buttons keep their default Enter-to-click).
+            if (key == Windows.System.VirtualKey.F2)
+            {
+                return EnterPrimaryWordEdit();
+            }
+            if (key == Windows.System.VirtualKey.Enter
+                && FocusManager.GetFocusedElement(XamlRoot) is not Button)
+            {
+                return EnterPrimaryWordEdit();
+            }
             return false;
+        }
+
+        // Focuses the primary word's box for editing (primary line's first
+        // word when only lines are selected). Selection is left alone.
+        internal bool EnterPrimaryWordEdit()
+        {
+            if (_store is null || _selection is null) return false;
+            var lines = _store.Document.Lines;
+            var lineIdx = lines.ToList().FindIndex(l => l.Id == _selection.SelectedLineId);
+            if (lineIdx < 0) return false;
+            var line = lines[lineIdx];
+            if (line.Words.Count == 0) return false;
+            var wordIdx = line.Words.ToList().FindIndex(w => w.Id == _selection.SelectedWordId);
+            if (wordIdx < 0) wordIdx = 0;
+            return EnterWordEdit(line.Words[wordIdx].Id, roman: false);
         }
 
         // --- structure ops (each Execute = one history step) ----------------
@@ -2456,7 +3072,7 @@ namespace AmllTtmlTool.WinUI.Views
                 }
                 if (cmds.Count > 0)
                     _store.Execute(new CompositeCommand("Remove words", cmds));
-                _selection.Clear();
+                ClearEditSelection();
                 return;
             }
             var lineIds = _selection.SelectedLineIds.ToList();
@@ -2465,7 +3081,7 @@ namespace AmllTtmlTool.WinUI.Views
                 .Select((l, i) => (l, i)).Where(t => lineIds.Contains(t.l.Id))
                 .Select(t => t.i).DefaultIfEmpty(0).Min();
             _store.Execute(new RemoveLinesCommand(lineIds));
-            _selection.Clear();
+            ClearEditSelection();
             // Selection moves to the neighboring line.
             var neighbor = Math.Min(firstIndex, _store.Document.Lines.Count - 1);
             if (neighbor >= 0) LineList.SelectedItem = _store.Document.Lines[neighbor];
@@ -2480,7 +3096,7 @@ namespace AmllTtmlTool.WinUI.Views
             var ids = _selection.SelectedLineIds.Contains(id)
                 ? _selection.SelectedLineIds.ToList() : new List<string> { id };
             _store.Execute(new RemoveLinesCommand(ids));
-            _selection.Clear();
+            ClearEditSelection();
             var neighbor = Math.Min(index, _store.Document.Lines.Count - 1);
             if (neighbor >= 0) LineList.SelectedItem = _store.Document.Lines[neighbor];
         }
@@ -2531,18 +3147,45 @@ namespace AmllTtmlTool.WinUI.Views
             _store.Execute(new DuplicateLinesCommand(ids));
         }
 
-        internal void MovePrimaryLine(int delta)
+        internal void MovePrimaryLine(int delta) => MoveSelectedLines(delta);
+
+        // Moves the whole selected block (one undo step). Single selection
+        // behaves exactly like the old primary-only move. Sequential moves
+        // in a safe order (top-first up, bottom-first down) keep precomputed
+        // targets valid: removing a line shifts its followers back, and its
+        // own insert shifts them forward again (net same index).
+        internal void MoveSelectedLines(int delta)
         {
             if (_store is null || _selection is null) return;
-            if (_selection.SelectedLineId is not string id) return;
+            if (delta != -1 && delta != 1) return;
             CommitActiveBox();
-            var lines = _store.Document.Lines;
-            var at = lines.ToList().FindIndex(l => l.Id == id);
-            if (at < 0) return;
-            var to = Math.Clamp(at + delta, 0, lines.Count - 1);
-            if (to == at) return;
-            _store.Execute(new MoveLineCommand(id, to));
-            LineList.ScrollIntoView(lines[to]);
+            var lines = _store.Document.Lines.ToList();
+            var idx = lines
+                .Select((l, i) => (l, i))
+                .Where(t => _selection.SelectedLineIds.Contains(t.l.Id))
+                .Select(t => t.i).OrderBy(i => i).ToList();
+            if (idx.Count == 0) return;
+            if (delta < 0 && idx[0] == 0) return;
+            if (delta > 0 && idx[^1] == lines.Count - 1) return;
+            if (idx.Count == 1)
+            {
+                var id = lines[idx[0]].Id;
+                var to = Math.Clamp(idx[0] + delta, 0, lines.Count - 1);
+                if (to == idx[0]) return;
+                _store.Execute(new MoveLineCommand(id, to));
+                LineList.ScrollIntoView(_store.Document.Lines[to]);
+                return;
+            }
+            var order = delta < 0 ? idx : idx.AsEnumerable().Reverse().ToList();
+            var cmds = order
+                .Select(i => (ILyricCommand)new MoveLineCommand(lines[i].Id, i + delta))
+                .ToList();
+            _store.Execute(new CompositeCommand("Move lines", cmds));
+            if (_selection.SelectedLineId is string primary)
+            {
+                var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == primary);
+                if (at >= 0) LineList.ScrollIntoView(_store.Document.Lines[at]);
+            }
         }
 
         internal bool CombineSelectedLines()
@@ -2634,6 +3277,8 @@ namespace AmllTtmlTool.WinUI.Views
             var word = EditWord.New();
             word.Text = text;
             _store.Execute(new AddWordCommand(lineId, line.Words.Count, word));
+            // Pair the ListView (see CommitInsertBox: no phantom lines).
+            LineList.SelectedItem = line;
             _selection.SelectWord(lineId, word.Id);
         }
 

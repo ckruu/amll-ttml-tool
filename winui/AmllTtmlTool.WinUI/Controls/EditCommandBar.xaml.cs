@@ -15,6 +15,7 @@ namespace AmllTtmlTool.WinUI.Controls
 
         private SelectionService? _selection;
         private LyricStore? _store;
+        private LyricViewStateService? _viewState;
 
         // Shared by both end fields (original showEndTimeAsDurationAtom).
         private bool _durationMode;
@@ -23,14 +24,17 @@ namespace AmllTtmlTool.WinUI.Controls
         private readonly HashSet<TextBox> _placeholderBoxes = new();
         private Brush? _errorBrush;
 
-        public void BindSelection(SelectionService selection, LyricStore store)
+        public void BindSelection(SelectionService selection, LyricStore store, LyricViewStateService viewState)
         {
             if (_selection is not null) _selection.Changed -= RefreshSelectionDisplay;
             if (_store is not null) _store.Changed -= RefreshSelectionDisplay;
+            if (_viewState is not null) _viewState.Changed -= OnViewStateChanged;
             _selection = selection;
             _store = store;
+            _viewState = viewState;
             _selection.Changed += RefreshSelectionDisplay;
             _store.Changed += RefreshSelectionDisplay;
+            _viewState.Changed += OnViewStateChanged;
             WireField(LineStartBox);
             WireField(LineEndBox);
             WireField(WordStartBox);
@@ -40,6 +44,7 @@ namespace AmllTtmlTool.WinUI.Controls
             WireField(EmptyBeatBox);
             WireField(TransBox);
             WireField(RomanBox);
+            ApplyWordRomanVisibility();
             RefreshSelectionDisplay();
         }
 
@@ -105,6 +110,23 @@ namespace AmllTtmlTool.WinUI.Controls
             }
         }
 
+        private void OnViewStateChanged()
+        {
+            if (DispatcherQueue.HasThreadAccess) { ApplyWordRomanVisibility(); RefreshSelectionDisplay(); }
+            else DispatcherQueue.TryEnqueue(() => { ApplyWordRomanVisibility(); RefreshSelectionDisplay(); });
+        }
+
+        // The Roman field is Collapsed (no gap) whenever the per-word
+        // romanization toggle is off; Beats stays. Beats shares Roman's
+        // columns, so they keep Beats' width and nothing shifts.
+        private void ApplyWordRomanVisibility()
+        {
+            var show = _viewState?.ShowWordRomanization ?? true;
+            var visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            WordRomanLabel.Visibility = visibility;
+            WordRomanBox.Visibility = visibility;
+        }
+
         private (EditLine? Line, EditWord? Word) Targets()
         {
             EditLine? line = null;
@@ -127,45 +149,142 @@ namespace AmllTtmlTool.WinUI.Controls
             catch (InvalidOperationException) { }
         }
 
+        // Multi-selection targets in document order (the original writes
+        // every selected line/word from one field edit, one history step).
+        private List<EditLine> SelectedLines()
+        {
+            if (_store is null || _selection is null) return new List<EditLine>();
+            return _store.Document.Lines
+                .Where(l => _selection.SelectedLineIds.Contains(l.Id)).ToList();
+        }
+
+        private List<(EditLine Line, EditWord Word)> SelectedWords()
+        {
+            if (_store is null || _selection is null) return new List<(EditLine, EditWord)>();
+            var wanted = _selection.SelectedWordIds;
+            var found = new List<(EditLine, EditWord)>();
+            foreach (var line in _store.Document.Lines)
+                foreach (var word in line.Words)
+                    if (wanted.Contains(word.Id)) found.Add((line, word));
+            return found;
+        }
+
+        // One Execute for any batch (single direct command when exactly one
+        // target differs, so single-selection history is byte-identical).
+        private void ExecuteBatch(string description, List<ILyricCommand> cmds)
+        {
+            if (_store is null || cmds.Count == 0) return;
+            _store.Execute(cmds.Count == 1 ? cmds[0]
+                : new CompositeCommand(description, cmds));
+        }
+
         private void CommitFieldCore(TextBox box)
         {
             var (line, word) = Targets();
             var raw = box.Text;
             if (box == LineStartBox && line is not null)
-                CommitTime(raw, v => new SetLineTimesCommand(line.Id, v, line.EndTimeMs),
-                    box, LyricTime.Format(line.StartTimeMs));
+            {
+                var lines = SelectedLines();
+                if (lines.Count <= 1)
+                {
+                    CommitTime(raw, v => new SetLineTimesCommand(line.Id, v, line.EndTimeMs),
+                        box, LyricTime.Format(line.StartTimeMs));
+                    return;
+                }
+                int parsed;
+                try { parsed = LyricTime.Parse(raw.Trim()); }
+                catch (FormatException) { FlagInvalid(box, LyricTime.Format(line.StartTimeMs)); return; }
+                ExecuteBatch("Set line start",
+                    lines.Where(l => parsed != l.StartTimeMs)
+                        .Select(l => (ILyricCommand)new SetLineTimesCommand(l.Id, parsed, l.EndTimeMs)).ToList());
+            }
             else if (box == LineEndBox && line is not null)
                 CommitEnd(line: true, raw, line, word: null, box);
             else if (box == WordStartBox && line is not null && word is not null)
-                CommitTime(raw, v => new SetWordTimesCommand(line.Id, word.Id, v, word.EndTimeMs),
-                    box, LyricTime.Format(word.StartTimeMs));
+            {
+                var words = SelectedWords();
+                if (words.Count <= 1)
+                {
+                    CommitTime(raw, v => new SetWordTimesCommand(line.Id, word.Id, v, word.EndTimeMs),
+                        box, LyricTime.Format(word.StartTimeMs));
+                    return;
+                }
+                int parsed;
+                try { parsed = LyricTime.Parse(raw.Trim()); }
+                catch (FormatException) { FlagInvalid(box, LyricTime.Format(word.StartTimeMs)); return; }
+                ExecuteBatch("Set word start",
+                    words.Where(t => parsed != t.Word.StartTimeMs)
+                        .Select(t => (ILyricCommand)new SetWordTimesCommand(
+                            t.Line.Id, t.Word.Id, parsed, t.Word.EndTimeMs)).ToList());
+            }
             else if (box == WordEndBox && line is not null && word is not null)
                 CommitEnd(line: false, raw, line, word, box);
             else if (box == WordContentBox && line is not null && word is not null)
             {
-                if (raw != word.Text)
-                    _store.Execute(new SetWordTextCommand(line.Id, word.Id, raw));
+                var words = SelectedWords();
+                if (words.Count <= 1)
+                {
+                    if (raw != word.Text)
+                        _store.Execute(new SetWordTextCommand(line.Id, word.Id, raw));
+                    return;
+                }
+                ExecuteBatch("Set word text",
+                    words.Where(t => raw != t.Word.Text)
+                        .Select(t => (ILyricCommand)new SetWordTextCommand(t.Line.Id, t.Word.Id, raw)).ToList());
             }
             else if (box == WordRomanBox && line is not null && word is not null)
             {
-                if (raw != word.RomanWord)
-                    _store.Execute(new SetWordRomanCommand(line.Id, word.Id, raw));
+                var words = SelectedWords();
+                if (words.Count <= 1)
+                {
+                    if (raw != word.RomanWord)
+                        _store.Execute(new SetWordRomanCommand(line.Id, word.Id, raw));
+                    return;
+                }
+                ExecuteBatch("Set word romanization",
+                    words.Where(t => raw != t.Word.RomanWord)
+                        .Select(t => (ILyricCommand)new SetWordRomanCommand(t.Line.Id, t.Word.Id, raw)).ToList());
             }
             else if (box == EmptyBeatBox && line is not null && word is not null)
             {
                 var parsed = int.TryParse(raw.Trim(), out var n) ? n : 0;
-                if (parsed != word.EmptyBeat)
-                    _store.Execute(new SetWordFlagsCommand(line.Id, word.Id, emptyBeat: parsed));
+                var words = SelectedWords();
+                if (words.Count <= 1)
+                {
+                    if (parsed != word.EmptyBeat)
+                        _store.Execute(new SetWordFlagsCommand(line.Id, word.Id, emptyBeat: parsed));
+                    return;
+                }
+                ExecuteBatch("Set empty beat",
+                    words.Where(t => parsed != t.Word.EmptyBeat)
+                        .Select(t => (ILyricCommand)new SetWordFlagsCommand(
+                            t.Line.Id, t.Word.Id, emptyBeat: parsed)).ToList());
             }
             else if (box == TransBox && line is not null)
             {
-                if (raw != line.TranslatedLyric)
-                    _store.Execute(new SetTranslationCommand(line.Id, raw));
+                var lines = SelectedLines();
+                if (lines.Count <= 1)
+                {
+                    if (raw != line.TranslatedLyric)
+                        _store.Execute(new SetTranslationCommand(line.Id, raw));
+                    return;
+                }
+                ExecuteBatch("Set translation",
+                    lines.Where(l => raw != l.TranslatedLyric)
+                        .Select(l => (ILyricCommand)new SetTranslationCommand(l.Id, raw)).ToList());
             }
             else if (box == RomanBox && line is not null)
             {
-                if (raw != line.RomanLyric)
-                    _store.Execute(new SetRomanizationCommand(line.Id, raw));
+                var lines = SelectedLines();
+                if (lines.Count <= 1)
+                {
+                    if (raw != line.RomanLyric)
+                        _store.Execute(new SetRomanizationCommand(line.Id, raw));
+                    return;
+                }
+                ExecuteBatch("Set romanization",
+                    lines.Where(l => raw != l.RomanLyric)
+                        .Select(l => (ILyricCommand)new SetRomanizationCommand(l.Id, raw)).ToList());
             }
         }
 
@@ -186,10 +305,42 @@ namespace AmllTtmlTool.WinUI.Controls
             if (_store is null) return;
             if (!_durationMode)
             {
-                if (line) CommitTime(raw, v => new SetLineTimesCommand(editLine.Id, editLine.StartTimeMs, v),
-                    box, LyricTime.Format(editLine.EndTimeMs));
-                else if (word is not null) CommitTime(raw, v => new SetWordTimesCommand(editLine.Id, word.Id, word.StartTimeMs, v),
-                    box, LyricTime.Format(word.EndTimeMs));
+                if (line)
+                {
+                    var lines = SelectedLines();
+                    if (lines.Count <= 1)
+                    {
+                        CommitTime(raw, v => new SetLineTimesCommand(editLine.Id, editLine.StartTimeMs, v),
+                            box, LyricTime.Format(editLine.EndTimeMs));
+                        return;
+                    }
+                    int parsedLine;
+                    try { parsedLine = LyricTime.Parse(raw.Trim()); }
+                    catch (FormatException) { FlagInvalid(box, LyricTime.Format(editLine.EndTimeMs)); return; }
+                    ExecuteBatch("Set line end",
+                        lines.Where(l => parsedLine != l.EndTimeMs)
+                            .Select(l => (ILyricCommand)new SetLineTimesCommand(
+                                l.Id, l.StartTimeMs, parsedLine)).ToList());
+                    return;
+                }
+                if (word is not null)
+                {
+                    var words = SelectedWords();
+                    if (words.Count <= 1)
+                    {
+                        CommitTime(raw, v => new SetWordTimesCommand(editLine.Id, word.Id, word.StartTimeMs, v),
+                            box, LyricTime.Format(word.EndTimeMs));
+                        return;
+                    }
+                    int parsedAbs;
+                    try { parsedAbs = LyricTime.Parse(raw.Trim()); }
+                    catch (FormatException) { FlagInvalid(box, LyricTime.Format(word.EndTimeMs)); return; }
+                    ExecuteBatch("Set word end",
+                        words.Where(t => parsedAbs != t.Word.EndTimeMs)
+                            .Select(t => (ILyricCommand)new SetWordTimesCommand(
+                                t.Line.Id, t.Word.Id, t.Word.StartTimeMs, parsedAbs)).ToList());
+                    return;
+                }
                 return;
             }
             var trimmed = raw.Trim();
@@ -201,30 +352,63 @@ namespace AmllTtmlTool.WinUI.Controls
             var delta = (int)parsed;
             if (line)
             {
-                var newEndRaw = isDelta ? editLine.EndTimeMs + delta : editLine.StartTimeMs + delta;
-                _store.Execute(new SetLineTimesCommand(editLine.Id, editLine.StartTimeMs,
-                    Math.Max(editLine.StartTimeMs, newEndRaw)));
+                var lines = SelectedLines();
+                if (lines.Count <= 1)
+                {
+                    var newEndRaw = isDelta ? editLine.EndTimeMs + delta : editLine.StartTimeMs + delta;
+                    _store.Execute(new SetLineTimesCommand(editLine.Id, editLine.StartTimeMs,
+                        Math.Max(editLine.StartTimeMs, newEndRaw)));
+                    return;
+                }
+                ExecuteBatch("Set line end", lines.Select(l =>
+                {
+                    var rawEnd = isDelta ? l.EndTimeMs + delta : l.StartTimeMs + delta;
+                    return (ILyricCommand)new SetLineTimesCommand(l.Id, l.StartTimeMs,
+                        Math.Max(l.StartTimeMs, rawEnd));
+                }).ToList());
             }
             else if (word is not null)
             {
-                var newEndRaw = isDelta ? word.EndTimeMs + delta : word.StartTimeMs + delta;
-                var newEnd = Math.Max(word.StartTimeMs, newEndRaw);
-                var cmds = new List<ILyricCommand>
-                    { new SetWordTimesCommand(editLine.Id, word.Id, word.StartTimeMs, newEnd) };
-                if (isDelta)
+                var words = SelectedWords();
+                if (words.Count <= 1)
                 {
-                    var at = editLine.Words.ToList().FindIndex(w => w.Id == word.Id);
-                    if (at >= 0 && at + 1 < editLine.Words.Count)
-                    {
-                        var next = editLine.Words[at + 1];
-                        var nextSelected = _selection?.SelectedWordIds.Contains(next.Id) == true;
-                        if (word.EndTimeMs == next.StartTimeMs
-                            && (newEnd <= next.EndTimeMs || nextSelected))
-                            cmds.Add(new SetWordTimesCommand(editLine.Id, next.Id, newEnd, next.EndTimeMs));
-                    }
+                    CommitWordEndDuration(editLine, word, delta, isDelta);
+                    return;
                 }
-                _store.Execute(cmds.Count == 1 ? cmds[0]
-                    : new CompositeCommand("Set word end", cmds));
+                var cmds = new List<ILyricCommand>();
+                foreach (var (ln, w) in words)
+                    CollectWordEndDuration(cmds, ln, w, delta, isDelta);
+                ExecuteBatch("Set word end", cmds);
+            }
+        }
+
+        // Duration-mode end edit for one word (+ optional abutting-next push,
+        // original): factored so multi-selection reuses it per word.
+        private void CommitWordEndDuration(EditLine editLine, EditWord word, int delta, bool isDelta)
+        {
+            if (_store is null) return;
+            var cmds = new List<ILyricCommand>();
+            CollectWordEndDuration(cmds, editLine, word, delta, isDelta);
+            ExecuteBatch("Set word end", cmds);
+        }
+
+        private void CollectWordEndDuration(
+            List<ILyricCommand> cmds, EditLine editLine, EditWord word, int delta, bool isDelta)
+        {
+            var newEndRaw = isDelta ? word.EndTimeMs + delta : word.StartTimeMs + delta;
+            var newEnd = Math.Max(word.StartTimeMs, newEndRaw);
+            cmds.Add(new SetWordTimesCommand(editLine.Id, word.Id, word.StartTimeMs, newEnd));
+            if (isDelta)
+            {
+                var at = editLine.Words.ToList().FindIndex(w => w.Id == word.Id);
+                if (at >= 0 && at + 1 < editLine.Words.Count)
+                {
+                    var next = editLine.Words[at + 1];
+                    var nextSelected = _selection?.SelectedWordIds.Contains(next.Id) == true;
+                    if (word.EndTimeMs == next.StartTimeMs
+                        && (newEnd <= next.EndTimeMs || nextSelected))
+                        cmds.Add(new SetWordTimesCommand(editLine.Id, next.Id, newEnd, next.EndTimeMs));
+                }
             }
         }
 
@@ -276,6 +460,17 @@ namespace AmllTtmlTool.WinUI.Controls
             MarkRange(LineStartBox, LineEndBox, line?.StartTimeMs, line?.EndTimeMs, hasLine);
             MarkRange(WordStartBox, WordEndBox, word?.StartTimeMs, word?.EndTimeMs, hasWord);
             SetMultiPlaceholder();
+            // Group caption: selection count while several words share the
+            // section ("3 selected"); hidden otherwise (column zeroed so no
+            // leftover space — the Tight tier additionally forces it off).
+            var wordCount = _selection?.SelectedWordIds.Count ?? 0;
+            var showCaption = wordCount > 1;
+            WordCountCaption.Text = $"{wordCount} selected";
+            WordCountCaption.Visibility = showCaption ? Visibility.Visible : Visibility.Collapsed;
+            if (WordGroup.ColumnDefinitions.Count > 6)
+                WordGroup.ColumnDefinitions[6].Width = showCaption
+                    ? new GridLength(1, GridUnitType.Auto)
+                    : new GridLength(0);
         }
 
         private string MultipleOr(EditLine? line, Func<EditLine, string> pick)
@@ -299,14 +494,31 @@ namespace AmllTtmlTool.WinUI.Controls
             if (box.Text != text) box.Text = text;
         }
 
-        // Multi-select with differing values: blank + placeholder, like the
-        // original's 多个值.... Single selection clears the placeholders.
+        // Multi-select with differing values: blank + short placeholder (the
+        // full "Multiple values..." clipped in 80-100px boxes), with the full
+        // wording as tooltip, like the original's 多个值.... Single selection
+        // clears placeholders and tooltips.
         private void SetMultiPlaceholder()
         {
-            const string multi = "Multiple values...";
-            foreach (var box in new[] { LineStartBox, LineEndBox, TransBox, RomanBox,
-                WordStartBox, WordEndBox, WordContentBox, WordRomanBox, EmptyBeatBox })
+            // \u2026 escape: this file has no BOM and the compiler decodes
+            // it in the system codepage, which would mangle a literal ….
+            const string multiShort = "Multiple\u2026";
+            const string multiFull = "Multiple values";
+            var boxes = new[] { LineStartBox, LineEndBox, TransBox, RomanBox,
+                WordStartBox, WordEndBox, WordContentBox, WordRomanBox, EmptyBeatBox };
+            foreach (var box in boxes)
+            {
                 box.PlaceholderText = "";
+                ToolTipService.SetToolTip(box, null);
+            }
+
+            void ShowMulti(TextBox box)
+            {
+                if (_focusedBox != box) box.Text = "";
+                box.PlaceholderText = multiShort;
+                ToolTipService.SetToolTip(box, multiFull);
+                _placeholderBoxes.Add(box);
+            }
             if (_selection is null || _store is null) return;
             if (_selection.SelectedLineIds.Count > 1)
             {
@@ -314,32 +526,16 @@ namespace AmllTtmlTool.WinUI.Controls
                     .Select(id => _store.Document.Lines.FirstOrDefault(l => l.Id == id))
                     .Where(l => l is not null).ToList();
                 if (lines.Select(l => l!.StartTimeMs).Distinct().Count() > 1)
-                {
-                    if (_focusedBox != LineStartBox) LineStartBox.Text = "";
-                    LineStartBox.PlaceholderText = multi;
-                    _placeholderBoxes.Add(LineStartBox);
-                }
+                    ShowMulti(LineStartBox);
                 var endsDiffer = _durationMode
                     ? lines.Select(l => l!.EndTimeMs - l!.StartTimeMs).Distinct().Count() > 1
                     : lines.Select(l => l!.EndTimeMs).Distinct().Count() > 1;
                 if (endsDiffer)
-                {
-                    if (_focusedBox != LineEndBox) LineEndBox.Text = "";
-                    LineEndBox.PlaceholderText = multi;
-                    _placeholderBoxes.Add(LineEndBox);
-                }
+                    ShowMulti(LineEndBox);
                 if (lines.Select(l => l!.TranslatedLyric).Distinct().Count() > 1)
-                {
-                    if (_focusedBox != TransBox) TransBox.Text = "";
-                    TransBox.PlaceholderText = multi;
-                    _placeholderBoxes.Add(TransBox);
-                }
+                    ShowMulti(TransBox);
                 if (lines.Select(l => l!.RomanLyric).Distinct().Count() > 1)
-                {
-                    if (_focusedBox != RomanBox) RomanBox.Text = "";
-                    RomanBox.PlaceholderText = multi;
-                    _placeholderBoxes.Add(RomanBox);
-                }
+                    ShowMulti(RomanBox);
             }
             if (_selection.SelectedWordIds.Count > 1)
             {
@@ -351,11 +547,7 @@ namespace AmllTtmlTool.WinUI.Controls
                 void Multi(TextBox box, Func<EditWord, string> pick)
                 {
                     if (words.Select(w => pick(w!)).Distinct().Count() > 1)
-                    {
-                        if (_focusedBox != box) box.Text = "";
-                        box.PlaceholderText = multi;
-                        _placeholderBoxes.Add(box);
-                    }
+                        ShowMulti(box);
                 }
                 Multi(WordStartBox, w => LyricTime.Format(w.StartTimeMs));
                 Multi(WordEndBox, w => _durationMode
@@ -408,12 +600,27 @@ namespace AmllTtmlTool.WinUI.Controls
             if (_store is null) return;
             var (line, _) = Targets();
             if (line is null) return;
-            if (sender == BgToggle)
-                _store.Execute(new SetLineFlagsCommand(line.Id, isBg: BgToggle.IsChecked == true));
-            else if (sender == DuetToggle)
-                _store.Execute(new SetLineFlagsCommand(line.Id, isDuet: DuetToggle.IsChecked == true));
-            else if (sender == IgnoreSyncToggle)
-                _store.Execute(new SetLineFlagsCommand(line.Id, ignoreSync: IgnoreSyncToggle.IsChecked == true));
+            var lines = SelectedLines();
+            bool? isBg = null;
+            bool? isDuet = null;
+            bool? ignoreSync = null;
+            if (sender == BgToggle) isBg = BgToggle.IsChecked == true;
+            else if (sender == DuetToggle) isDuet = DuetToggle.IsChecked == true;
+            else if (sender == IgnoreSyncToggle) ignoreSync = IgnoreSyncToggle.IsChecked == true;
+            else return;
+            if (lines.Count <= 1)
+            {
+                _store.Execute(new SetLineFlagsCommand(line.Id,
+                    isBg: sender == BgToggle ? isBg : null,
+                    isDuet: sender == DuetToggle ? isDuet : null,
+                    ignoreSync: sender == IgnoreSyncToggle ? ignoreSync : null));
+                return;
+            }
+            ExecuteBatch("Set line flags", lines
+                .Select(l => (ILyricCommand)new SetLineFlagsCommand(l.Id,
+                    isBg: sender == BgToggle ? isBg : null,
+                    isDuet: sender == DuetToggle ? isDuet : null,
+                    ignoreSync: sender == IgnoreSyncToggle ? ignoreSync : null)).ToList());
         }
 
         private void OnObsceneClick(object sender, RoutedEventArgs e)
@@ -422,8 +629,17 @@ namespace AmllTtmlTool.WinUI.Controls
             if (_store is null) return;
             var (line, word) = Targets();
             if (line is null || word is null) return;
-            _store.Execute(new SetWordFlagsCommand(line.Id, word.Id,
-                obscene: ObsceneToggle.IsChecked == true));
+            var words = SelectedWords();
+            if (words.Count <= 1)
+            {
+                _store.Execute(new SetWordFlagsCommand(line.Id, word.Id,
+                    obscene: ObsceneToggle.IsChecked == true));
+                return;
+            }
+            var value = ObsceneToggle.IsChecked == true;
+            ExecuteBatch("Set obscene", words
+                .Select(t => (ILyricCommand)new SetWordFlagsCommand(t.Line.Id, t.Word.Id,
+                    obscene: value)).ToList());
         }
 
         public EditCommandBar()
@@ -577,6 +793,127 @@ namespace AmllTtmlTool.WinUI.Controls
         }
 
         internal bool DurationMode() => _durationMode;
+
+        // STEP3 verification hooks (headless, no window resize needed
+        // except BarReport which reads live layout after Test_SetWindowWidth).
+        internal int WordGroupRows() => WordGroup.RowDefinitions.Count;
+
+        internal bool WordRomanVisible() => WordRomanBox.Visibility == Visibility.Visible;
+
+        internal string WordCaption() =>
+            $"{WordCountCaption.Text}|{WordCountCaption.Visibility}";
+
+        internal double WordGroupWidth()
+        {
+            WordGroup.UpdateLayout();
+            return WordGroup.ActualWidth;
+        }
+
+        // "placeholder|tooltip|textWidth|boxWidth" for a word field: the
+        // short multi text must fit its box (text measured with the same
+        // font size as the ribbon boxes).
+        internal string MultiState(string which)
+        {
+            var box = which switch
+            {
+                "wordstart" => WordStartBox,
+                "wordend" => WordEndBox,
+                "content" => WordContentBox,
+                "romanword" => WordRomanBox,
+                "beats" => EmptyBeatBox,
+                _ => throw new ArgumentException($"Unknown field: {which}"),
+            };
+            box.UpdateLayout();
+            var probe = new TextBlock
+            {
+                Text = box.PlaceholderText,
+                FontSize = box.FontSize,
+                FontFamily = box.FontFamily,
+            };
+            probe.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            var tip = Microsoft.UI.Xaml.Controls.ToolTipService.GetToolTip(box);
+            static string Num(double v) =>
+                v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            return $"{box.PlaceholderText}|{tip}|{Num(probe.DesiredSize.Width)}|{Num(box.ActualWidth)}";
+        }
+
+        // Same-row baseline check: max vertical-center deviation within row
+        // 0 fields and within row 1 fields (labels are Center-aligned, boxes
+        // share MinHeight 28). Collapsed Roman is skipped. "r0dev,r1dev".
+        internal string BarBaselines()
+        {
+            static double CenterY(FrameworkElement el, FrameworkElement rel)
+            {
+                el.UpdateLayout();
+                return el.TransformToVisual(rel)
+                    .TransformPoint(new Windows.Foundation.Point(0, el.ActualHeight / 2)).Y;
+            }
+            var r0 = new FrameworkElement[] { WordStartLabel, WordStartBox, WordContentLabel,
+                WordContentBox, EmptyBeatLabel, EmptyBeatBox };
+            var r1 = new FrameworkElement[] { WordEndModeButton, WordEndBox,
+                ObsceneLabel, ObsceneToggle, WordRomanLabel, WordRomanBox };
+            var c0 = r0.Select(e => CenterY(e, WordGroup)).ToList();
+            var c1 = r1.Where(e => e.Visibility == Visibility.Visible)
+                .Select(e => CenterY(e, WordGroup)).ToList();
+            static string Dev(List<double> cs) =>
+                (cs.Max() - cs.Min()).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            return $"{Dev(c0)},{Dev(c1)}";
+        }
+
+        // Clipping sweep support: "ok:barW:winW" or "CLIP:..." / window-level
+        // "WINCLIP:barW>winW". Child-level fit is not enough: an
+        // over-wide RootGrid itself can pass the window edge (the ribbon
+        // card gives it no scroll fallback by design).
+        internal string BarReport()
+        {
+            RootGrid.UpdateLayout();
+            var barW = RootGrid.ActualWidth;
+            double winW = double.NaN;
+            try
+            {
+                var window = ((App)Application.Current).MainWindow;
+                if (window is not null)
+                    winW = window.AppWindow.Size.Width / XamlRoot.RasterizationScale;
+            }
+            catch { }
+            var bad = new List<string>();
+            foreach (var child in RootGrid.Children)
+            {
+                if (child is not FrameworkElement el) continue;
+                if (el.Visibility != Visibility.Visible) continue;
+                var right = el.TransformToVisual(RootGrid)
+                    .TransformPoint(new Windows.Foundation.Point(el.ActualWidth, 0)).X;
+                if (right > barW + 1)
+                    bad.Add((el as Control)?.Name ?? el.GetType().Name);
+            }
+            // Word-group internals (caption!) must also fit the group.
+            WordGroup.UpdateLayout();
+            foreach (var child in WordGroup.Children)
+            {
+                if (child is not FrameworkElement el) continue;
+                if (el.Visibility != Visibility.Visible) continue;
+                var right = el.TransformToVisual(WordGroup)
+                    .TransformPoint(new Windows.Foundation.Point(el.ActualWidth, 0)).X;
+                if (right > WordGroup.ActualWidth + 1)
+                    bad.Add("WordGroup:" + (el as Control)?.Name);
+            }
+            static string Num(double v) =>
+                v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            if (bad.Count > 0) return $"CLIP:{string.Join(",", bad)}:{Num(barW)}";
+            // Per-group widths for tier budgeting ("name:vis:width;...").
+            var groups = new[] { "ManageGroup", "LineGroup", "WordGroup",
+                "SecondaryGroup", "ViewGroup" };
+            var parts = new List<string>();
+            foreach (var name in groups)
+            {
+                if (FindName(name) is FrameworkElement g)
+                    parts.Add($"{name}:{g.Visibility}:{Num(g.ActualWidth)}");
+            }
+            var detail = string.Join(";", parts);
+            if (!double.IsNaN(winW) && barW > winW - 26 + 1)
+                return $"WINCLIP:{Num(barW)}>{Num(winW)}:{detail}";
+            return $"ok:{Num(barW)}:{Num(winW)}:{detail}";
+        }
 
         // Step-4 routing: the focused ribbon box owns Ctrl+Z/Y while its
         // text is uncommitted (differs from the model and is not a freshly
