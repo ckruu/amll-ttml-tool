@@ -3008,6 +3008,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.CommitInsertBox() ?? false;
         internal bool Test_EscapeInsertBox() =>
             _attachedEditPage?.EscapeInsertBox() ?? false;
+        internal string Test_InsertInfo() =>
+            _attachedEditPage?.Test_InsertInfo() ?? "nopage";
         internal bool Test_IsLineRealized(int index) =>
             _attachedEditPage?.IsLineRealized(index) ?? false;
         internal void Test_NewDocument() => _store.NewDocument();

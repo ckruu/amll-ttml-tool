@@ -68,6 +68,11 @@ namespace AmllTtmlTool.WinUI.Views
             // The accent bar + selected fill are driven from ONE source (the
             // selection set) on every selection change, prepare and recycle.
             _selection.Changed += ApplySelectionVisuals;
+            // The insert box lives on exactly one line: any selection move to
+            // another line (click, keys, menu, drag, delete) closes it. A
+            // select on its own line (e.g. the commit reselect) keeps it.
+            // Window deactivation never touches it (only drags cancel there).
+            _selection.Changed += CloseInsertOnSelectionMove;
             WatchLines();
             _compositor = ElementCompositionPreview.GetElementVisual(this).Compositor;
             _decelerate = _compositor.CreateCubicBezierEasingFunction(new Vector2(0, 0), new Vector2(0, 1));
@@ -297,6 +302,16 @@ namespace AmllTtmlTool.WinUI.Views
                 _insertBox = insert;
                 panel.Children.Add(insert);
             }
+            // Per-word romaji visibility is owned SOLELY by the master toggle:
+            // freshly built chips default to visible romans, so snap them here
+            // (the "+" rebuild must never force them on while the toggle is
+            // off). Same snap as container prepare, no animation.
+            if (FindCardOfPanel(panel) is Grid builtCard)
+                ApplyCardVisibility(builtCard,
+                    _viewState?.ShowTranslation ?? true,
+                    _viewState?.ShowRomanization ?? true,
+                    _viewState?.ShowWordRomanization ?? true,
+                    animate: false, collapseNow: true);
         }
 
         private void OnAddWordClick(object sender, RoutedEventArgs e)
@@ -341,6 +356,30 @@ namespace AmllTtmlTool.WinUI.Views
             _insertBox = null;
         }
 
+        // Selection-driven insert lifetime: leaving the insert's line closes
+        // the box (draft dropped, like Esc). Same-line reselects (the commit
+        // path selects the new word on the same line) never close it.
+        private void CloseInsertOnSelectionMove()
+        {
+            if (_insertLineId is null || _store is null || _selection is null) return;
+            if (_selection.SelectedLineId == _insertLineId) return;
+            var lineId = _insertLineId;
+            CloseInsertBox();
+            var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == lineId);
+            if (at >= 0) RebuildLinePanel(at);
+        }
+
+        // Insert-box probe: "open:0/1;children:N;chips:G" (children = chips +
+        // the box; exactly one non-chip child while open).
+        internal string Test_InsertInfo()
+        {
+            if (_insertBox is null) return "open:0";
+            var panel = VisualTreeHelper.GetParent(_insertBox) as LyricWrapPanel;
+            if (panel is null) return "open:1;detached";
+            var grids = panel.Children.OfType<Grid>().Count();
+            return $"open:1;children:{panel.Children.Count};chips:{grids}";
+        }
+
         internal bool CommitInsertBox()
         {
             if (_store is null || _insertBox is null) return false;
@@ -349,6 +388,14 @@ namespace AmllTtmlTool.WinUI.Views
                 : _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
             if (line is null) return false;
             var raw = _insertBox.Text;
+            var at = _store.Document.Lines.IndexOf(line);
+            // An empty insert box closes instead of adding an empty word.
+            if (raw.Length == 0)
+            {
+                CloseInsertBox();
+                if (at >= 0) RebuildLinePanel(at);
+                return true;
+            }
             // Trailing "|" seeds ruby (model: empty == absent, so strip).
             var text = raw.EndsWith("|") ? raw[..^1] : raw;
             var word = EditWord.New();
@@ -368,6 +415,8 @@ namespace AmllTtmlTool.WinUI.Views
             if (_store is null) return;
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
+                // Enter commits (empty closes); the box stays open with focus
+                // for repeat adds, exactly like the original insert field.
                 CommitInsertBox();
                 e.Handled = true;
             }
@@ -410,6 +459,7 @@ namespace AmllTtmlTool.WinUI.Views
             if (_selection is not null)
             {
                 _selection.Changed -= ApplySelectionVisuals;
+                _selection.Changed -= CloseInsertOnSelectionMove;
                 _selection = null;
             }
         }
@@ -1347,6 +1397,13 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnStoreChanged()
         {
+            if (_store is not null && _insertLineId is not null
+                && _store.Document.Lines.All(l => l.Id != _insertLineId))
+            {
+                // Its line is gone (delete/undo/combine): drop the dangling
+                // insert box instead of pointing at a dead line.
+                CloseInsertBox();
+            }
             if (DispatcherQueue.HasThreadAccess) { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); RefreshRealizedNumbers(); }
             else DispatcherQueue.TryEnqueue(() => { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); RefreshRealizedNumbers(); });
         }

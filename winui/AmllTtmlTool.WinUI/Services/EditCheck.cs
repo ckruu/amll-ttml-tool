@@ -208,6 +208,47 @@ internal static class EditCheck
             var shotWord = await await OnUiAsync(window, () =>
                 page.Test_ShotChip(0, 0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-word-chipunit.png")));
             Check("shot-wordchip", shotWord.StartsWith("ok:"), shotWord);
+            // --- 1c. space edit-mode (Step 3a) ---------------------------
+            // Edit gestures are the same as other chips; the box holds raw
+            // whitespace (N spaces, caret visible); typing spaces raises N;
+            // Esc reverts; undo works. Non-space text and empty commit
+            // verbatim like the original (no auto-delete).
+            await OnUiAsync(window, () => page.Test_EnterWordEdit(0, s0, false));
+            var seFocus = await OnUiAsync(window, () => page.Test_FocusState());
+            var seText = await OnUiAsync(window, () => page.Test_ChipBoxText(0, s0, false));
+            Check("space-edit-text", seFocus == $"chipbox 0:{s0}:M" && seText == " ",
+                $"focus=[{seFocus}] text='{seText}'");
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s0, false, "    "));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s0, false));
+            // Blur out of the box: while focused the raw editor shows (EDIT),
+            // the dim label only shows unfocused (SELECT). LostFocus routes
+            // async, so settle before reading.
+            await OnUiAsync(window, () => page.Test_FocusChip(0, 0, false));
+            await Task.Delay(200);
+            var seAdd = await OnUiAsync(window, () => page.Test_SpaceLabel(0, s0));
+            Check("space-add", seAdd == "Space x4", $"label='{seAdd}'");
+            var twenty = new string(' ', 20);
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s1, false, twenty));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s1, false));
+            await OnUiAsync(window, () => page.Test_FocusChip(0, 0, false));
+            await Task.Delay(200);
+            var seLab20 = await OnUiAsync(window, () => page.Test_SpaceLabel(0, s1));
+            await OnUiAsync(window, () => page.Test_EnterWordEdit(0, s1, false));
+            var seBox20 = await OnUiAsync(window, () => page.Test_ChipBoxText(0, s1, false));
+            Check("space-20", seLab20 == "Space x20" && seBox20.Length == 20,
+                $"label='{seLab20}' editlen={seBox20.Length}");
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s1, false, "hi"));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s1, false));
+            var seNon = await OnUiAsync(window, () => page.Test_WordText(0, s1));
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s1, false, ""));
+            await OnUiAsync(window, () => page.Test_CommitChip(0, s1, false));
+            var seEmpty = await OnUiAsync(window, () => page.Test_WordText(0, s1));
+            Check("space-verbatim", seNon == "hi" && seEmpty == "",
+                $"nonspace='{seNon}' empty='{seEmpty}'");
+            await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s1, false, "zzz"));
+            await OnUiAsync(window, () => page.Test_EscapeChip(0, s1, false));
+            var seRevert = await OnUiAsync(window, () => page.Test_ChipBoxText(0, s1, false));
+            Check("space-esc", seRevert == "", $"box='{seRevert}'");
             // Hug: single glyph + long kana + long romaji units. Box widths
             // equal within 1px; the single glyph stays compact (< 64px, the
             // old TextBox theme floor).
@@ -302,6 +343,83 @@ internal static class EditCheck
             await OnUiAsync(window, () => page.Test_EscapeInsertBox());
             var insertClosed = !(await OnUiAsync(window, () => page.Test_InsertBoxOpen()));
             Check("insert-esc", insertClosed, "closed");
+
+            // --- 3b. romaji-after-plus + insert lifetime (Step 3b,c) -----
+            // Row visibility is owned SOLELY by the master toggle: with it
+            // off, opening "+" and committing words must not show romaji rows
+            // (screenshots 6-7 bug); the box sits inline (one non-chip child).
+            var wordRomanBefore = await OnUiAsync(window, () => page.Test_ToggleState("wordroman"));
+            await OnUiAsync(window, () => page.Test_SetToggle("wordroman", false));
+            await Task.Delay(450);
+            var romOff0 = await OnUiAsync(window, () => page.Test_RowVisibility(0, 2));
+            var insDepth0 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var insCount0 = await OnUiAsync(window, () => page.Test_LyricWordCount(0));
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(0));
+            await OnUiAsync(window, () => page.Test_OpenInsertBox(0));
+            var insInfo = await OnUiAsync(window, () => page.Test_InsertInfo());
+            await OnUiAsync(window, () => page.Test_SetInsertText("plusword"));
+            await OnUiAsync(window, () => page.Test_CommitInsertBox());
+            await Task.Delay(250);
+            var romOff1 = await OnUiAsync(window, () => page.Test_RowVisibility(0, 2));
+            var gapPlus = await OnUiAsync(window, () => page.Test_ChipGap(0, 0));
+            var insInfo2 = await OnUiAsync(window, () => page.Test_InsertInfo());
+            await OnUiAsync(window, () => page.Test_SetToggle("wordroman", true));
+            await Task.Delay(450);
+            var romOn = await OnUiAsync(window, () => page.Test_RowVisibility(0, 2));
+            await OnUiAsync(window, () => page.Test_SetToggle("wordroman", wordRomanBefore));
+            await Task.Delay(450);
+            // Visibility enum: Visible=0, Collapsed=1. children = words + box.
+            Check("romaji-plus-visibility",
+                romOff0 == 1 && romOff1 == 1 && gapPlus == "collapsed" && romOn == 0
+                && insInfo == $"open:1;children:{insCount0 + 1};chips:{insCount0}"
+                && insInfo2 == $"open:1;children:{insCount0 + 2};chips:{insCount0 + 1}",
+                $"rows={romOff0}/{romOff1}/{romOn} gap={gapPlus} info=[{insInfo}]/[{insInfo2}]");
+            // Lifetime: Enter keeps it open (empty box, focus); leaving the
+            // line (gesture, focus/tab, selection move) or empty-Enter closes
+            // it; Esc closes it. Deactivation never closes (code inspection:
+            // only drags cancel on capture loss).
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(1));
+            await OnUiAsync(window, () => page.Test_OpenInsertBox(1));
+            await OnUiAsync(window, () => page.Test_SetInsertText("w1"));
+            await OnUiAsync(window, () => page.Test_CommitInsertBox());
+            var lifeStay = await OnUiAsync(window, () => page.Test_InsertBoxOpen());
+            var lifeText = await OnUiAsync(window, () => page.Test_InsertText());
+            await OnUiAsync(window, () => page.Test_LineGesture(2, false, false));
+            await Task.Delay(150);
+            var lifeLeft = !(await OnUiAsync(window, () => page.Test_InsertBoxOpen()));
+            await OnUiAsync(window, () => page.Test_OpenInsertBox(1));
+            await OnUiAsync(window, () => page.Test_EscapeInsertBox());
+            var lifeEsc = !(await OnUiAsync(window, () => page.Test_InsertBoxOpen()));
+            await OnUiAsync(window, () => page.Test_OpenInsertBox(1));
+            var lifeCount0 = await OnUiAsync(window, () => page.Test_LyricWordCount(1));
+            await OnUiAsync(window, () => page.Test_SetInsertText(""));
+            await OnUiAsync(window, () => page.Test_CommitInsertBox());
+            var lifeEmptyClosed = !(await OnUiAsync(window, () => page.Test_InsertBoxOpen()));
+            var lifeCount1 = await OnUiAsync(window, () => page.Test_LyricWordCount(1));
+            await OnUiAsync(window, () => page.Test_OpenInsertBox(1));
+            await OnUiAsync(window, () => page.Test_LineGesture(1, false, false));
+            await OnUiAsync(window, () => page.Test_AnchorBox(2, 0, false));
+            await Task.Delay(150);
+            var lifeTab = !(await OnUiAsync(window, () => page.Test_InsertBoxOpen()));
+            Check("insert-lifetime",
+                lifeStay && lifeText == "" && lifeLeft && lifeEsc
+                && lifeEmptyClosed && lifeCount1 == lifeCount0 && lifeTab,
+                $"stay={lifeStay} text='{lifeText}' left={lifeLeft} esc={lifeEsc} " +
+                $"emptyClosed={lifeEmptyClosed} counts={lifeCount0}/{lifeCount1} tab={lifeTab}");
+            // Undo the words added above (plusword + w1), restoring counts.
+            var insDepth1 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var insGuard = 0;
+            while (await OnUiAsync(window, () => page.Test_UndoDepth()) > insDepth0 && insGuard < 10)
+            {
+                await OnUiAsync(window, () => page.Test_Undo());
+                insGuard++;
+            }
+            var insCountBack = await OnUiAsync(window, () => page.Test_LyricWordCount(0));
+            Check("insert-cleanup", insCountBack == insCount0 && insDepth1 >= insDepth0,
+                $"words={insCountBack}/{insCount0}");
+            // Leave no selection behind: later sections (delete-undo-redo)
+            // delete exactly the addressed line when it is unselected.
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
 
             await OnUiAsync(window, () => page.Test_DeleteLineAt(1));
             var nDel = await OnUiAsync(window, () => page.Test_LyricLineCount());
