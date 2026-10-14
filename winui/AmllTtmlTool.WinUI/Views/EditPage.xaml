@@ -9,6 +9,7 @@
     xmlns:controls="using:AmllTtmlTool.WinUI.Controls"
     mc:Ignorable="d">
     <Grid>
+        <Grid>
         <ListView
             x:Name="LineList"
             SelectionMode="Extended"
@@ -242,6 +243,29 @@
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
+            <!-- Drag overlay: insertion line, ghost label. Hit-transparent;
+                 same cell as the list so coordinates match 1:1. -->
+            <Canvas x:Name="DragOverlay" IsHitTestVisible="False">
+                <Rectangle
+                    x:Name="DropLineMark"
+                    Height="2"
+                    Fill="{ThemeResource AccentFillColorDefaultBrush}"
+                    RadiusX="1"
+                    RadiusY="1"
+                    Visibility="Collapsed" />
+                <Border
+                    x:Name="DragGhost"
+                    Background="{StaticResource AppAccentBrush}"
+                    CornerRadius="12"
+                    Padding="10,4"
+                    Visibility="Collapsed">
+                    <TextBlock
+                        x:Name="DragGhostText"
+                        Foreground="White"
+                        FontSize="12" />
+                </Border>
+            </Canvas>
+        </Grid>
         <!-- Empty state: shown while the document has no lines. -->
         <StackPanel
             x:Name="EmptyStatePanel"

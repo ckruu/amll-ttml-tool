@@ -63,21 +63,10 @@ internal static class EditCheck
         return tcs.Task;
     }
 
-    private static string DocFingerprint(Views.ShellPage page)
-    {
-        // Built from the model hooks (same fields the Core fingerprint uses).
-        var parts = new List<string>();
-        var n = page.Test_LyricLineCount();
-        for (var li = 0; li < n; li++)
-        {
-            var nw = page.Test_LyricWordCount(li);
-            parts.Add($"L[{page.Test_LineTimes(li)},{page.Test_LineFlags(li)},{page.Test_LineTranslation(li)},{page.Test_LineRomanization(li)}]");
-            for (var wi = 0; wi < nw; wi++)
-                parts.Add($"W[{page.Test_WordTimes(li, wi)},{page.Test_WordText(li, wi)},{page.Test_WordRoman(li, wi)},{page.Test_WordFlags(li, wi)}]");
-            parts.Add("/");
-        }
-        return string.Join("|", parts);
-    }
+    private static string DocFingerprint(Views.ShellPage page) =>
+        // Single in-process call (identical format to the old per-hook
+        // version; see Test_DocFingerprint for the cost rationale).
+        page.Test_DocFingerprint();
 
     public static async Task RunAsync(
         Window window, Views.ShellPage page, LyricStore store, FileIntake intake,
@@ -916,10 +905,195 @@ internal static class EditCheck
                 page.Test_ShotList(System.IO.Path.Combine(shotDir, $"{shotPrefix}-cards-list.png")));
             Check("shot-cards", shotList.StartsWith("ok:"), shotList);
 
+            // --- 5c. drag and drop --------------------------------------
+            // Own doc (60 lines x 3 words); the Builders below leave it for
+            // the stress section, which seeds from the live doc as usual.
+            await OnUiAsync(window, () => page.Test_BuildDragDoc(60, 3));
+            var dragN = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            Check("drag-doc", dragN == 60, $"lines={dragN}");
+            // One line move + undo/redo exactness (full fingerprint).
+            var dFp0 = await OnUiAsync(window, () => DocFingerprint(page));
+            var dId5 = await OnUiAsync(window, () => page.Test_LineId(5));
+            await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 5 }));
+            var dSt0 = await OnUiAsync(window, () => page.Test_DragState());
+            await OnUiAsync(window, () => page.Test_DragToLineIndex(10));
+            var dSt1 = await OnUiAsync(window, () => page.Test_DragState());
+            var dDepth0 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var dEnd0 = await OnUiAsync(window, () => page.Test_DragEnd(false));
+            var dAt9 = await OnUiAsync(window, () => page.Test_LineId(9));
+            var dDepth1 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var dFp1 = await OnUiAsync(window, () => DocFingerprint(page));
+            Check("drag-line", dEnd0 == "dropped:lines:1" && dAt9 == dId5
+                && dDepth1 == dDepth0 + 1 && dSt0.StartsWith("lines:1>")
+                && dSt1.Contains("Move to 11"),
+                $"end=[{dEnd0}] at9 ok depth {dDepth0}->{dDepth1} st0=[{dSt0}] st1=[{dSt1}]");
+            await OnUiAsync(window, () => page.Test_Undo());
+            var dFpU = await OnUiAsync(window, () => DocFingerprint(page));
+            await OnUiAsync(window, () => page.Test_Redo());
+            var dFpR = await OnUiAsync(window, () => DocFingerprint(page));
+            Check("drag-line-undoredo", dFpU == dFp0 && dFpR == dFp1,
+                "fingerprint-exact");
+            // Undo the redo: later checks address lines by index, so the
+            // canonical order must be restored (a lingering redo shifted
+            // indices 5-8 and poisoned two checks before this guard).
+            await OnUiAsync(window, () => page.Test_Undo());
+            var dFpB = await OnUiAsync(window, () => DocFingerprint(page));
+            Check("drag-line-baseline", dFpB == dFp0, "order-restored");
+            // Five lines move + copy.
+            var dIds = new List<string>();
+            for (var di = 10; di <= 14; di++)
+                dIds.Add(await OnUiAsync(window, () => page.Test_LineId(di)));
+            await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 10, 11, 12, 13, 14 }));
+            await OnUiAsync(window, () => page.Test_DragToLineIndex(30));
+            var dDepth2 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var dEnd5 = await OnUiAsync(window, () => page.Test_DragEnd(false));
+            var dBack5 = new List<string>();
+            for (var di = 25; di <= 29; di++)
+                dBack5.Add(await OnUiAsync(window, () => page.Test_LineId(di)));
+            var dDepth3 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            await OnUiAsync(window, () => page.Test_Undo());
+            var dFpU5 = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            Check("drag-5lines", dEnd5 == "dropped:lines:5" && dBack5.SequenceEqual(dIds)
+                && dDepth3 == dDepth2 + 1 && dFpU5 == 60, $"end=[{dEnd5}] depth {dDepth2}->{dDepth3}");
+            await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 0, 1 }));
+            await OnUiAsync(window, () => page.Test_DragToLineIndex(5));
+            var dDepth4 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var dEndC = await OnUiAsync(window, () => page.Test_DragEnd(true));
+            var dCountC = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            var dClone0 = await OnUiAsync(window, () => page.Test_LineId(5));
+            var dSelC = await OnUiAsync(window, () => page.Test_SelectedLineCount());
+            Check("drag-copy-lines", dEndC == "dropped:lines:2" && dCountC == 62
+                && dClone0 != dIds[0] && dSelC == 2, $"end=[{dEndC}] lines={dCountC} sel={dSelC}");
+            await OnUiAsync(window, () => page.Test_Undo());
+            var dCountU = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            Check("drag-copy-undo", dCountU == 60, $"lines={dCountU}");
+            // One word within a line + undo.
+            var wFp0 = await OnUiAsync(window, () => DocFingerprint(page));
+            await OnUiAsync(window, () => page.Test_DragBeginWords(3, new[] { 0 }));
+            await OnUiAsync(window, () => page.Test_DragToWord(3, 2, true));
+            var wTgt = await OnUiAsync(window, () => page.Test_DragState());
+            var wDepth0 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var wEnd0 = await OnUiAsync(window, () => page.Test_DragEnd(false));
+            var wT0 = await OnUiAsync(window, () => page.Test_WordText(3, 0));
+            var wT1 = await OnUiAsync(window, () => page.Test_WordText(3, 1));
+            var wT2 = await OnUiAsync(window, () => page.Test_WordText(3, 2));
+            Check("drag-word", wEnd0 == "dropped:words:1" && wT0 == "w3_1" && wT1 == "w3_2"
+                && wT2 == "w3_0" && wTgt.Contains("ghost:[Move"),
+                $"end=[{wEnd0}] order={wT0},{wT1},{wT2} tgt=[{wTgt}] depth +1");
+            await OnUiAsync(window, () => page.Test_Undo());
+            var wFpU = await OnUiAsync(window, () => DocFingerprint(page));
+            Check("drag-word-undo", wFpU == wFp0, "fingerprint-exact");
+            // Three words cross-line + copy + undo.
+            await OnUiAsync(window, () => page.Test_DragBeginWords(4, new[] { 0, 1, 2 }));
+            await OnUiAsync(window, () => page.Test_DragToWord(6, 1, false));
+            var wDepth1 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var wEnd3 = await OnUiAsync(window, () => page.Test_DragEnd(false));
+            var wLine6 = new List<string>();
+            for (var wi = 0; wi < 6; wi++)
+                wLine6.Add(await OnUiAsync(window, () => page.Test_WordText(6, wi)));
+            var wLine4n = await OnUiAsync(window, () => page.Test_LyricWordCount(4));
+            Check("drag-words-cross", wEnd3 == "dropped:words:3"
+                && string.Join(",", wLine6) == "w6_0,w4_0,w4_1,w4_2,w6_1,w6_2" && wLine4n == 0,
+                $"end=[{wEnd3}] line6=[{string.Join(",", wLine6)}] line4n={wLine4n}");
+            await OnUiAsync(window, () => page.Test_Undo());
+            var wLine4b = await OnUiAsync(window, () => page.Test_LyricWordCount(4));
+            Check("drag-words-undo", wLine4b == 3, $"line4={wLine4b}");
+            await OnUiAsync(window, () => page.Test_DragBeginWords(5, new[] { 0 }));
+            await OnUiAsync(window, () => page.Test_DragToWord(7, -1, true));
+            var wEndC = await OnUiAsync(window, () => page.Test_DragEnd(true));
+            var wLine7n = await OnUiAsync(window, () => page.Test_LyricWordCount(7));
+            var wLine7t = await OnUiAsync(window, () => page.Test_WordText(7, 3));
+            var wSelC = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            Check("drag-copy-words", wEndC == "dropped:words:1" && wLine7n == 4
+                && wLine7t == "w5_0" && wSelC.Split(',').Length == 1,
+                $"end=[{wEndC}] line7n={wLine7n} sel=[{wSelC}]");
+            await OnUiAsync(window, () => page.Test_Undo());
+            // Drop-to-self is a no-op (no history step).
+            await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 8 }));
+            await OnUiAsync(window, () => page.Test_DragToLineIndex(8));
+            var nDepth0 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var nEnd0 = await OnUiAsync(window, () => page.Test_DragEnd(false));
+            var nDepth1 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            await OnUiAsync(window, () => page.Test_DragBeginWords(9, new[] { 1 }));
+            await OnUiAsync(window, () => page.Test_DragToWord(9, 1, false));
+            var nEnd1 = await OnUiAsync(window, () => page.Test_DragEnd(false));
+            var nDepth2 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            Check("drag-noop", nEnd0.StartsWith("noop:") && nEnd1.StartsWith("noop:")
+                && nDepth1 == nDepth0 && nDepth2 == nDepth1,
+                $"line=[{nEnd0}] word=[{nEnd1}] depths {nDepth0}/{nDepth1}/{nDepth2}");
+            // Esc cancels (no step, selection intact).
+            await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 2 }));
+            var cDepth0 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var cEnd = await OnUiAsync(window, () => page.Test_DragCancel());
+            var cDepth1 = await OnUiAsync(window, () => page.Test_UndoDepth());
+            var cSel = await OnUiAsync(window, () => page.Test_SelectedLineCount());
+            Check("drag-cancel", cEnd == "cancelled" && cDepth1 == cDepth0 && cSel == 1,
+                $"end=[{cEnd}] sel={cSel}");
+            // Visual evidence: insertion line + ghost, chip mark + ghost.
+            // Scroll the target into view first so the indicator lands on
+            // realized cards, then re-aim (layout moved under it).
+            await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 10, 11 }));
+            await OnUiAsync(window, () => page.Test_DragToLineIndex(20));
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(20));
+            await Task.Delay(300);
+            await OnUiAsync(window, () => page.Test_DragToLineIndex(20));
+            var shotDrop = await await OnUiAsync(window, () =>
+                page.Test_ShotPage(System.IO.Path.Combine(shotDir, $"{shotPrefix}-drop-line.png")));
+            Check("shot-drop-line", shotDrop.StartsWith("ok:"), shotDrop);
+            await OnUiAsync(window, () => page.Test_DragCancel());
+            await OnUiAsync(window, () => page.Test_DragBeginWords(12, new[] { 0, 1 }));
+            await OnUiAsync(window, () => page.Test_DragToWord(12, 2, false));
+            // Realize first (recycle would drop the mark), then re-apply.
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(12));
+            await Task.Delay(300);
+            await OnUiAsync(window, () => page.Test_DragToWord(12, 2, false));
+            var shotDropChip = await await OnUiAsync(window, () =>
+                page.Test_ShotCard(12, System.IO.Path.Combine(shotDir, $"{shotPrefix}-drop-chip.png")));
+            Check("shot-drop-chip", shotDropChip.StartsWith("ok:"), shotDropChip);
+            await OnUiAsync(window, () => page.Test_DragCancel());
+            // Randomized move/copy stress (seeded, order-predicted, exact
+            // undo/redo fingerprints every op).
+            await RunDragStressAsync(window, page, report, Check);
+
             Write(report, "  note stress + perf + edge use fresh docs (see below)");
 
             // --- 6. stress: 200 seeded ops vs reference --------------------
+            // Compact fresh doc: this stress fingerprints the WHOLE doc per
+            // op (~7 UI calls per line+word), so seeding from a leftover
+            // 30-80-line doc makes it 10x slower for zero extra coverage
+            // (big-doc behavior is covered by the drag sections + perf).
+            await OnUiAsync(window, () => page.Test_BuildDragDoc(10, 4));
             await RunStressAsync(window, page, report, Check);
+
+            // --- 6b. auto-scroll drag on the 2,000-line document -----------
+            // (after the main stress so it never seeds from this doc; perf
+            // rebuilds next). The headless compositor yields no frame ticks
+            // (known limit), so the honest metric is scrolled distance +
+            // tick count + wall time for 40 synchronous ticks (same
+            // ScrollTick the timer calls); visual smoothness is manual.
+            await OnUiAsync(window, () => page.Test_BuildDragDoc(2000, 2));
+            var bigN = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(1000));
+            await Task.Delay(400);
+            await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 1000 }));
+            var scUp = await OnUiAsync(window, () => page.Test_DragEdgeScroll(true, 40));
+            var scDown = await OnUiAsync(window, () => page.Test_DragEdgeScroll(false, 40));
+            bool Moved(string s, bool up)
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(s, @"([\d.]+)->([\d.]+)");
+                if (!m.Success) return false;
+                var a = double.Parse(m.Groups[1].Value,
+                    System.Globalization.CultureInfo.InvariantCulture);
+                var b = double.Parse(m.Groups[2].Value,
+                    System.Globalization.CultureInfo.InvariantCulture);
+                return up ? b < a - 1 : b > a + 1;
+            }
+            var scOk = bigN == 2000 && Moved(scUp, true) && Moved(scDown, false);
+            Check("drag-autoscroll", scOk, $"lines={bigN} up=[{scUp}] down=[{scDown}]");
+            await OnUiAsync(window, () => page.Test_DragToLineIndex(1005));
+            var scEnd = await OnUiAsync(window, () => page.Test_DragEnd(false));
+            Check("drag-autoscroll-drop", scEnd == "dropped:lines:1", $"end=[{scEnd}]");
+            await OnUiAsync(window, () => page.Test_Undo());
 
             // --- 7. perf: 300x10 doc ---------------------------------------
             await OnUiAsync(window, () => page.Test_BuildPerfDoc());
@@ -1048,6 +1222,377 @@ internal static class EditCheck
         {
             Write(report, "HARNESS-ERROR: " + ex);
         }
+    }
+
+    // Seeded drag move/copy stress (60 ops): order-predicted against an
+    // independent reference (plain list logic over the pre-op shape, NOT the
+    // commands under test), exact shape undo/redo every op, one-step rule
+    // enforced, selection verified on copies. Seed printed. NormalizeTime
+    // itself is covered by the Core DragCommandTests; here orders, counts,
+    // fresh ids, texts and exact reversibility are asserted.
+    private static async Task RunDragStressAsync(
+        Window window, Views.ShellPage page, string report,
+        Action<string, bool, string> check)
+    {
+        const int seed = 20261015;
+        var rng = new Random(seed);
+        var journal = new List<string>();
+        await OnUiAsync(window, () => page.Test_BuildDragDoc(30, 4));
+        var applied = 0;
+
+        List<(string Id, List<string> Words)> ParseIds(string shape)
+        {
+            var lines = new List<(string, List<string>)>();
+            if (string.IsNullOrEmpty(shape) || shape == "nostore" || shape == "nopage")
+                return lines;
+            foreach (var part in shape.Split('|'))
+            {
+                var kv = part.Split(':');
+                var id = kv[0].Split(',')[0];
+                var words = new List<string>();
+                if (kv.Length > 1 && kv[1].Length > 0)
+                    foreach (var w in kv[1].Split(';'))
+                        words.Add(w.Split(',')[0]);
+                lines.Add((id, words));
+            }
+            return lines;
+        }
+
+        async Task<string> Shape() =>
+            await OnUiAsync(window, () => page.Test_DocShape());
+
+        async Task Fail(string name, string detail)
+        {
+            check(name, false, detail);
+            Write(report, $"seed={seed}");
+            Write(report, "  journal-tail: " + string.Join(" | ", journal.TakeLast(15)));
+        }
+
+        // Exact undo/redo pair around an applied op (fingerprints).
+        async Task<bool> CheckReversible(string fpBefore, string fpAfter, int i, string tag)
+        {
+            await OnUiAsync(window, () => page.Test_Undo());
+            var fpU = await Shape();
+            if (fpU != fpBefore)
+            {
+                await Fail($"drag-stress-{tag}-undo", $"iter={i}");
+                return false;
+            }
+            await OnUiAsync(window, () => page.Test_Redo());
+            var fpR = await Shape();
+            if (fpR != fpAfter)
+            {
+                await Fail($"drag-stress-{tag}-redo", $"iter={i}");
+                return false;
+            }
+            return true;
+        }
+
+        var undoStack = new Stack<string>();
+        var redoStack = new Stack<string>();
+        undoStack.Push(await Shape());
+
+        static int Clamp(int v, int lo, int hi) => Math.Max(lo, Math.Min(v, hi));
+
+        for (var i = 0; i < 60; i++)
+        {
+            var roll = rng.Next(100);
+            if (roll < 12 && undoStack.Count > 1)
+            {
+                var undone = undoStack.Pop();
+                redoStack.Push(undone);
+                await OnUiAsync(window, () => page.Test_Undo());
+                var fp = await Shape();
+                if (fp != undoStack.Peek())
+                {
+                    await Fail("drag-stress-undo", $"iter={i}");
+                    return;
+                }
+                journal.Add($"u{i}:undo");
+                continue;
+            }
+            if (roll < 18 && redoStack.Count > 0)
+            {
+                var want = redoStack.Pop();
+                await OnUiAsync(window, () => page.Test_Redo());
+                var fp = await Shape();
+                if (fp != want)
+                {
+                    await Fail("drag-stress-redo", $"iter={i}");
+                    return;
+                }
+                undoStack.Push(want);
+                journal.Add($"u{i}:redo");
+                continue;
+            }
+            redoStack.Clear();
+            var fpBefore = undoStack.Peek();
+            var model = ParseIds(fpBefore);
+            var n = model.Count;
+            if (n == 0) { await Fail("drag-stress-empty", $"iter={i}"); return; }
+            var depthBefore = await OnUiAsync(window, () => page.Test_UndoDepth());
+            string fpAfter;
+            if (roll < 55)
+            {
+                // Line move/copy.
+                var k = rng.Next(1, Math.Min(4, n) + 1);
+                var picked = new HashSet<int>();
+                while (picked.Count < k) picked.Add(rng.Next(n));
+                var sorted = picked.OrderBy(x => x).ToList();
+                var copy = rng.Next(2) == 0;
+                var target = rng.Next(n + 1);
+                var dragged = sorted.Select(j => model[j].Id).ToList();
+                var draggedSet = new HashSet<string>(dragged);
+                var remaining = model.Where(l => !draggedSet.Contains(l.Id))
+                    .Select(l => l.Id).ToList();
+                var orig = model.Select(l => l.Id).ToList();
+                // Copies never remove: clamp against the full count; moves
+                // clamp against the post-removal count (mirror the command).
+                var adjust = sorted.Count(j => j < target);
+                var safe = copy
+                    ? Clamp(target, 0, n)
+                    : Clamp(target - adjust, 0, remaining.Count);
+                var predicted = remaining.Take(safe).Concat(dragged)
+                    .Concat(remaining.Skip(safe)).ToList();
+                var expectNoop = !copy && predicted.SequenceEqual(orig);
+                // Clone sources (pre-op indices are valid now; post-op slots
+                // shift on copy-before, so capture counts/texts up front).
+                var srcCounts = new List<int>();
+                var srcTexts = new List<string?>();
+                if (copy)
+                    foreach (var j in sorted)
+                    {
+                        var cn = await OnUiAsync(window, () => page.Test_LyricWordCount(j));
+                        srcCounts.Add(cn);
+                        srcTexts.Add(cn > 0
+                            ? await OnUiAsync(window, () => page.Test_WordText(j, 0))
+                            : null);
+                    }
+                await OnUiAsync(window, () => page.Test_DragBeginLines(sorted.ToArray()));
+                await OnUiAsync(window, () => page.Test_DragToLineIndex(target));
+                var end = await OnUiAsync(window, () => page.Test_DragEnd(copy));
+                var depthAfter = await OnUiAsync(window, () => page.Test_UndoDepth());
+                fpAfter = await Shape();
+                var post = ParseIds(fpAfter);
+                if (expectNoop)
+                {
+                    if (!end.StartsWith("noop:") || depthAfter != depthBefore || fpAfter != fpBefore)
+                    {
+                        await Fail("drag-stress-linenoop",
+                            $"iter={i} end=[{end}] depth {depthBefore}->{depthAfter}");
+                        return;
+                    }
+                    journal.Add($"u{i}:lnoop");
+                    continue;
+                }
+                var okEnd = end == $"dropped:lines:{dragged.Count}";
+                var okDepth = depthAfter == depthBefore + 1;
+                bool okOrder;
+                if (!copy)
+                {
+                    okOrder = post.Select(l => l.Id).SequenceEqual(predicted);
+                }
+                else
+                {
+                    var postIds = post.Select(l => l.Id).ToList();
+                    var fresh = postIds.Where(id => !orig.Contains(id)).ToList();
+                    var origOrder = postIds.Where(id => orig.Contains(id)).ToList();
+                    var okCount = post.Count == n + dragged.Count;
+                    var okFresh = fresh.Count == dragged.Count;
+                    // Copies insert without moving: originals keep pre-order.
+                    var okOrig = origOrder.SequenceEqual(orig);
+                    var okClone = true;
+                    // Clone content matches the sources (counts + first word
+                    // texts at the predicted clone slots, which are stable:
+                    // copies never shift other lines before inserting).
+                    for (var c = 0; c < dragged.Count && okClone; c++)
+                    {
+                        var cloneN = await OnUiAsync(window, () =>
+                            page.Test_LyricWordCount(safe + c));
+                        if (cloneN != srcCounts[c]) { okClone = false; break; }
+                        if (srcCounts[c] == 0) continue;
+                        var cloneText = await OnUiAsync(window, () =>
+                            page.Test_WordText(safe + c, 0));
+                        okClone = cloneText == srcTexts[c];
+                    }
+                    var selC = await OnUiAsync(window, () => page.Test_SelectedLineCount());
+                    var okSel = selC == dragged.Count;
+                    okOrder = okCount && okFresh && okOrig && okClone && okSel;
+                    if (!okOrder)
+                        Write(report, $"  note copy-order count={okCount} fresh={okFresh} " +
+                            $"orig={okOrig} clone={okClone} sel={okSel} safe={safe}");
+                }
+                if (!okEnd || !okDepth || !okOrder)
+                {
+                    await Fail("drag-stress-lines",
+                        $"iter={i} copy={copy} end=[{end}] depth {depthBefore}->{depthAfter} order={okOrder}");
+                    return;
+                }
+                if (!await CheckReversible(fpBefore, fpAfter, i, "lines")) return;
+                redoStack.Clear();
+                undoStack.Push(fpAfter);
+                applied++;
+                journal.Add($"u{i}:lines copy={copy}");
+            }
+            else
+            {
+                // Word move/copy (single- or dual-source, any target).
+                var srcA = rng.Next(n);
+                if (model[srcA].Words.Count == 0) { journal.Add($"u{i}:skip-empty"); continue; }
+                var takeA = new HashSet<int>();
+                var ka = rng.Next(1, Math.Min(3, model[srcA].Words.Count) + 1);
+                while (takeA.Count < ka) takeA.Add(rng.Next(model[srcA].Words.Count));
+                var srcs = new List<(int Line, List<int> Words)> { (srcA, takeA.OrderBy(x => x).ToList()) };
+                if (rng.Next(100) < 30)
+                {
+                    var srcB = rng.Next(n);
+                    if (srcB != srcA && model[srcB].Words.Count > 0)
+                    {
+                        var takeB = new HashSet<int>();
+                        var kb = rng.Next(1, Math.Min(2, model[srcB].Words.Count) + 1);
+                        while (takeB.Count < kb) takeB.Add(rng.Next(model[srcB].Words.Count));
+                        srcs.Add((srcB, takeB.OrderBy(x => x).ToList()));
+                    }
+                }
+                var copy = rng.Next(2) == 0;
+                var tgtLine = rng.Next(n);
+                var tgtCount = model[tgtLine].Words.Count;
+                var tgtPos = rng.Next(tgtCount + 1);
+                var after = tgtPos < tgtCount && rng.Next(2) == 0;
+                // Payload in document order (line-major, like the command).
+                var wanted = new HashSet<string>();
+                foreach (var (ln, ws) in srcs)
+                    foreach (var wi in ws) wanted.Add(model[ln].Words[wi]);
+                var payload = new List<string>();
+                foreach (var l in model)
+                    foreach (var w in l.Words)
+                        if (wanted.Contains(w)) payload.Add(w);
+                // Source texts (payload order) for copy verification.
+                var payloadTexts = new List<string>();
+                if (copy)
+                    foreach (var (ln, ws) in srcs.OrderBy(s => s.Line))
+                        foreach (var wi in ws)
+                            payloadTexts.Add(await OnUiAsync(window, () =>
+                                page.Test_WordText(ln, wi)));
+                // Predict per-line orders: simulate removal, then insert at
+                // the target id resolved from the PRE-drop list (exactly what
+                // the command does: id lookup after removal).
+                var tgtId = model[tgtLine].Id;
+                string? tgtWordId = tgtPos < model[tgtLine].Words.Count
+                    ? model[tgtLine].Words[tgtPos] : null;
+                var ownTarget = tgtWordId is not null && wanted.Contains(tgtWordId);
+                var sim = model.ToDictionary(l => l.Id, l => l.Words.ToList());
+                if (!copy)
+                    foreach (var l in sim.Keys.ToList())
+                        sim[l] = sim[l].Where(w => !wanted.Contains(w)).ToList();
+                int insPos = tgtWordId is null ? sim[tgtId].Count
+                    : sim[tgtId].IndexOf(tgtWordId) + (after ? 1 : 0);
+                // NOTE: insPos < 0 (target vanished and not own-target) cannot
+                // happen: a non-dragged target survives removal by definition.
+                var expectNoop = ownTarget || (!copy
+                    && model.All(l => sim[l.Id].SequenceEqual(
+                        model.First(m => m.Id == l.Id).Words)));
+                // Drive: begin on first source line, toggle the rest.
+                var first = srcs[0];
+                await OnUiAsync(window, () => page.Test_DragBeginWords(first.Line,
+                    first.Words.ToArray()));
+                foreach (var (ln, ws) in srcs.Skip(1))
+                    foreach (var wi in ws)
+                        await OnUiAsync(window, () => page.Test_ToggleChipWord(ln, wi));
+                var dbgState = await OnUiAsync(window, () => page.Test_DragState());
+                var dbgSel = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+                Write(report, $"  note dragsetup iter={i} want={payload.Count} " +
+                    $"state=[{dbgState}] sel=[{dbgSel}]");
+                await OnUiAsync(window, () => page.Test_DragToWord(
+                    tgtLine, tgtPos < model[tgtLine].Words.Count ? tgtPos : -1, after));
+                var dropEnd = "drop:";
+                try
+                {
+                    dropEnd = await OnUiAsync(window, () => page.Test_DragEnd(copy));
+                }
+                catch (Exception ex)
+                {
+                    await Fail("drag-stress-throw",
+                        $"iter={i} copy={copy} ex={ex.GetType().Name}");
+                    return;
+                }
+                var depthAfter = await OnUiAsync(window, () => page.Test_UndoDepth());
+                fpAfter = await Shape();
+                var post = ParseIds(fpAfter);
+                var postById = post.ToDictionary(l => l.Id, l => l.Words);
+                bool okShape;
+                if (expectNoop)
+                {
+                    okShape = dropEnd.StartsWith("noop:") && depthAfter == depthBefore
+                        && fpAfter == fpBefore;
+                }
+                else if (!copy)
+                {
+                    // Insert the payload at the predicted slot for comparison.
+                    var expect = sim.ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
+                    expect[tgtId].InsertRange(insPos, payload);
+                    okShape = dropEnd == $"dropped:words:{payload.Count}"
+                        && depthAfter == depthBefore + 1
+                        && post.Count == n
+                        && model.All(l => postById[l.Id].SequenceEqual(expect[l.Id]));
+                }
+                else
+                {
+                    var preCount = model.Sum(l => l.Words.Count);
+                    var postCount = post.Sum(l => l.Words.Count);
+                    if (!(dropEnd == $"dropped:words:{payload.Count}"
+                        && depthAfter == depthBefore + 1
+                        && postCount == preCount + payload.Count))
+                        Write(report, $"  note copy-counts pre={preCount} post={postCount} " +
+                            $"payload={payload.Count} lines={model.Count}->{post.Count}");
+                    okShape = dropEnd == $"dropped:words:{payload.Count}"
+                        && depthAfter == depthBefore + 1
+                        && postCount == preCount + payload.Count;
+                    if (okShape)
+                    {
+                        // Clones are selected in payload order with matching texts.
+                        var selW = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+                        var selParts = selW.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                        okShape = selParts.Length == payload.Count;
+                        for (var c = 0; c < selParts.Length && okShape; c++)
+                        {
+                            var lw = selParts[c].Split(':');
+                            var text = await OnUiAsync(window, () => page.Test_WordText(
+                                int.Parse(lw[0]), int.Parse(lw[1])));
+                            if (text != payloadTexts[c])
+                            {
+                                Write(report, $"  note clone-text want='{payloadTexts[c]}' got='{text}'");
+                                okShape = false;
+                            }
+                        }
+                    }
+                }
+                if (!okShape)
+                {
+                    var diagTgt = postById.TryGetValue(tgtId, out var postTgt)
+                        ? string.Join(",", postTgt) : "?";
+                    var diagPre = string.Join(",", sim.TryGetValue(tgtId, out var preT)
+                        ? preT : new List<string>());
+                    var selW = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+                    var selN = selW.Split(',', StringSplitOptions.RemoveEmptyEntries).Length;
+                    var preN = model.Sum(l => l.Words.Count);
+                    var postN = post.Sum(l => l.Words.Count);
+                    await Fail("drag-stress-words",
+                        $"iter={i} copy={copy} end=[{dropEnd}] depth {depthBefore}->{depthAfter} " +
+                        $"tgt={tgtLine} pos={tgtPos} after={after} own={ownTarget} " +
+                        $"payload={payload.Count} selN={selN} counts={preN}->{postN} " +
+                        $"pre=[{diagPre}] post=[{diagTgt}] sel=[{selW}]");
+                    return;
+                }
+                if (!await CheckReversible(fpBefore, fpAfter, i, "words")) return;
+                redoStack.Clear();
+                undoStack.Push(fpAfter);
+                applied++;
+                journal.Add($"u{i}:words copy={copy}");
+            }
+        }
+        Write(report, $"seed={seed}");
+        check("drag-stress-60", true, $"seed={seed} applied={applied}");
     }
 
     private static string FirstDiff(string doc, string reference)
@@ -1354,6 +1899,10 @@ internal static class EditCheck
 
         for (var i = 0; i < 200; i++)
         {
+            // Heartbeat: main stress prints nothing per-op, so a stall
+            // would otherwise be indistinguishable from slowness.
+            if (i % 25 == 0)
+                Write(report, $"  note stress-heartbeat iter={i} lines={refs.Count}");
             var roll = rng.Next(100);
             if (roll < 12)
             {

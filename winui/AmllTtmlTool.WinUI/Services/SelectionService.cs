@@ -164,6 +164,18 @@ public sealed class SelectionService
         RetainWords(lineOfWord);
     }
 
+    // Word-drop copy: the selection becomes exactly the fresh clones on
+    // their target line (original reselects the clones).
+    public void ReplaceWords(string lineId, IEnumerable<string> wordIds, string primaryWordId)
+    {
+        _lineIds.Add(lineId);
+        _wordIds.Clear();
+        foreach (var id in wordIds) _wordIds.Add(id);
+        SelectedLineId = lineId;
+        SelectedWordId = primaryWordId;
+        Changed?.Invoke();
+    }
+
     // Syncs the line set from the ListView (Extended mode). Words of
     // removed lines drop; primary re-anchors inside the surviving set.
     public void SyncLineSet(

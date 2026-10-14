@@ -2805,6 +2805,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.ShotCardAsync(line, path) ?? Task.FromResult("nopage");
         internal Task<string> Test_ShotList(string path) =>
             _attachedEditPage?.ShotListAsync(path) ?? Task.FromResult("nopage");
+        internal Task<string> Test_ShotPage(string path) =>
+            _attachedEditPage?.ShotPageAsync(path) ?? Task.FromResult("nopage");
         internal Task<string> Test_ShotChip(int line, int word, string path) =>
             _attachedEditPage?.ShotChipAsync(line, word, path) ?? Task.FromResult("nopage");
         internal string Test_IndicatedIndices() =>
@@ -2813,6 +2815,28 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.SelectedIndices() ?? "nopage";
         internal string Test_ServiceLineIdx() =>
             _attachedEditPage?.Test_ServiceLineIdx() ?? "nopage";
+        internal string Test_DocShape() =>
+            _attachedEditPage?.Test_DocShape() ?? "nopage";
+        internal string Test_DocFingerprint() =>
+            _attachedEditPage?.Test_DocFingerprint() ?? "nopage";
+        internal bool Test_DragBeginLines(int[] indices) =>
+            _attachedEditPage?.Test_DragBeginLines(indices) ?? false;
+        internal bool Test_DragBeginWords(int line, int[] words) =>
+            _attachedEditPage?.Test_DragBeginWords(line, words) ?? false;
+        internal string Test_DragToLineIndex(int index) =>
+            _attachedEditPage?.Test_DragToLineIndex(index) ?? "nopage";
+        internal string Test_DragToWord(int line, int word, bool after) =>
+            _attachedEditPage?.Test_DragToWord(line, word, after) ?? "nopage";
+        internal string Test_DragEnd(bool copy) =>
+            _attachedEditPage?.Test_DragEnd(copy) ?? "nopage";
+        internal string Test_DragCancel() =>
+            _attachedEditPage?.Test_DragCancel() ?? "nopage";
+        internal string Test_DragState() =>
+            _attachedEditPage?.Test_DragState() ?? "nopage";
+        internal void Test_BuildDragDoc(int lines, int wordsPer) =>
+            _attachedEditPage?.Test_BuildDragDoc(lines, wordsPer);
+        internal string Test_DragEdgeScroll(bool top, int ticks) =>
+            _attachedEditPage?.Test_DragEdgeScroll(top, ticks) ?? "nopage";
         internal string Test_FirstChipX(int line) =>
             _attachedEditPage?.FirstChipX(line) ?? "nopage";
         internal string Test_CardHeight(int line) =>

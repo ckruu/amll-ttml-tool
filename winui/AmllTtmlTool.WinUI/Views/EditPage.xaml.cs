@@ -31,6 +31,14 @@ namespace AmllTtmlTool.WinUI.Views
         {
             this.InitializeComponent();
             this.Unloaded += (_, _) => Detach();
+            // Drag tracking (handledEventsToo: presses on boxes are marked
+            // handled, but moves/releases must still reach the session).
+            this.AddHandler(UIElement.PointerMovedEvent,
+                new PointerEventHandler(OnDragPointerMoved), true);
+            this.AddHandler(UIElement.PointerReleasedEvent,
+                new PointerEventHandler(OnDragPointerReleased), true);
+            this.AddHandler(UIElement.PointerCaptureLostEvent,
+                new PointerEventHandler(OnDragCaptureLost), true);
         }
 
         // Called by ShellPage on navigation (fresh instance each time).
@@ -786,6 +794,220 @@ namespace AmllTtmlTool.WinUI.Views
             return string.Join(",", shown);
         }
 
+        // --- Drag hooks (same execution path as pointer-up) -----------------
+        internal bool Test_DragBeginLines(int[] indices)
+        {
+            if (_store is null || _selection is null) return false;
+            SelectLines(indices);
+            var ids = _store.Document.Lines
+                .Where(l => _selection.SelectedLineIds.Contains(l.Id))
+                .Select(l => l.Id).ToList();
+            if (ids.Count == 0) return false;
+            DisarmDrag();
+            _drag = new DragSession { IsWords = false, Started = true };
+            _drag.Ids.AddRange(ids);
+            EnsureDragTimer();
+            if (indices.Length > 0
+                && LineList.ContainerFromIndex(indices[0]) is ListViewItem container)
+                container.Focus(FocusState.Programmatic);
+            RefreshDragVisuals();
+            return true;
+        }
+
+        internal bool Test_DragBeginWords(int line, int[] words)
+        {
+            if (_store is null || _selection is null) return false;
+            if (line < 0 || line >= _store.Document.Lines.Count) return false;
+            var docLine = _store.Document.Lines[line];
+            var ids = words.Where(w => w >= 0 && w < docLine.Words.Count)
+                .Select(w => docLine.Words[w].Id).ToList();
+            if (ids.Count == 0) return false;
+            // Exact-set: clear first (SelectWord early-returns on a reselect
+            // of the same word, which would leave leftovers for the toggles
+            // below to remove instead of add).
+            ClearEditSelection();
+            SelectWord(line, words[0]);
+            foreach (var w in words.Skip(1)) ToggleChipWord(line, w);
+            var wanted = new HashSet<string>(ids);
+            var ordered = new List<string>();
+            foreach (var l in _store.Document.Lines)
+                foreach (var w in l.Words)
+                    if (wanted.Contains(w.Id)) ordered.Add(w.Id);
+            DisarmDrag();
+            _drag = new DragSession { IsWords = true, Started = true };
+            _drag.Ids.AddRange(ordered);
+            EnsureDragTimer();
+            if (LineList.ContainerFromIndex(line) is ListViewItem container)
+                container.Focus(FocusState.Programmatic);
+            RefreshDragVisuals();
+            return true;
+        }
+
+        internal string Test_DragToLineIndex(int index)
+        {
+            if (_drag is null || _drag.IsWords || _store is null) return "nodrag";
+            index = Math.Max(0, Math.Min(index, _store.Document.Lines.Count));
+            _drag.DropLineIndex = index;
+            double y;
+            if (index < _store.Document.Lines.Count
+                && LineList.ContainerFromIndex(index) is ListViewItem container)
+            {
+                y = container.TransformToVisual(LineList)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0)).Y - 4;
+            }
+            else
+            {
+                y = 0;
+                for (var i = _store.Document.Lines.Count - 1; i >= 0; i--)
+                {
+                    if (LineList.ContainerFromIndex(i) is ListViewItem last)
+                    {
+                        y = last.TransformToVisual(LineList)
+                            .TransformPoint(new Windows.Foundation.Point(0, last.ActualHeight)).Y + 4;
+                        break;
+                    }
+                }
+            }
+            _drag.LastX = LineList.ActualWidth / 2;
+            _drag.LastY = y;
+            PositionDropLine(y);
+            RefreshDragVisuals();
+            return $"target:{index}";
+        }
+
+        internal string Test_DragToWord(int line, int word, bool after)
+        {
+            if (_drag is null || !_drag.IsWords || _store is null) return "nodrag";
+            if (line < 0 || line >= _store.Document.Lines.Count) return "noline";
+            var docLine = _store.Document.Lines[line];
+            string? wordId = word < 0 ? null
+                : word < docLine.Words.Count ? docLine.Words[word].Id : null;
+            if (word >= 0 && wordId is null) return "noword";
+            _drag.DropLineId = docLine.Id;
+            _drag.DropWordId = wordId;
+            _drag.DropAfter = after;
+            if (LineList.ContainerFromIndex(line) is ListViewItem container
+                && container.ContentTemplateRoot is Grid card
+                && card.FindName("ChipPanel") is LyricWrapPanel panel)
+            {
+                Grid? target = null;
+                if (wordId is not null)
+                {
+                    foreach (var child in panel.Children)
+                        if (child is Grid chip && chip.Tag is string tag && tag == wordId)
+                        { target = chip; break; }
+                }
+                else
+                {
+                    target = panel.Children.OfType<Grid>().LastOrDefault();
+                    after = true;
+                }
+                if (target is not null)
+                {
+                    ShowChipMark(target, after);
+                    var c = target.TransformToVisual(LineList)
+                        .TransformPoint(new Windows.Foundation.Point(
+                            after ? target.ActualWidth : 0, target.ActualHeight / 2));
+                    _drag.LastX = c.X;
+                    _drag.LastY = c.Y;
+                }
+            }
+            RefreshDragVisuals();
+            return $"target:{line}:{(wordId ?? "end")}:{(after ? "after" : "before")}";
+        }
+
+        internal string Test_DragEnd(bool copy) => DropExecute(copy);
+
+        internal string Test_DragCancel()
+        {
+            if (_drag is null) return "idle";
+            CancelDrag();
+            return "cancelled";
+        }
+
+        internal string Test_DragState()
+        {
+            if (_drag is null) return "idle";
+            var ghost = GhostText(IsCtrlDown());
+            return _drag.IsWords
+                ? $"words:{_drag.Ids.Count}>{_drag.DropLineId}:{_drag.DropWordId} ghost:[{ghost}]"
+                : $"lines:{_drag.Ids.Count}>{_drag.DropLineIndex} ghost:[{ghost}]";
+        }
+
+        internal void Test_BuildDragDoc(int lines, int wordsPer)
+        {
+            if (_store is null) return;
+            var built = new List<EditLine>();
+            for (var li = 0; li < lines; li++)
+            {
+                var line = EditLine.New();
+                line.StartTimeMs = li * 2000;
+                line.EndTimeMs = li * 2000 + 1800;
+                for (var wi = 0; wi < wordsPer; wi++)
+                {
+                    var word = EditWord.New();
+                    word.StartTimeMs = li * 2000 + wi * 100;
+                    word.EndTimeMs = li * 2000 + wi * 100 + 80;
+                    word.Text = $"w{li}_{wi}";
+                    line.Words.Add(word);
+                }
+                built.Add(line);
+            }
+            _store.Execute(new BulkReplaceCommand(built, new List<EditMetadata>()));
+        }
+
+        // Auto-scroll probe: parks the session pointer at the requested edge
+        // and runs N scroll ticks synchronously (same ScrollTick the timer
+        // calls). Returns "off0->off1 ticks:n wallMs:m".
+        internal string Test_DragEdgeScroll(bool top, int ticks)
+        {
+            if (_drag is null) return "nodrag";
+            _drag.ScrollDir = top ? -1 : 1;
+            _drag.LastX = LineList.ActualWidth / 2;
+            _drag.LastY = top ? 5 : Math.Max(6, LineList.ActualHeight - 5);
+            var sv = FindScroller();
+            var off0 = sv?.VerticalOffset ?? -1;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            for (var i = 0; i < ticks; i++) ScrollTick();
+            sw.Stop();
+            var off1 = sv?.VerticalOffset ?? -1;
+            return $"{F2(off0)}->{F2(off1)} ticks:{_drag.ScrollTicks.Count} wallMs:{sw.Elapsed.TotalMilliseconds:F0}";
+        }
+
+        // Whole-doc fingerprint in ONE call (same exact format as the
+        // EditCheck helper's per-hook version, but ~500x fewer dispatcher
+        // round-trips on big docs: the per-op stress fingerprints were
+        // saturating the UI thread at ~16s/iter on 74-line docs).
+        internal string Test_DocFingerprint()
+        {
+            if (_store is null) return "nostore";
+            var parts = new List<string>();
+            foreach (var line in _store.Document.Lines)
+            {
+                parts.Add($"L[{line.StartTimeMs},{line.EndTimeMs},{line.IsBg},{line.IsDuet},{line.IgnoreSync},{line.TranslatedLyric},{line.RomanLyric}]");
+                foreach (var w in line.Words)
+                    parts.Add($"W[{w.StartTimeMs},{w.EndTimeMs},{w.Text},{w.RomanWord},{w.Obscene},{w.EmptyBeat}]");
+                parts.Add("/");
+            }
+            return string.Join("|", parts);
+        }
+
+        // Whole-doc shape in ONE call (cheap fingerprint for drag stress):
+        // "lineId,start,end,bg,duet:wordId,start,end;..." per line.
+        internal string Test_DocShape()
+        {
+            if (_store is null) return "nostore";
+            var parts = new List<string>();
+            foreach (var line in _store.Document.Lines)
+            {
+                var words = string.Join(";",
+                    line.Words.Select(w => $"{w.Id},{w.StartTimeMs},{w.EndTimeMs}"));
+                parts.Add($"{line.Id},{line.StartTimeMs},{line.EndTimeMs}," +
+                    $"{(line.IsBg ? 1 : 0)},{(line.IsDuet ? 1 : 0)}:{words}");
+            }
+            return string.Join("|", parts);
+        }
+
         // Service-side line selection as doc indices (what multi-ops read).
         internal string Test_ServiceLineIdx()
         {
@@ -979,6 +1201,12 @@ namespace AmllTtmlTool.WinUI.Views
         internal async Task<string> ShotListAsync(string path)
         {
             try { return await ShotElementAsync(LineList, path); }
+            catch (Exception ex) { return "error:" + ex.Message; }
+        }
+
+        internal async Task<string> ShotPageAsync(string path)
+        {
+            try { return await ShotElementAsync(this, path); }
             catch (Exception ex) { return "error:" + ex.Message; }
         }
 
@@ -1213,47 +1441,34 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (sender is not Grid card || _selection is null || _store is null) return;
             if (IsInCardControl(card, e.OriginalSource as DependencyObject)) return;
+            // Right/middle mouse: the line context menu owns it (see chip
+            // handler). Touch/pen tip presses arm like left-clicks.
+            var props = e.GetCurrentPoint(LineList).Properties;
+            if (!props.IsLeftButtonPressed
+                && e.Pointer.PointerDeviceType.ToString() == "Mouse")
+                return;
             var container = FindListViewItem(card);
             if (container is null) return;
             var index = LineList.IndexFromContainer(container);
             if (index < 0 || index >= _store.Document.Lines.Count) return;
             var line = _store.Document.Lines[index];
-            if (IsCtrlDown() || IsShiftDown())
-            {
-                // Let the ListView own modifier selection: route through the
-                // same Test_LineGesture-equivalent list membership so the
-                // service follows via SelectionChanged.
-                if (IsCtrlDown() && !IsShiftDown())
-                {
-                    if (LineList.SelectedItems.Contains(line))
-                        LineList.SelectedItems.Remove(line);
-                    else
-                        LineList.SelectedItems.Add(line);
-                }
-                else if (IsShiftDown())
-                {
-                    var anchor = _selection.SelectedLineId is string aid
-                        ? _store.Document.Lines.ToList().FindIndex(l => l.Id == aid)
-                        : -1;
-                    if (anchor < 0) LineList.SelectedItem = line;
-                    else
-                    {
-                        var lo = Math.Min(anchor, index);
-                        var hi = Math.Max(anchor, index);
-                        for (var i = lo; i <= hi; i++)
-                            if (!LineList.SelectedItems.Contains(_store.Document.Lines[i]))
-                                LineList.SelectedItems.Add(_store.Document.Lines[i]);
-                    }
-                }
-            }
-            else
+            var ctrl = IsCtrlDown();
+            var shift = IsShiftDown();
+            // Plain press on an unselected line selects immediately;
+            // modified presses and presses inside the selection defer to
+            // release/dragstart (multi-selections survive).
+            if (!ctrl && !shift && !_selection.SelectedLineIds.Contains(line.Id))
             {
                 LineList.SelectedItem = line;
                 _selection.SelectLine(line.Id);
+                container.Focus(FocusState.Programmatic);
             }
-            container.Focus(FocusState.Programmatic);
+            ArmDrag(words: false, lineId: line.Id, wordId: null,
+                point: e.GetCurrentPoint(LineList).Position, ctrl: ctrl, shift: shift);
             e.Handled = true;
         }
+
+
 
         // True when a press originates inside a chip, an edit box, a button
         // or the insert box (those own their presses); everything else on
@@ -1805,6 +2020,13 @@ namespace AmllTtmlTool.WinUI.Views
             }
             else if (e.Key == Windows.System.VirtualKey.Escape)
             {
+                // Esc mid-drag cancels the drag instead of reverting text.
+                if (_drag is not null && _drag.Started)
+                {
+                    CancelDrag();
+                    e.Handled = true;
+                    return;
+                }
                 try
                 {
                     var model = session.GetModel();
@@ -1864,6 +2086,8 @@ namespace AmllTtmlTool.WinUI.Views
             var index = LineList.IndexFromContainer(container);
             if (index < 0 || index >= _store.Document.Lines.Count) return;
             var fieldLine = _store.Document.Lines[index];
+            // Pair the ListView (service writers must never leave phantom
+            // lines the list doesn't show: multi-ops read the service set).
             if (!LineList.SelectedItems.Contains(fieldLine))
                 LineList.SelectedItems.Add(fieldLine);
             _selection.AnchorLine(fieldLine.Id);
@@ -2012,6 +2236,7 @@ namespace AmllTtmlTool.WinUI.Views
                 // Empty-area press selects the line (chips, boxes and
                 // buttons own theirs). The card + panel are Transparent
                 // (hit-testable) so number/badges/gaps/trailing all work.
+                // Release completes the click (press only arms/selects-first).
                 card.AddHandler(UIElement.PointerPressedEvent,
                     new PointerEventHandler(OnCardPointerPressed), true);
                 var flyout = new MenuFlyout();
@@ -2482,9 +2707,11 @@ namespace AmllTtmlTool.WinUI.Views
                 _ => CommitWordTextBox(roman, line, wordId, roman: true));
             // handledEventsToo: TextBoxes mark pointer input handled, which
             // would otherwise starve both this handler and item select.
-            // (GotFocus covers keyboard focus; this covers pointer select.)
+            // Press arms (selection on release, like the original's
+            // pointerdown/up split); release completes the click gesture.
             chip.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnChipPointerPressed), true);
+
             // Double-click enters EDIT (focuses the box); single click stays
             // SELECT (PointerPressed selects + focuses the item, no caret).
             chip.DoubleTapped += (_, e) =>
@@ -2511,6 +2738,20 @@ namespace AmllTtmlTool.WinUI.Views
             };
             Grid.SetRowSpan(selOutline, 2);
             chip.Children.Add(selOutline);
+            // Drop mark: vertical accent bar on the chip's left/right edge
+            // (dropLeft/dropRight in the original). Border-only overlay, no
+            // layout shift; side set per hover half.
+            var dropMark = new Border
+            {
+                BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(2),
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false,
+            };
+            Grid.SetRowSpan(dropMark, 2);
+            chip.Children.Add(dropMark);
             AttachWordMenu(chip, text, roman, line.Id, wordId);
             return chip;
         }
@@ -2595,6 +2836,620 @@ namespace AmllTtmlTool.WinUI.Views
             }
         }
 
+        // --- Drag and drop (item 12, pointer-based, no OS DnD) ------------
+        // Lines and words drag with the pointer (3px threshold like the
+        // original's useLyricListDrag); Ctrl at drop time (shown live while
+        // dragging) makes it a copy, otherwise a move. One drop = one undo
+        // step via ReorderLinesCommand / MoveWordsCommand. Internal drags
+        // never touch a DataPackage, so the window-level drop-to-open
+        // overlay (StorageItems-gated in ShellPage) cannot appear for them.
+        // Timings: normalizeLineTime runs only at touched bounds on drop,
+        // exactly like the original (PORTING-NOTES section h).
+
+        private sealed class DragSession
+        {
+            public bool IsWords;
+            public List<string> Ids = new();
+            public bool Started;
+            public int DropLineIndex = -1; // lines: insertion index, -1 invalid
+            public string? DropLineId;     // words: target line, null invalid
+            public string? DropWordId;     // words: target word, null append
+            public bool DropAfter;
+            public double LastX;
+            public double LastY;
+            public List<(FrameworkElement El, double Opacity)> Dimmed = new();
+            public Grid? MarkChip;
+            public int ScrollDir;
+            public List<DateTime> ScrollTicks = new();
+            public double ScrollFrom;
+            public double ScrollTo;
+        }
+
+        private sealed class PressArm
+        {
+            public bool IsWords;
+            public string LineId = "";
+            public string? WordId;
+            public double X;
+            public double Y;
+            public bool Ctrl;
+            public bool Shift;
+        }
+
+        private PressArm? _pressArm;
+        private DragSession? _drag;
+        private DispatcherTimer? _dragTimer;
+
+        private void ArmDrag(bool words, string lineId, string? wordId,
+            Windows.Foundation.Point point, bool ctrl, bool shift)
+        {
+            _pressArm = new PressArm
+            {
+                IsWords = words, LineId = lineId, WordId = wordId,
+                X = point.X, Y = point.Y, Ctrl = ctrl, Shift = shift,
+            };
+        }
+
+        private void DisarmDrag() => _pressArm = null;
+
+        private void OnDragPointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (_store is null) return;
+            var point = e.GetCurrentPoint(LineList).Position;
+            if (_drag is null)
+            {
+                if (_pressArm is null) return;
+                var arm = _pressArm;
+                var dx = point.X - arm.X;
+                var dy = point.Y - arm.Y;
+                if (dx * dx + dy * dy < 16) return; // 4px threshold
+                BeginDrag(arm.IsWords, arm.LineId, arm.WordId);
+                if (_drag is null) return;
+            }
+            UpdateDrag(point.X, point.Y);
+        }
+
+        private void OnDragPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            // A release after a started drag is the drop (copy = Ctrl held
+            // at drop time). Otherwise an armed press completes its click
+            // here — anywhere, even off-element — with press-time modifiers.
+            if (_drag is not null && _drag.Started)
+            {
+                DropExecute(IsCtrlDown());
+                e.Handled = true;
+                return;
+            }
+            if (_pressArm is null || _selection is null || _store is null) return;
+            var arm = _pressArm;
+            DisarmDrag();
+            var line = _store.Document.Lines.FirstOrDefault(l => l.Id == arm.LineId);
+            if (line is null) return;
+            if (arm.IsWords)
+            {
+                if (arm.WordId is null) return;
+                var word = line.Words.FirstOrDefault(w => w.Id == arm.WordId);
+                if (word is null) return;
+                var index = _store.Document.Lines.IndexOf(line);
+                WordPressGesture(line, index, word.Id, arm.Ctrl, arm.Shift);
+            }
+            else if (arm.Ctrl && !arm.Shift)
+            {
+                if (LineList.SelectedItems.Contains(line))
+                    LineList.SelectedItems.Remove(line);
+                else
+                    LineList.SelectedItems.Add(line);
+            }
+            else if (arm.Shift)
+            {
+                var anchor = _selection.SelectedLineId is string aid
+                    ? _store.Document.Lines.ToList().FindIndex(l => l.Id == aid)
+                    : -1;
+                var index = _store.Document.Lines.IndexOf(line);
+                if (anchor < 0) LineList.SelectedItem = line;
+                else
+                {
+                    var lo = Math.Min(anchor, index);
+                    var hi = Math.Max(anchor, index);
+                    for (var i = lo; i <= hi; i++)
+                        if (!LineList.SelectedItems.Contains(_store.Document.Lines[i]))
+                            LineList.SelectedItems.Add(_store.Document.Lines[i]);
+                }
+            }
+            else
+            {
+                LineList.SelectedItem = line;
+                _selection.SelectLine(line.Id);
+            }
+            if (FindListViewItemForLine(line.Id) is ListViewItem container)
+                container.Focus(FocusState.Programmatic);
+            e.Handled = true;
+        }
+
+        private void OnDragCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            // Pointer lost mid-drag (window deactivated, gesture stolen):
+            // cancel rather than dropping somewhere unintended.
+            if (_drag is not null) CancelDrag();
+            else DisarmDrag();
+        }
+
+        // Payload = current selection in document order. A drag starting on
+        // an unselected item selects it first (single), like the original's
+        // handleDragStart; a start inside the selection keeps it whole.
+        private void BeginDrag(bool words, string lineId, string? wordId)
+        {
+            if (_store is null || _selection is null || _drag is not null) return;
+            var startSelected = words
+                ? (wordId is not null && _selection.SelectedWordIds.Contains(wordId))
+                : _selection.SelectedLineIds.Contains(lineId);
+            if (!startSelected)
+            {
+                var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
+                if (line is null) { DisarmDrag(); return; }
+                LineList.SelectedItem = line;
+                if (words && wordId is not null) _selection.SelectWord(lineId, wordId);
+                else _selection.SelectLine(lineId);
+            }
+            DisarmDrag();
+            var session = new DragSession { IsWords = words, Started = true };
+            if (words)
+            {
+                var wanted = _selection.SelectedWordIds;
+                foreach (var line in _store.Document.Lines)
+                    foreach (var w in line.Words)
+                        if (wanted.Contains(w.Id)) session.Ids.Add(w.Id);
+                if (session.Ids.Count == 0) return;
+            }
+            else
+            {
+                var wanted = _selection.SelectedLineIds;
+                foreach (var line in _store.Document.Lines)
+                    if (wanted.Contains(line.Id)) session.Ids.Add(line.Id);
+                if (session.Ids.Count == 0) return;
+            }
+            _drag = session;
+            if (FindListViewItemForLine(lineId) is ListViewItem container)
+                container.Focus(FocusState.Programmatic);
+            EnsureDragTimer();
+            _dragTimer?.Start();
+            RefreshDragVisuals();
+        }
+
+        private ListViewItem? FindListViewItemForLine(string lineId)
+        {
+            if (_store is null) return null;
+            var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == lineId);
+            return at < 0 ? null
+                : LineList.ContainerFromIndex(at) as ListViewItem;
+        }
+
+        private void EnsureDragTimer()
+        {
+            if (_dragTimer is not null) return;
+            _dragTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            _dragTimer.Tick += (_, _) => ScrollTick();
+        }
+
+        private void UpdateDrag(double x, double y)
+        {
+            if (_drag is null || _store is null) return;
+            _drag.LastX = x;
+            _drag.LastY = y;
+            if (_drag.IsWords) UpdateWordTarget(x, y);
+            else UpdateLineTarget(y);
+            // Auto-scroll near the list edges (40px, original profile).
+            _drag.ScrollDir = y < 40 ? -1
+                : y > Math.Max(41, LineList.ActualHeight - 40) ? 1 : 0;
+            RefreshDragVisuals();
+        }
+
+        private void UpdateLineTarget(double y)
+        {
+            if (_drag is null || _store is null) return;
+            var dragged = new HashSet<string>(_drag.Ids);
+            var realized = new List<(int Index, double Top, double Bottom, string Id)>();
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                var top = container.TransformToVisual(LineList)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                realized.Add((i, top, top + container.ActualHeight,
+                    _store.Document.Lines[i].Id));
+            }
+            realized.Sort((a, b) => a.Top.CompareTo(b.Top));
+            _drag.DropLineIndex = -1;
+            foreach (var (index, top, bottom, id) in realized)
+            {
+                if (dragged.Contains(id))
+                {
+                    // Over a dragged line: no indicator (original hides it).
+                    if (y >= top && y <= bottom) return;
+                    continue;
+                }
+                var mid = (top + bottom) / 2;
+                if (y < mid)
+                {
+                    _drag.DropLineIndex = index;
+                    PositionDropLine(top - 4);
+                    return;
+                }
+            }
+            if (realized.Count == 0) return;
+            _drag.DropLineIndex = _store.Document.Lines.Count;
+            PositionDropLine(realized[^1].Bottom + 4);
+        }
+
+        private void PositionDropLine(double y)
+        {
+            DropLineMark.Visibility = Visibility.Visible;
+            Canvas.SetLeft(DropLineMark, 8);
+            Canvas.SetTop(DropLineMark, Math.Max(0, y));
+            DropLineMark.Width = Math.Max(0, LineList.ActualWidth - 16);
+        }
+
+        private void UpdateWordTarget(double x, double y)
+        {
+            if (_drag is null || _store is null) return;
+            HideChipMark();
+            _drag.DropLineId = null;
+            _drag.DropWordId = null;
+            var dragged = new HashSet<string>(_drag.Ids);
+            LyricWrapPanel? panel = null;
+            Grid? hitChip = null;
+            foreach (var el in VisualTreeHelper.FindElementsInHostCoordinates(
+                new Windows.Foundation.Point(x, y), LineList))
+            {
+                var current = el as DependencyObject;
+                while (current is not null)
+                {
+                    if (current is Grid grid && grid.Tag is string)
+                    {
+                        hitChip = grid;
+                        break;
+                    }
+                    if (current is LyricWrapPanel wrap) { panel = wrap; break; }
+                    current = VisualTreeHelper.GetParent(current);
+                }
+                if (hitChip is not null || panel is not null) break;
+            }
+            if (hitChip is null && panel is null)
+            {
+                // Fall back to the nearest realized panel by row.
+                panel = PanelAtY(y);
+                if (panel is null) return;
+            }
+            if (panel is null && hitChip is not null)
+                panel = FindChipPanel(hitChip);
+            if (panel is null) return;
+            var card = FindCardOfPanel(panel);
+            if (card is null) return;
+            var container = FindListViewItem(card);
+            if (container is null) return;
+            var lineIndex = LineList.IndexFromContainer(container);
+            if (lineIndex < 0 || lineIndex >= _store.Document.Lines.Count) return;
+            var line = _store.Document.Lines[lineIndex];
+            var chips = panel.Children.OfType<Grid>().ToList();
+            if (chips.Count == 0)
+            {
+                // Empty line: append (never a no-op target of itself).
+                _drag.DropLineId = line.Id;
+                _drag.DropWordId = null;
+                return;
+            }
+            Grid? target = null;
+            bool after = false;
+            foreach (var chip in chips)
+            {
+                var left = chip.TransformToVisual(panel)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0)).X;
+                var mid = left + chip.ActualWidth / 2;
+                if (x < mid) { target = chip; after = false; break; }
+                target = chip;
+                after = true;
+            }
+            if (target is null || target.Tag is not string targetId) return;
+            if (dragged.Contains(targetId)) return; // onto its own selection
+            _drag.DropLineId = line.Id;
+            _drag.DropWordId = targetId;
+            _drag.DropAfter = after;
+            ShowChipMark(target, after);
+        }
+
+        private LyricWrapPanel? PanelAtY(double y)
+        {
+            if (_store is null) return null;
+            LyricWrapPanel? best = null;
+            var bestDy = double.MaxValue;
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                if (card.FindName("ChipPanel") is not LyricWrapPanel panel) continue;
+                var top = panel.TransformToVisual(LineList)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                var dy = Math.Abs(y - (top + panel.ActualHeight / 2));
+                if (dy < bestDy) { bestDy = dy; best = panel; }
+            }
+            return best;
+        }
+
+        private static LyricWrapPanel? FindChipPanel(Grid chip)
+        {
+            var current = VisualTreeHelper.GetParent(chip);
+            while (current is not null && current is not LyricWrapPanel)
+                current = VisualTreeHelper.GetParent(current);
+            return current as LyricWrapPanel;
+        }
+
+        private static Grid? FindCardOfPanel(LyricWrapPanel panel)
+        {
+            var current = VisualTreeHelper.GetParent(panel);
+            while (current is not null)
+            {
+                if (current is Grid grid && grid.Name == "CardRoot") return grid;
+                current = VisualTreeHelper.GetParent(current);
+            }
+            return null;
+        }
+
+        private void ShowChipMark(Grid chip, bool after)
+        {
+            HideChipMark();
+            if (chip.Children.Count >= 5 && chip.Children[4] is Border mark)
+            {
+                mark.BorderThickness = after
+                    ? new Thickness(0, 0, 3, 0) : new Thickness(3, 0, 0, 0);
+                mark.Visibility = Visibility.Visible;
+                _drag!.MarkChip = chip;
+            }
+        }
+
+        private void HideChipMark()
+        {
+            if (_drag?.MarkChip is Grid chip
+                && chip.Children.Count >= 5 && chip.Children[4] is Border mark)
+                mark.Visibility = Visibility.Collapsed;
+            if (_drag is not null) _drag.MarkChip = null;
+        }
+
+        private void RefreshDragVisuals()
+        {
+            if (_drag is null || _store is null) return;
+            RestoreDimmed();
+            // Dragged items translucent (realized only; re-applied every
+            // move so recycled containers rejoin the look after scrolls).
+            if (_drag.IsWords)
+            {
+                foreach (var id in _drag.Ids)
+                    foreach (var chip in FindChips(id))
+                    {
+                        _drag.Dimmed.Add((chip, chip.Opacity));
+                        chip.Opacity = 0.4;
+                    }
+            }
+            else
+            {
+                var lines = _store.Document.Lines.ToList();
+                foreach (var id in _drag.Ids)
+                {
+                    var at = lines.FindIndex(l => l.Id == id);
+                    if (at < 0) continue;
+                    if (LineList.ContainerFromIndex(at) is ListViewItem container)
+                    {
+                        _drag.Dimmed.Add((container, container.Opacity));
+                        container.Opacity = 0.4;
+                    }
+                }
+            }
+            // Ghost label: "Move to N" / "Copy to N" with the item count.
+            var copy = IsCtrlDown();
+            DragGhost.Visibility = Visibility.Visible;
+            DragGhostText.Text = GhostText(copy);
+            DragOverlay.UpdateLayout();
+            var ox = Math.Max(0, Math.Min(_drag.LastX + 16,
+                Math.Max(0, DragOverlay.ActualWidth - 140)));
+            var oy = Math.Max(0, Math.Min(_drag.LastY + 20,
+                Math.Max(0, DragOverlay.ActualHeight - 40)));
+            Canvas.SetLeft(DragGhost, ox);
+            Canvas.SetTop(DragGhost, oy);
+        }
+
+        private string GhostText(bool copy)
+        {
+            if (_drag is null || _store is null) return "";
+            var verb = copy ? "Copy" : "Move";
+            var unit = _drag.IsWords ? "word" : "line";
+            var countText = _drag.Ids.Count == 1
+                ? $"1 {unit}" : $"{_drag.Ids.Count} {unit}s";
+            string target;
+            if (_drag.IsWords)
+            {
+                if (_drag.DropLineId is null) return $"{verb} {countText}";
+                var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == _drag.DropLineId);
+                target = (Math.Max(0, at) + 1).ToString();
+            }
+            else
+            {
+                if (_drag.DropLineIndex < 0) return $"{verb} {countText}";
+                target = (Math.Max(0, Math.Min(_drag.DropLineIndex,
+                    _store.Document.Lines.Count - 1)) + 1).ToString();
+            }
+            return $"{verb} to {target} · {countText}";
+        }
+
+        private void RestoreDimmed()
+        {
+            if (_drag is null) return;
+            foreach (var (el, opacity) in _drag.Dimmed)
+            {
+                try { el.Opacity = opacity; } catch { }
+            }
+            _drag.Dimmed.Clear();
+        }
+
+        private void ScrollTick()
+        {
+            if (_drag is null || !_drag.Started) return;
+            if (_drag.ScrollDir == 0) return;
+            var sv = FindScroller();
+            if (sv is null) return;
+            var from = sv.VerticalOffset;
+            var extent = Math.Max(0, sv.ScrollableHeight);
+            var to = Math.Min(extent, Math.Max(0, from + _drag.ScrollDir * 12));
+            if (Math.Abs(to - from) < 0.5) return;
+            if (_drag.ScrollTicks.Count == 0) _drag.ScrollFrom = from;
+            _drag.ScrollTo = to;
+            _drag.ScrollTicks.Add(DateTime.UtcNow);
+            sv.ChangeView(null, to, null, true);
+            LineList.UpdateLayout();
+            // Keep the indicator glued while the content moves under it.
+            UpdateDrag(_drag.LastX, _drag.LastY);
+        }
+
+        private void CleanupDrag()
+        {
+            if (_drag is null) return;
+            RestoreDimmed();
+            HideChipMark();
+            DropLineMark.Visibility = Visibility.Collapsed;
+            DragGhost.Visibility = Visibility.Collapsed;
+            _dragTimer?.Stop();
+            _drag = null;
+            DisarmDrag();
+        }
+
+        private void CancelDrag() => CleanupDrag();
+
+        // Pure no-op checks on id sequences (dropping onto the same place
+        // or inside its own selection changes nothing: no history step).
+        internal static bool LinesDropNoOp(IList<string> allIds, IList<string> draggedIds, int targetIndex)
+        {
+            var dragged = new HashSet<string>(draggedIds);
+            var remaining = allIds.Where(id => !dragged.Contains(id)).ToList();
+            var adjust = 0;
+            for (var i = 0; i < targetIndex && i < allIds.Count; i++)
+                if (dragged.Contains(allIds[i])) adjust++;
+            var safe = Math.Max(0, Math.Min(targetIndex - adjust, remaining.Count));
+            var result = remaining.Take(safe).Concat(draggedIds).Concat(remaining.Skip(safe)).ToList();
+            return result.SequenceEqual(allIds);
+        }
+
+        internal static bool WordsDropNoOp(
+            Dictionary<string, List<string>> wordsByLine, IList<string> draggedIds,
+            string targetLineId, string? targetWordId, bool insertAfter)
+        {
+            if (targetWordId is not null && draggedIds.Contains(targetWordId))
+                return true; // onto its own selection (original ignores it)
+            var dragged = new HashSet<string>(draggedIds);
+            var ordered = new List<string>();
+            foreach (var (lineId, words) in wordsByLine)
+                foreach (var w in words)
+                    if (dragged.Contains(w)) ordered.Add(w);
+            var next = new Dictionary<string, List<string>>();
+            foreach (var (lineId, words) in wordsByLine)
+                next[lineId] = words.Where(w => !dragged.Contains(w)).ToList();
+            if (!next.TryGetValue(targetLineId, out var target)) return true;
+            int pos = targetWordId is null
+                ? target.Count
+                : target.IndexOf(targetWordId) + (insertAfter ? 1 : 0);
+            if (pos < 0) return true;
+            target.InsertRange(pos, ordered);
+            foreach (var (lineId, words) in wordsByLine)
+                if (!next[lineId].SequenceEqual(words)) return false;
+            return true;
+        }
+
+        // Executes the drop (pointer-up path and Test_ hooks share this):
+        // exactly ONE history step, then the items are selected and in view.
+        // Returns "dropped:lines:n", "dropped:words:n" or "noop:reason".
+        // The payload resolves from the LIVE selection at drop time (like
+        // the original, which reads selectedWordsAtom in onDrop): nothing
+        // can click mid-drag, and hook-driven setups finish selecting
+        // before the drop. Session.Ids only feeds ghost/dim visuals.
+        internal string DropExecute(bool copy)
+        {
+            if (_store is null || _selection is null || _drag is null) return "noop:nodrag";
+            var session = _drag;
+            try
+            {
+                if (!session.IsWords)
+                {
+                    if (session.DropLineIndex < 0 || session.DropLineIndex > _store.Document.Lines.Count)
+                        return "noop:invalid";
+                    var allIds = _store.Document.Lines.Select(l => l.Id).ToList();
+                    var ordered = allIds.Where(id => _selection.SelectedLineIds.Contains(id)).ToList();
+                    if (ordered.Count == 0) return "noop:empty";
+                    if (!copy && LinesDropNoOp(allIds, ordered, session.DropLineIndex))
+                        return "noop:same-place";
+                    CommitActiveBox();
+                    var cmd = new ReorderLinesCommand(ordered, session.DropLineIndex, copy);
+                    _store.Execute(cmd);
+                    var resultIds = cmd.ResultIds.ToList();
+                    if (copy)
+                    {
+                        // Original copy: the clones are selected, words clear.
+                        LineList.SelectedItems.Clear();
+                        foreach (var id in resultIds)
+                        {
+                            var line = _store.Document.Lines.FirstOrDefault(l => l.Id == id);
+                            if (line is not null) LineList.SelectedItems.Add(line);
+                        }
+                        _selection.SetLines(resultIds, LineOfWord);
+                    }
+                    var first = resultIds
+                        .Select(id => _store.Document.Lines.ToList().FindIndex(l => l.Id == id))
+                        .Where(i => i >= 0).DefaultIfEmpty(-1).Min();
+                    if (first >= 0)
+                        LineList.ScrollIntoView(_store.Document.Lines[first]);
+                    LineList.UpdateLayout();
+                    return $"dropped:lines:{resultIds.Count}";
+                }
+                else
+                {
+                    if (session.DropLineId is null) return "noop:invalid";
+                    var target = _store.Document.Lines.FirstOrDefault(l => l.Id == session.DropLineId);
+                    if (target is null) return "noop:stale";
+                    var wanted = _selection.SelectedWordIds;
+                    if (session.DropWordId is not null
+                        && wanted.Contains(session.DropWordId))
+                        return "noop:own-selection";
+                    var wordsByLine = _store.Document.Lines
+                        .ToDictionary(l => l.Id, l => l.Words.Select(w => w.Id).ToList());
+                    var ordered = new List<string>();
+                    foreach (var line in _store.Document.Lines)
+                        foreach (var w in line.Words)
+                            if (wanted.Contains(w.Id)) ordered.Add(w.Id);
+                    if (ordered.Count == 0) return "noop:empty";
+                    if (!copy && WordsDropNoOp(wordsByLine, ordered,
+                        session.DropLineId, session.DropWordId, session.DropAfter))
+                        return "noop:same-place";
+                    if (session.DropWordId is not null
+                        && !target.Words.Any(w => w.Id == session.DropWordId))
+                        return "noop:stale";
+                    CommitActiveBox();
+                    var cmd = new MoveWordsCommand(ordered, session.DropLineId,
+                        session.DropWordId, session.DropAfter, copy);
+                    _store.Execute(cmd);
+                    var resultIds = cmd.ResultIds.ToList();
+                    if (copy)
+                    {
+                        // Original copy: the clones are selected.
+                        _selection.ReplaceWords(session.DropLineId, resultIds,
+                            resultIds.FirstOrDefault() ?? "");
+                    }
+                    var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == session.DropLineId);
+                    if (at >= 0) LineList.ScrollIntoView(_store.Document.Lines[at]);
+                    LineList.UpdateLayout();
+                    return $"dropped:words:{resultIds.Count}";
+                }
+            }
+            finally
+            {
+                CleanupDrag();
+            }
+        }
+
         // Shows the raw-text editor of one field (space-label swap for the
         // main field; no-op for already-visible boxes).
         private void ShowChipEditor(Grid chip, bool roman)
@@ -2671,15 +3526,44 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (sender is not Grid chip || chip.Tag is not string wordId) return;
             if (_selection is null || _store is null) return;
+            // Right/middle mouse never selects here (the context menu owns
+            // right-click, including select-first in its Opening handler —
+            // selecting here would destroy a multi-selection first).
+            var props = e.GetCurrentPoint(LineList).Properties;
+            if (!props.IsLeftButtonPressed
+                && e.Pointer.PointerDeviceType.ToString() == "Mouse")
+                return;
+            // Press on the box being edited: caret business, not selection
+            // (the TextBox keeps focus; GotFocus anchors the primary).
+            if (FocusManager.GetFocusedElement(XamlRoot) is TextBox focused && IsIn(chip, focused))
+                return;
             var container = FindListViewItem(chip);
             if (container is null) return;
             var index = LineList.IndexFromContainer(container);
             if (index < 0 || index >= _store.Document.Lines.Count) return;
-            WordPressGesture(_store.Document.Lines[index], index, wordId,
-                IsCtrlDown(), IsShiftDown());
-            container.Focus(FocusState.Programmatic);
+            var line = _store.Document.Lines[index];
+            var ctrl = IsCtrlDown();
+            var shift = IsShiftDown();
+            // Select-first only for a plain press on an unselected word
+            // (instant feedback + focus for keys). Modified presses and
+            // presses inside the selection defer to release/dragstart, so a
+            // multi-selection survives until the click completes or the drag
+            // starts — the original's pointerdown/up split.
+            if (!ctrl && !shift && !_selection.SelectedWordIds.Contains(wordId))
+            {
+                LineList.SelectedItem = line;
+                _selection.SelectWord(line.Id, wordId);
+                container.Focus(FocusState.Programmatic);
+            }
+            ArmDrag(words: true, lineId: line.Id, wordId: wordId,
+                point: e.GetCurrentPoint(LineList).Position, ctrl: ctrl, shift: shift);
             e.Handled = true;
         }
+
+        // Click completion lives at page level (OnDragPointerReleased):
+        // releases off-element must still resolve, and exactly one gesture
+        // may run per press (per-element + page handlers would double-fire
+        // toggles).
 
         internal bool Test_WordGesture(int line, int word, bool ctrl, bool shift)
         {
@@ -2981,6 +3865,12 @@ namespace AmllTtmlTool.WinUI.Views
         internal bool HandleListKey(Windows.System.VirtualKey key, bool ctrl, bool alt)
         {
             if (_store is null || _selection is null) return false;
+            // Esc mid-drag cancels the drag (it must not clear selection).
+            if (key == Windows.System.VirtualKey.Escape && _drag is not null && _drag.Started)
+            {
+                CancelDrag();
+                return true;
+            }
             if (FocusManager.GetFocusedElement(XamlRoot) is TextBox) return false;
             if (key == Windows.System.VirtualKey.Delete)
             {

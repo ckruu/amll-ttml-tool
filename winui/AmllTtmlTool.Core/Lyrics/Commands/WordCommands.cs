@@ -307,3 +307,121 @@ public sealed class MoveFollowingWordsToNewLineCommand : LyricCommand
         source.EndTimeMs = _sourceEndBefore;
     }
 }
+
+// Drag move/copy of words (port of the word onDrop in lyric-word-view):
+// the payload keeps document order (line-major); a move deletes from the
+// sources, a copy clones with fresh ids and reselects the clones.
+// normalizeLineTime runs ONLY at touched bounds (deleted/inserted at a
+// bound), exactly like the original — timings are otherwise untouched.
+// One command = one history step.
+public sealed class MoveWordsCommand : LyricCommand
+{
+    private readonly List<string> _ids;
+    private readonly string _targetLineId;
+    private readonly string? _targetWordId;
+    private readonly bool _insertAfter;
+    private readonly bool _copy;
+    private readonly List<(EditLine Line, List<EditWord> Before, int StartBefore, int EndBefore)> _sources = new();
+    private EditLine? _target;
+    private List<EditWord>? _targetBefore;
+    private int _targetStartBefore;
+    private int _targetEndBefore;
+    private List<EditWord>? _inserted;
+    // Clones are minted ONCE (first Apply) and reused by redo: re-running
+    // the producer would mint fresh ids every time and break exact
+    // undo/redo symmetry (the original re-applies the same patch).
+    private List<EditWord>? _clones;
+
+    // IDs of the moved words, or of the fresh clones for a copy (the UI
+    // reselects these after the drop).
+    public IReadOnlyList<string> ResultIds { get; private set; } = new List<string>();
+
+    public MoveWordsCommand(
+        IEnumerable<string> wordIds, string targetLineId,
+        string? targetWordId, bool insertAfter, bool copy)
+    {
+        _ids = wordIds.ToList();
+        _targetLineId = targetLineId;
+        _targetWordId = targetWordId;
+        _insertAfter = insertAfter;
+        _copy = copy;
+    }
+
+    public override string Description => _copy ? "Copy words" : "Move words";
+
+    public override void Apply(EditDocument document)
+    {
+        var wanted = new HashSet<string>(_ids);
+        var target = document.RequireLine(_targetLineId);
+        _sources.Clear();
+        var moving = new List<EditWord>();
+        foreach (var line in document.Lines)
+        {
+            if (line.Words.Count == 0) continue;
+            var takes = line.Words.Where(w => wanted.Contains(w.Id)).ToList();
+            if (takes.Count == 0) continue;
+            _sources.Add((line,
+                line.Words.Select(w => w.Clone()).ToList(),
+                line.StartTimeMs, line.EndTimeMs));
+            if (!_copy)
+            {
+                var atBounds = wanted.Contains(line.Words[0].Id)
+                    || wanted.Contains(line.Words[^1].Id);
+                foreach (var w in takes) line.Words.Remove(w);
+                moving.AddRange(takes);
+                if (atBounds) line.NormalizeTime();
+            }
+            else
+            {
+                moving.AddRange(takes);
+            }
+        }
+        if (moving.Count == 0)
+        {
+            _sources.Clear();
+            throw new InvalidOperationException("No words selected.");
+        }
+        List<EditWord> payload = _copy
+            ? _clones ??= moving.Select(w => w.CloneWithNewId()).ToList()
+            : moving;
+        // Resolve the insert position AFTER removal (indices shifted).
+        int pos;
+        if (_targetWordId is null)
+        {
+            pos = target.Words.Count;
+        }
+        else
+        {
+            pos = target.Words.ToList().FindIndex(w => w.Id == _targetWordId);
+            if (pos < 0)
+                throw new InvalidOperationException($"Target word not found: {_targetWordId}.");
+            if (_insertAfter) pos++;
+        }
+        _target = target;
+        _targetBefore = target.Words.Select(w => w.Clone()).ToList();
+        _targetStartBefore = target.StartTimeMs;
+        _targetEndBefore = target.EndTimeMs;
+        foreach (var w in payload) target.Words.Insert(pos++, w);
+        _inserted = payload;
+        ResultIds = payload.Select(w => w.Id).ToList();
+        if (pos - payload.Count == 0 || pos == target.Words.Count)
+            target.NormalizeTime();
+    }
+
+    public override void Revert(EditDocument document)
+    {
+        if (_inserted is null || _target is null || _targetBefore is null) return;
+        foreach (var w in _inserted) _target.Words.Remove(w);
+        _target.Words.Clear();
+        foreach (var w in _targetBefore) _target.Words.Add(w);
+        _target.StartTimeMs = _targetStartBefore;
+        _target.EndTimeMs = _targetEndBefore;
+        foreach (var (line, before, start, end) in _sources)
+        {
+            line.Words.Clear();
+            foreach (var w in before) line.Words.Add(w);
+            line.StartTimeMs = start;
+            line.EndTimeMs = end;
+        }
+    }
+}
