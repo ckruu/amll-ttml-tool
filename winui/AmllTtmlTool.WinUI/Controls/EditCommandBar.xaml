@@ -30,57 +30,79 @@
         </Grid.RowDefinitions>
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup x:Name="WidthTiers" CurrentStateChanged="OnWidthTierChanged">
-                <!-- Window-width triggers. The bar always measures exactly
-                     42px under the client width (16 page margin + 8 card
-                     padding + card chrome, verified constant across all
-                     widths), so window thresholds are bar thresholds + 42.
-                     AdaptiveTrigger is used instead of a custom
-                     container-width trigger because it is the proven
-                     mechanism in this app (the title-bar states already
-                     run on it). Re-measure the offset if the card chrome
-                     ever changes. Bar widths behind these numbers:
-                     1110 + 900 + 720 + 470. -->
+                <!-- Window-width triggers. Available bar width = window - 26
+                     (RibbonCard margins 16 + padding 8 + border 2); window
+                     thresholds are bar thresholds + 42 (16 page margin + 8
+                     card padding + card chrome + slack, verified constant).
+                     Bar widths are MEASURED (edit-test tier notes), not
+                     estimated — the 2-row Word section + count caption need
+                     every tier below rebalanced; re-measure after ANY width
+                     change. Measured multi-select bars: Wide 1357, Medium
+                     1027, Narrow 803, Tight 645, Tiny ~320. Thresholds:
+                     1400 + 1070 + 895 + 700 + 0.
+                     States are EXCLUSIVE (not cumulative): each lists its
+                     full setter set. -->
                 <VisualState x:Name="Wide">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="1152" />
+                        <AdaptiveTrigger MinWindowWidth="1400" />
                     </VisualState.StateTriggers>
                 </VisualState>
                 <VisualState x:Name="Medium">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="942" />
+                        <AdaptiveTrigger MinWindowWidth="1070" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
+                        <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="OverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="Narrow">
                     <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="762" />
+                        <AdaptiveTrigger MinWindowWidth="895" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
-                        <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
-                        <Setter Target="OverflowButton.Visibility" Value="Visible" />
-                    </VisualState.Setters>
-                </VisualState>
-                <VisualState x:Name="Tight">
-                    <VisualState.StateTriggers>
-                        <AdaptiveTrigger MinWindowWidth="512" />
-                    </VisualState.StateTriggers>
-                    <VisualState.Setters>
-                        <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
                         <Setter Target="OverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ManageGroup.Visibility" Value="Collapsed" />
                         <Setter Target="ManageOverflowButton.Visibility" Value="Visible" />
-                        <!-- Shrink the inputs rather than dropping any label: every
-                             field keeps its visible title at this width. -->
+                        <!-- Shrink the inputs rather than dropping any label:
+                             every field keeps its visible title at this width. -->
                         <Setter Target="LineStartBox.Width" Value="56" />
                         <Setter Target="LineEndBox.Width" Value="56" />
                         <Setter Target="WordStartBox.Width" Value="56" />
                         <Setter Target="WordEndBox.Width" Value="56" />
                         <Setter Target="WordContentBox.Width" Value="72" />
                         <Setter Target="ObsceneToggle.MinWidth" Value="72" />
+                        <Setter Target="EmptyBeatBox.Width" Value="56" />
+                        <Setter Target="WordRomanBox.Width" Value="72" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Tight">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="700" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
+                        <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="OverflowButton.Visibility" Value="Visible" />
+                        <Setter Target="ManageGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="ManageOverflowButton.Visibility" Value="Visible" />
+                        <Setter Target="LineStartBox.Width" Value="56" />
+                        <Setter Target="LineEndBox.Width" Value="56" />
+                        <Setter Target="WordStartBox.Width" Value="56" />
+                        <Setter Target="WordEndBox.Width" Value="56" />
+                        <Setter Target="WordContentBox.Width" Value="72" />
+                        <Setter Target="ObsceneToggle.MinWidth" Value="72" />
+                        <Setter Target="EmptyBeatBox.Width" Value="56" />
+                        <Setter Target="WordRomanBox.Width" Value="72" />
+                        <!-- The count caption would overflow the tight bar:
+                             count stays available via the multi tooltips. -->
+                        <Setter Target="WordCountCaption.Visibility" Value="Collapsed" />
                         <Setter Target="BgToggle.Visibility" Value="Collapsed" />
                         <Setter Target="DuetToggle.Visibility" Value="Collapsed" />
                         <Setter Target="IgnoreSyncToggle.Visibility" Value="Collapsed" />
@@ -92,10 +114,23 @@
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
                         <Setter Target="SecondaryGroup.Visibility" Value="Collapsed" />
+                        <Setter Target="SecondaryOverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ViewGroup.Visibility" Value="Collapsed" />
                         <Setter Target="OverflowButton.Visibility" Value="Visible" />
                         <Setter Target="ManageGroup.Visibility" Value="Collapsed" />
                         <Setter Target="ManageOverflowButton.Visibility" Value="Visible" />
+                        <Setter Target="LineStartBox.Width" Value="56" />
+                        <Setter Target="LineEndBox.Width" Value="56" />
+                        <Setter Target="WordStartBox.Width" Value="56" />
+                        <Setter Target="WordEndBox.Width" Value="56" />
+                        <Setter Target="WordContentBox.Width" Value="72" />
+                        <Setter Target="ObsceneToggle.MinWidth" Value="72" />
+                        <Setter Target="EmptyBeatBox.Width" Value="56" />
+                        <Setter Target="WordRomanBox.Width" Value="72" />
+                        <Setter Target="WordCountCaption.Visibility" Value="Collapsed" />
+                        <Setter Target="BgToggle.Visibility" Value="Collapsed" />
+                        <Setter Target="DuetToggle.Visibility" Value="Collapsed" />
+                        <Setter Target="IgnoreSyncToggle.Visibility" Value="Collapsed" />
                         <Setter Target="WordGroup.Visibility" Value="Collapsed" />
                         <Setter Target="WordOverflowButton.Visibility" Value="Visible" />
                     </VisualState.Setters>
@@ -182,19 +217,26 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="LineStartLabel" x:Uid="Ribbon_LineStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" ToolTipService.ToolTip="Start" />
-            <TextBox x:Name="LineStartBox" AutomationProperties.AutomationId="LineStartBox" Grid.Column="1" Width="88" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Line start time" />
+            <TextBox x:Name="LineStartBox" AutomationProperties.AutomationId="LineStartBox" Grid.Column="1" Width="80" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Line start time" />
             <ToggleButton x:Name="BgToggle" Grid.Column="2" Content="BG" MinHeight="28" MinWidth="56" Click="OnLineFlagClick" AutomationProperties.AutomationId="BgToggle" />
             <ToggleButton x:Name="DuetToggle" Grid.Column="3" Content="V2" MinHeight="28" MinWidth="56" Click="OnLineFlagClick" AutomationProperties.AutomationId="DuetToggle" />
             <Button x:Name="LineEndModeButton" Grid.Row="1" Style="{StaticResource SubtleTitleBarButtonStyle}" MinHeight="28" Click="OnDurationModeClick" AutomationProperties.AutomationId="LineEndModeButton" ToolTipService.ToolTip="Toggle end / duration">
                 <TextBlock x:Name="LineEndModeLabel" x:Uid="Ribbon_LineEndLabel" Style="{StaticResource RibbonFieldLabel}" Text="End" />
             </Button>
-            <TextBox x:Name="LineEndBox" AutomationProperties.AutomationId="LineEndBox" Grid.Row="1" Grid.Column="1" Width="88" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Line end time" />
+            <TextBox x:Name="LineEndBox" AutomationProperties.AutomationId="LineEndBox" Grid.Row="1" Grid.Column="1" Width="80" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Line end time" />
             <ToggleButton x:Name="IgnoreSyncToggle" Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2" Content="Ignore Sync" HorizontalAlignment="Stretch" MinHeight="28" Click="OnLineFlagClick" AutomationProperties.AutomationId="IgnoreSyncToggle" />
         </Grid>
 
         <Border x:Name="SepLineWord" Grid.Column="3" Grid.RowSpan="1" Style="{StaticResource RibbonSeparator}" Visibility="{x:Bind LineGroup.Visibility, Mode=OneWay}" />
 
-        <Grid x:Name="WordGroup" Grid.Column="4" ColumnSpacing="6" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,6">
+        <!-- Word section: TWO rows (not three), three field pairs per the
+             original's wordTiming + wordProperties sections: (Start, End),
+             (Content, Obscene), (Beats, Roman). Beats and Roman share the
+             third pair's columns, so hiding Roman (toggle off) leaves no
+             leftover space: the columns keep Beats' width. The selection
+             count caption (last column, code-zeroed when hidden) never
+             affects the field columns. -->
+        <Grid x:Name="WordGroup" Grid.Column="4" ColumnSpacing="4" RowSpacing="4" VerticalAlignment="Top" Margin="6,6,6,6">
             <Grid.Transitions>
                 <TransitionCollection>
                     <RepositionThemeTransition />
@@ -203,28 +245,31 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock x:Name="WordStartLabel" x:Uid="Ribbon_WordStartLabel" Style="{StaticResource RibbonFieldLabel}" Text="Start" ToolTipService.ToolTip="Start" />
-            <TextBox x:Name="WordStartBox" AutomationProperties.AutomationId="WordStartBox" Grid.Column="1" Width="88" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Word start time" />
+            <TextBox x:Name="WordStartBox" AutomationProperties.AutomationId="WordStartBox" Grid.Column="1" Width="80" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Word start time" />
             <TextBlock x:Name="WordContentLabel" x:Uid="Ribbon_WordContentLabel" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Content" ToolTipService.ToolTip="Content" />
-            <TextBox x:Name="WordContentBox" AutomationProperties.AutomationId="WordContentBox" Grid.Column="3" Width="120" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Word content" />
+            <TextBox x:Name="WordContentBox" AutomationProperties.AutomationId="WordContentBox" Grid.Column="3" Width="88" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Word content" />
+            <TextBlock x:Name="EmptyBeatLabel" Style="{StaticResource RibbonFieldLabel}" Grid.Column="4" Text="Beats" ToolTipService.ToolTip="Empty beat count" />
+            <TextBox x:Name="EmptyBeatBox" AutomationProperties.AutomationId="EmptyBeatBox" Grid.Column="5" Width="80" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" InputScope="Number" AutomationProperties.Name="Empty beat count" />
+            <TextBlock x:Name="WordCountCaption" Grid.Column="6" Grid.RowSpan="2" VerticalAlignment="Center" Style="{StaticResource RibbonFieldLabel}" Visibility="Collapsed" AutomationProperties.Name="Selected word count" />
             <Button x:Name="WordEndModeButton" Grid.Row="1" Style="{StaticResource SubtleTitleBarButtonStyle}" MinHeight="28" Click="OnDurationModeClick" AutomationProperties.AutomationId="WordEndModeButton" ToolTipService.ToolTip="Toggle end / duration">
                 <TextBlock x:Name="WordEndModeLabel" x:Uid="Ribbon_WordEndLabel" Style="{StaticResource RibbonFieldLabel}" Text="End" />
             </Button>
-            <TextBox x:Name="WordEndBox" AutomationProperties.AutomationId="WordEndBox" Grid.Row="1" Grid.Column="1" Width="88" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Word end time" />
-            <TextBlock x:Name="WordRomanLabel" Style="{StaticResource RibbonFieldLabel}" Grid.Row="1" Grid.Column="2" Text="Roman" ToolTipService.ToolTip="Word romanization" />
-            <TextBox x:Name="WordRomanBox" AutomationProperties.AutomationId="WordRomanBox" Grid.Row="1" Grid.Column="3" Width="120" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Word romanization" />
-            <TextBlock x:Name="EmptyBeatLabel" Style="{StaticResource RibbonFieldLabel}" Grid.Row="2" Text="Beats" ToolTipService.ToolTip="Empty beat count" />
-            <TextBox x:Name="EmptyBeatBox" AutomationProperties.AutomationId="EmptyBeatBox" Grid.Row="2" Grid.Column="1" Width="88" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" InputScope="Number" AutomationProperties.Name="Empty beat count" />
-            <TextBlock x:Name="ObsceneLabel" x:Uid="Ribbon_ObsceneLabel" Grid.Row="2" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" ToolTipService.ToolTip="Obscene" />
-            <ToggleButton x:Name="ObsceneToggle" Grid.Row="2" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="28" MinWidth="120" AutomationProperties.AutomationId="ObsceneToggle" />
+            <TextBox x:Name="WordEndBox" AutomationProperties.AutomationId="WordEndBox" Grid.Row="1" Grid.Column="1" Width="80" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Word end time" />
+            <TextBlock x:Name="ObsceneLabel" x:Uid="Ribbon_ObsceneLabel" Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" ToolTipService.ToolTip="Obscene" />
+            <ToggleButton x:Name="ObsceneToggle" Grid.Row="1" Grid.Column="3" Click="OnObsceneClick" Content="No" MinHeight="28" MinWidth="100" AutomationProperties.AutomationId="ObsceneToggle" />
+            <TextBlock x:Name="WordRomanLabel" Style="{StaticResource RibbonFieldLabel}" Grid.Row="1" Grid.Column="4" Text="Roman" ToolTipService.ToolTip="Word romanization" />
+            <TextBox x:Name="WordRomanBox" AutomationProperties.AutomationId="WordRomanBox" Grid.Row="1" Grid.Column="5" Width="88" MinHeight="28" AcceptsReturn="False" IsSpellCheckEnabled="False" IsTextPredictionEnabled="False" AutomationProperties.Name="Word romanization" />
         </Grid>
         <Button x:Name="WordOverflowButton"
                 Grid.Column="4"
@@ -242,26 +287,27 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Style="{StaticResource RibbonFieldLabel}" Text="Start" />
-                        <TextBox Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Start" Text="{x:Bind WordStartBox.Text, Mode=OneWay}" />
+                        <TextBox Grid.Column="1" Width="80" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Start" Text="{x:Bind WordStartBox.Text, Mode=OneWay}" />
                         <TextBlock Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Content" />
-                        <TextBox Grid.Column="3" Width="120" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Content" Text="{x:Bind WordContentBox.Text, Mode=OneWay}" />
+                        <TextBox Grid.Column="3" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Content" Text="{x:Bind WordContentBox.Text, Mode=OneWay}" />
+                        <TextBlock Grid.Column="4" Style="{StaticResource RibbonFieldLabel}" Text="Beats" />
+                        <TextBox Grid.Column="5" Width="80" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Beats" Text="{x:Bind EmptyBeatBox.Text, Mode=OneWay}" />
                         <TextBlock Grid.Row="1" Style="{StaticResource RibbonFieldLabel}" Text="End" />
-                        <TextBox Grid.Row="1" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="End" Text="{x:Bind WordEndBox.Text, Mode=OneWay}" />
-                        <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Roman" />
-                        <TextBox Grid.Row="1" Grid.Column="3" Width="120" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Roman" Text="{x:Bind WordRomanBox.Text, Mode=OneWay}" />
-                        <TextBlock Grid.Row="2" Style="{StaticResource RibbonFieldLabel}" Text="Beats" />
-                        <TextBox Grid.Row="2" Grid.Column="1" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Beats" Text="{x:Bind EmptyBeatBox.Text, Mode=OneWay}" />
-                        <TextBlock Grid.Row="2" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" />
-                        <ToggleButton Grid.Row="2" Grid.Column="3" MinHeight="28" MinWidth="120" IsEnabled="False" IsChecked="{x:Bind ObsceneToggle.IsChecked, Mode=OneWay}" Content="{x:Bind ObsceneToggle.Content, Mode=OneWay}" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Width="80" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="End" Text="{x:Bind WordEndBox.Text, Mode=OneWay}" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource RibbonFieldLabel}" Text="Obscene" />
+                        <ToggleButton Grid.Row="1" Grid.Column="3" MinHeight="28" MinWidth="100" IsEnabled="False" IsChecked="{x:Bind ObsceneToggle.IsChecked, Mode=OneWay}" Content="{x:Bind ObsceneToggle.Content, Mode=OneWay}" />
+                        <TextBlock Grid.Row="1" Grid.Column="4" Style="{StaticResource RibbonFieldLabel}" Text="Roman" />
+                        <TextBox Grid.Row="1" Grid.Column="5" Width="88" MinHeight="28" IsReadOnly="True" AutomationProperties.Name="Roman" Text="{x:Bind WordRomanBox.Text, Mode=OneWay}" />
                     </Grid>
                 </Flyout>
             </Button.Flyout>
