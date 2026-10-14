@@ -41,6 +41,14 @@ internal static class EditCheck
         System.Diagnostics.Debug.WriteLine(text);
     }
 
+    // One history step advanced the depth by one — OR held it at the cap
+    // (MaxHistoryDepth: the oldest step is dropped, the doc still changed).
+    // Every caller also verifies the doc effect (order/counts/fingerprints),
+    // so a stuck depth with no change can never pass as a step.
+    private static bool DepthAdvanced(int before, int after) =>
+        after == before + 1
+        || (before == EditDocument.MaxHistoryDepth && after == before);
+
     private static Task OnUiAsync(Window window, Action action)
     {
         var tcs = new TaskCompletionSource();
@@ -1016,6 +1024,81 @@ internal static class EditCheck
                 && int.TryParse(gapParts[2], out var gN) && gN >= 3
                 && gMax - gMin <= 1.0;
             Check("card-gaps", cardGapsOk, $"gaps=[{gaps}]");
+            // --- 4c-iii. line numbers are derived (Step 2) -----------------
+            // 200 seeded random structural ops + scrolling: every realized
+            // card's number text == index+1 at every step. Hooks drive the
+            // same commands as the menus/keys; real scrolling + gestures are
+            // the host manual step.
+            const int numbersSeed = 20261015;
+            var nRng = new Random(numbersSeed);
+            var numOk = true;
+            var numDetail = "";
+            async Task<bool> NumbersConverged()
+            {
+                var csv = await OnUiAsync(window, () => page.Test_RealizedNumbers());
+                if (csv == "nostore" || csv == "") return true;
+                foreach (var part in csv.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var kv = part.Split(':');
+                    if (kv.Length != 2 || !int.TryParse(kv[0], out var idx)) return false;
+                    if (kv[1] != (idx + 1).ToString()) return false;
+                }
+                return true;
+            }
+            for (var step = 0; step < 200; step++)
+            {
+                var n = await OnUiAsync(window, () => page.Test_LyricLineCount());
+                if (n <= 0) break;
+                var at = nRng.Next(0, n);
+                var kind = nRng.Next(0, 8);
+                await OnUiAsync(window, () => page.Test_ScrollLineIntoView(at));
+                switch (kind)
+                {
+                    case 0: await OnUiAsync(window, () => page.Test_InsertLineBefore(at)); break;
+                    case 1: await OnUiAsync(window, () => page.Test_InsertLineAfter(at)); break;
+                    case 2:
+                        if (n > 1) await OnUiAsync(window, () => page.Test_DeleteLineAt(at));
+                        break;
+                    case 3:
+                        await OnUiAsync(window, () => page.Test_SelectLine(at));
+                        await OnUiAsync(window, () => page.Test_MoveSelectedLines(nRng.Next(0, 2) == 0 ? -1 : 1));
+                        break;
+                    case 4:
+                        await OnUiAsync(window, () => page.Test_SelectLine(at));
+                        await OnUiAsync(window, () => page.Test_DuplicateSelectedLines());
+                        break;
+                    case 5:
+                        if (n > 1)
+                        {
+                            var lo = nRng.Next(0, n - 1);
+                            await OnUiAsync(window, () => page.Test_SelectLines(new[] { lo, lo + 1 }));
+                            await OnUiAsync(window, () => page.Test_CombineSelectedLines());
+                        }
+                        break;
+                    case 6: await OnUiAsync(window, () => page.Test_Undo()); break;
+                    default: await OnUiAsync(window, () => page.Test_Redo()); break;
+                }
+                if (step % 4 == 3)
+                {
+                    var nNow = await OnUiAsync(window, () => page.Test_LyricLineCount());
+                    if (nNow > 0)
+                    {
+                        var jump = nRng.Next(0, nNow);
+                        await OnUiAsync(window, () => page.Test_ScrollLineIntoView(jump));
+                    }
+                }
+                // No delay: every OnUiAsync above is already a serialized
+                // UI-thread round-trip, so the read below observes the op.
+                if (!await NumbersConverged())
+                {
+                    numOk = false;
+                    var csv = await OnUiAsync(window, () => page.Test_RealizedNumbers());
+                    numDetail = $"step={step} kind={kind} at={at} numbers=[{csv}]";
+                    break;
+                }
+            }
+            Check("line-numbers-200", numOk, $"seed={numbersSeed} {numDetail}");
+            Write(report, $"  note numbers-seed {numbersSeed}");
             // Visual evidence: selected BG+V2 card + list strip.
             await OnUiAsync(window, () => page.Test_ScrollLineIntoView(3));
             await OnUiAsync(window, () => page.Test_SelectLine(3));
@@ -1046,7 +1129,7 @@ internal static class EditCheck
             var dDepth1 = await OnUiAsync(window, () => page.Test_UndoDepth());
             var dFp1 = await OnUiAsync(window, () => DocFingerprint(page));
             Check("drag-line", dEnd0 == "dropped:lines:1" && dAt9 == dId5
-                && dDepth1 == dDepth0 + 1 && dSt0.StartsWith("lines:1>")
+                && DepthAdvanced(dDepth0, dDepth1) && dSt0.StartsWith("lines:1>")
                 && dSt1.Contains("Move to 11"),
                 $"end=[{dEnd0}] at9 ok depth {dDepth0}->{dDepth1} st0=[{dSt0}] st1=[{dSt1}]");
             await OnUiAsync(window, () => page.Test_Undo());
@@ -1076,7 +1159,7 @@ internal static class EditCheck
             await OnUiAsync(window, () => page.Test_Undo());
             var dFpU5 = await OnUiAsync(window, () => page.Test_LyricLineCount());
             Check("drag-5lines", dEnd5 == "dropped:lines:5" && dBack5.SequenceEqual(dIds)
-                && dDepth3 == dDepth2 + 1 && dFpU5 == 60, $"end=[{dEnd5}] depth {dDepth2}->{dDepth3}");
+                && DepthAdvanced(dDepth2, dDepth3) && dFpU5 == 60, $"end=[{dEnd5}] depth {dDepth2}->{dDepth3}");
             await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 0, 1 }));
             await OnUiAsync(window, () => page.Test_DragToLineIndex(5));
             var dDepth4 = await OnUiAsync(window, () => page.Test_UndoDepth());
@@ -1508,7 +1591,7 @@ internal static class EditCheck
                     continue;
                 }
                 var okEnd = end == $"dropped:lines:{dragged.Count}";
-                var okDepth = depthAfter == depthBefore + 1;
+                var okDepth = DepthAdvanced(depthBefore, depthAfter);
                 bool okOrder;
                 if (!copy)
                 {
@@ -1654,7 +1737,7 @@ internal static class EditCheck
                     var expect = sim.ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
                     expect[tgtId].InsertRange(insPos, payload);
                     okShape = dropEnd == $"dropped:words:{payload.Count}"
-                        && depthAfter == depthBefore + 1
+                        && DepthAdvanced(depthBefore, depthAfter)
                         && post.Count == n
                         && model.All(l => postById[l.Id].SequenceEqual(expect[l.Id]));
                 }
@@ -1663,12 +1746,12 @@ internal static class EditCheck
                     var preCount = model.Sum(l => l.Words.Count);
                     var postCount = post.Sum(l => l.Words.Count);
                     if (!(dropEnd == $"dropped:words:{payload.Count}"
-                        && depthAfter == depthBefore + 1
+                        && DepthAdvanced(depthBefore, depthAfter)
                         && postCount == preCount + payload.Count))
                         Write(report, $"  note copy-counts pre={preCount} post={postCount} " +
                             $"payload={payload.Count} lines={model.Count}->{post.Count}");
                     okShape = dropEnd == $"dropped:words:{payload.Count}"
-                        && depthAfter == depthBefore + 1
+                        && DepthAdvanced(depthBefore, depthAfter)
                         && postCount == preCount + payload.Count;
                     if (okShape)
                     {

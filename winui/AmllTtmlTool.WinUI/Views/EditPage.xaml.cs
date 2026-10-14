@@ -1347,8 +1347,8 @@ namespace AmllTtmlTool.WinUI.Views
 
         private void OnStoreChanged()
         {
-            if (DispatcherQueue.HasThreadAccess) { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); }
-            else DispatcherQueue.TryEnqueue(() => { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); });
+            if (DispatcherQueue.HasThreadAccess) { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); RefreshRealizedNumbers(); }
+            else DispatcherQueue.TryEnqueue(() => { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); RefreshRealizedNumbers(); });
         }
 
         // Pushes model text into every realized box WITHOUT stealing focus:
@@ -2175,8 +2175,12 @@ namespace AmllTtmlTool.WinUI.Views
             var number = card.FindName("LineNumber") as TextBlock;
             if (number is not null)
             {
-                number.Text = (index + 1).ToString();
-                AutomationProperties.SetName(number, $"Line number {index + 1}");
+                var want = (index + 1).ToString();
+                if (number.Text != want)
+                {
+                    number.Text = want;
+                    AutomationProperties.SetName(number, $"Line number {index + 1}");
+                }
             }
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return;
             BuildLinePanel(panel, line, index);
@@ -2494,6 +2498,48 @@ namespace AmllTtmlTool.WinUI.Views
                 if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
                 ApplyFlagVisual(container, i, _store.Document.Lines[i]);
             }
+        }
+
+        // Line numbers are DERIVED from the live document index (number text
+        // == index+1, always). Container prepare sets them, and EVERY store
+        // change refreshes all realized containers — pooled containers can
+        // never show a stale number from before an insert/delete/move/undo.
+        private void RefreshRealizedNumbers()
+        {
+            if (_store is null) return;
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                if (card.FindName("LineNumber") is TextBlock number)
+                {
+                    // Guarded set: assigning identical text still invalidates
+                    // layout (measured 0.5px drift in pad checks), so only
+                    // touch the box when the number actually changed.
+                    var want = (i + 1).ToString();
+                    if (number.Text != want)
+                    {
+                        number.Text = want;
+                        AutomationProperties.SetName(number, $"Line number {i + 1}");
+                    }
+                }
+            }
+        }
+
+        // Realized line numbers as "index:number,..." in one round-trip (the
+        // per-step convergence probe for structural stresses).
+        internal string Test_RealizedNumbers()
+        {
+            if (_store is null) return "nostore";
+            var parts = new List<string>();
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                if (card.FindName("LineNumber") is TextBlock number)
+                    parts.Add($"{i}:{number.Text}");
+            }
+            return string.Join(",", parts);
         }
 
         // Selection indicator, driven from ONE source (the selection set):

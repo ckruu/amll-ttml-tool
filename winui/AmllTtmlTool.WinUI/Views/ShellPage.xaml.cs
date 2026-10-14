@@ -2815,6 +2815,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.SelectedIndices() ?? "nopage";
         internal string Test_ServiceLineIdx() =>
             _attachedEditPage?.Test_ServiceLineIdx() ?? "nopage";
+        internal string Test_RealizedNumbers() =>
+            _attachedEditPage?.Test_RealizedNumbers() ?? "nopage";
         internal string Test_DocShape() =>
             _attachedEditPage?.Test_DocShape() ?? "nopage";
         internal string Test_DocFingerprint() =>
