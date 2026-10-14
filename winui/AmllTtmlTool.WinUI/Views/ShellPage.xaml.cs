@@ -3010,6 +3010,31 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.EscapeInsertBox() ?? false;
         internal string Test_InsertInfo() =>
             _attachedEditPage?.Test_InsertInfo() ?? "nopage";
+
+        // Accelerator audit (Step 4): every Page-owned KeyboardAccelerator
+        // with its effective placement + the button tooltips that must stay.
+        // Page accelerators use the Page-attached PlacementMode (Hidden), so
+        // no hover tooltip can surface them on arbitrary children.
+        internal string Test_AcceleratorPlacements()
+        {
+            static string Mods(Microsoft.UI.Xaml.Input.KeyboardAccelerator k)
+            {
+                var parts = new List<string>();
+                var m = k.Modifiers;
+                if (m.HasFlag(Windows.System.VirtualKeyModifiers.Control)) parts.Add("Ctrl");
+                if (m.HasFlag(Windows.System.VirtualKeyModifiers.Shift)) parts.Add("Shift");
+                if (m.HasFlag(Windows.System.VirtualKeyModifiers.Menu)) parts.Add("Alt");
+                parts.Add(k.Key.ToString());
+                return string.Join("+", parts);
+            }
+            // Attached placement lives on the owning element (the Page), not
+            // on the KeyboardAccelerator objects themselves.
+            var pageMode = GetValue(Microsoft.UI.Xaml.UIElement.KeyboardAcceleratorPlacementModeProperty);
+            var acc = string.Join(";", this.KeyboardAccelerators.Select(Mods));
+            string Tip(Microsoft.UI.Xaml.DependencyObject el) =>
+                Microsoft.UI.Xaml.Controls.ToolTipService.GetToolTip(el) as string ?? "none";
+            return $"page={pageMode} acc=[{acc}] tips=[Undo:{Tip(UndoButton)}|Redo:{Tip(RedoButton)}]";
+        }
         internal bool Test_IsLineRealized(int index) =>
             _attachedEditPage?.IsLineRealized(index) ?? false;
         internal void Test_NewDocument() => _store.NewDocument();

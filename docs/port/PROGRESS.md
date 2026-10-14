@@ -675,3 +675,53 @@ Final binary `AmllTtmlTool.WinUI.dll` (timestamp checked pre-run),
 13. **Split/replace dialogs**: split `hello` at `2` → two timed words
     (weights); invalid positions ignored; replace exact-match single
     word; dialogs never appear in test mode (stubs).
+
+---
+
+# Phase 3 fix — 13 reported bugs (items 1–13), `winui-port` branch
+
+Build rule (unchanged): project-only
+`dotnet build winui/AmllTtmlTool.WinUI/AmllTtmlTool.WinUI.csproj
+--no-incremental`, DLL timestamp checked before every run. One commit per
+numbered step (`phase3fix step N`). `AGENTS.md` does not exist in this
+repo; `docs/port/PROGRESS.md` rules govern. No `winapp` CLI on this
+machine: real-SendInput verification is host-manual (one command per
+step below); the VM runs the in-app harnesses (`edit-test`,
+`lyrics-test`, Core) whose `Test_` hooks drive the same gesture/command
+code paths as the pointer handlers.
+
+## Step 4: accelerator audit (the "Ctrl+O" tooltip, item 3)
+
+Hypothesis CONFIRMED by inspection: the 8 `KeyboardAccelerator`s are
+owned by the Page (`ShellPage.xaml:44-53`) with the default
+`KeyboardAcceleratorPlacementMode=Auto`, so WinUI shows the accelerator
+as a hover tooltip on arbitrary children (chips, cards, ribbon fields —
+screenshot 4). Fix: Page-level
+`KeyboardAcceleratorPlacementMode="Hidden"` (attached property on the
+owning Page — it is NOT a `KeyboardAccelerator` attribute; that fails
+with WMC0011). Shortcut text still shows on menu items via
+`KeyboardAcceleratorTextOverride`. Full audit (complete: these are the
+ONLY real accelerators app-wide; everything else is TextOverride-only
+display text):
+
+| Keys | Action | Owner | Placement |
+|---|---|---|---|
+| Ctrl+O | Open lyrics | Page (`OnOpenAccelerator`) | Hidden |
+| Ctrl+S | Save TTML | Page (`OnSaveAccelerator`) | Hidden |
+| Ctrl+Shift+S | Save Apple TTML | Page (`OnSaveAppleAccelerator`) | Hidden |
+| Ctrl+N | New file | Page (`OnNewAccelerator`) | Hidden |
+| Ctrl+V | Open from clipboard | Page (`OnPasteAccelerator`) | Hidden |
+| Ctrl+Z | Undo (doc/TextBox-routed) | Page (`OnUndoAccelerator`) | Hidden |
+| Ctrl+Y | Redo | Page (`OnRedoAccelerator`) | Hidden |
+| Ctrl+Shift+Z | Redo | Page (`OnRedoAccelerator`) | Hidden |
+
+Display-only shortcut text (no accelerator object, no tooltip source):
+Edit menu Undo/Redo + compact copies (`Ctrl+Z`/`Ctrl+Y` overrides),
+line/word context menus (`Ctrl+D`, `Alt+Up/Down`, `Delete` overrides),
+title-bar Undo/Redo `ToolTipService` strings. List-scoped keys (Delete,
+`Ctrl+D`, `Alt+Up/Down`, `Ctrl+A`, `Esc`, F2/Enter) are `KeyDown`
+handlers, not accelerators — they never produce tooltips.
+
+Harness: `tooltip-audit` pins `page=Hidden`, all 8 combos present, and
+the Undo/Redo button tooltips intact. Host manual: hover 25 elements x
+1.5s each — no unexpected tooltip; real buttons still show theirs.

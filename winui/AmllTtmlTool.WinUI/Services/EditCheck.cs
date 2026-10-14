@@ -697,6 +697,21 @@ internal static class EditCheck
             await OnUiAsync(window, () => page.Test_SelectWord(0, 0));
             var caption1 = await OnUiAsync(window, () => page.Test_WordCaption());
             Check("ribbon-count-single", caption1.EndsWith("|Collapsed"), $"'{caption1}'");
+            // --- 4d. accelerator audit (Step 4) --------------------------
+            // All 8 global accelerators are Page-owned with Hidden placement
+            // (Auto placement shows them as hover tooltips on arbitrary
+            // children — the "Ctrl+O" bug). Real hover checks (25 elements x
+            // 1.5s, popup enumeration) need a live desktop: host manual step.
+            // Here: pin the placement + count, and that real button tooltips
+            // survive.
+            var accAudit = await OnUiAsync(window, () => page.Test_AcceleratorPlacements());
+            var accOk = accAudit.StartsWith("page=Hidden")
+                && accAudit.Contains("Ctrl+O") && accAudit.Contains("Ctrl+S")
+                && accAudit.Contains("Ctrl+Shift+S") && accAudit.Contains("Ctrl+N")
+                && accAudit.Contains("Ctrl+V") && accAudit.Contains("Ctrl+Z")
+                && accAudit.Contains("Ctrl+Y") && accAudit.Contains("Ctrl+Shift+Z")
+                && accAudit.Contains("Undo (Ctrl+Z)") && accAudit.Contains("Redo (Ctrl+Y)");
+            Check("tooltip-audit", accOk, $"[{accAudit}]");
 
             // --- 4c. selection model, visible selection, right-click -------
             await OnUiAsync(window, () => page.Test_ClearEditSelection());
