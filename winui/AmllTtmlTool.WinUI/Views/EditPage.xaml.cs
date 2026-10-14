@@ -387,6 +387,9 @@ namespace AmllTtmlTool.WinUI.Views
 
         public void Detach()
         {
+            // Never leak a drag session (timer/visuals) across navigation.
+            try { CleanupDrag(); } catch { }
+            DisarmDrag();
             UnwatchLines();
             if (_store is not null)
             {
@@ -2296,14 +2299,19 @@ namespace AmllTtmlTool.WinUI.Views
             // The Translation<->Romanization gap equals the chip main<->romaji
             // gap (one shared ChipRowSpacing value). With only one row left
             // the gap drops to 0: a leftover 6px would pad the card bottom
-            // and break top==bottom padding.
+            // and break top==bottom padding. Guarded sets (skip when equal)
+            // so steady-state toggles never invalidate layout for nothing.
             if (card.FindName("SubRows") is Grid subRows)
-                subRows.RowSpacing = showTrans && showRoman ? ChipRowGap : 0;
+            {
+                var subGap = showTrans && showRoman ? ChipRowGap : 0;
+                if (subRows.RowSpacing != subGap) subRows.RowSpacing = subGap;
+            }
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return;
+            var chipGap = showWordRoman ? ChipRowGap : 0;
             foreach (var child in panel.Children)
             {
                 if (child is not Grid chip || chip.Children.Count < 2) continue;
-                chip.RowSpacing = showWordRoman ? ChipRowGap : 0;
+                if (chip.RowSpacing != chipGap) chip.RowSpacing = chipGap;
                 if (chip.Children[1] is FrameworkElement roman) SetElement(roman, showWordRoman, animate, collapseNow);
             }
         }
@@ -3384,7 +3392,8 @@ namespace AmllTtmlTool.WinUI.Views
                         return "noop:same-place";
                     CommitActiveBox();
                     var cmd = new ReorderLinesCommand(ordered, session.DropLineIndex, copy);
-                    _store.Execute(cmd);
+                    try { _store.Execute(cmd); }
+                    catch (InvalidOperationException) { return "noop:stale"; }
                     var resultIds = cmd.ResultIds.ToList();
                     if (copy)
                     {
@@ -3430,7 +3439,8 @@ namespace AmllTtmlTool.WinUI.Views
                     CommitActiveBox();
                     var cmd = new MoveWordsCommand(ordered, session.DropLineId,
                         session.DropWordId, session.DropAfter, copy);
-                    _store.Execute(cmd);
+                    try { _store.Execute(cmd); }
+                    catch (InvalidOperationException) { return "noop:stale"; }
                     var resultIds = cmd.ResultIds.ToList();
                     if (copy)
                     {

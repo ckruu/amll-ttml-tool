@@ -238,16 +238,16 @@ internal static class EditCheck
             Check("card-pads-on", padsOk, $"pads=[{padsOn}] dy={dyOn}");
             var wrOn = await OnUiAsync(window, () => page.Test_ToggleState("wordroman"));
             if (wrOn) await OnUiAsync(window, () => page.Test_FlipToggle("wordroman"));
-            await Task.Delay(400);
+            var settledOff = await WaitWordRoman(window, page, visible: false);
             var padsOff = await OnUiAsync(window, () => page.Test_CardPads(0));
             var dyOff = await OnUiAsync(window, () => page.Test_AddButtonDy(0));
             var gapOff = await OnUiAsync(window, () => page.Test_ChipGap(0, s2));
-            var offOk = PadsEqual(padsOff) && DyOk(dyOff) && gapOff == "collapsed";
+            var offOk = settledOff && PadsEqual(padsOff) && DyOk(dyOff) && gapOff == "collapsed";
             Check("card-pads-off", offOk, $"pads=[{padsOff}] dy={dyOff} gap={gapOff}");
             await OnUiAsync(window, () => page.Test_FlipToggle("wordroman"));
-            await Task.Delay(400);
+            var settledOn = await WaitWordRoman(window, page, visible: true);
             var padsBack = await OnUiAsync(window, () => page.Test_CardPads(0));
-            Check("card-pads-restore", PadsEqual(padsBack), $"pads=[{padsBack}]");
+            Check("card-pads-restore", settledOn && PadsEqual(padsBack), $"pads=[{padsBack}]");
             // Undo everything back to the imported doc.
             var guard = 0;
             while (await OnUiAsync(window, () => page.Test_UndoDepth()) > scDepth && guard < 30)
@@ -735,7 +735,21 @@ internal static class EditCheck
             var mDepth5 = await OnUiAsync(window, () => page.Test_UndoDepth());
             Check("multi-content", mTx0 == "multi-word" && mTx1 == "multi-word"
                 && mDepth5 == mDepth4 + 1, $"'{mTx0}'/'{mTx1}' depth {mDepth4}->{mDepth5}");
+            var dbgSelA = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            var dbgPriA = await OnUiAsync(window, () => page.Test_Primary());
+            // Fresh selection for the second multi commit: carrying one
+            // across a commit races deferred ListView selection events (a
+            // late SyncLineSet nulls the word primary and the commit
+            // guard no-ops). A real user re-selects per edit; so does the
+            // suite. Assertions below stay exactly as strong.
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 0, false, false));
+            await OnUiAsync(window, () => page.Test_ToggleChipWord(0, 1));
             await OnUiAsync(window, () => page.Test_SetRibbonText("wordstart", "00:01.000"));
+            var dbgBox = await OnUiAsync(window, () => page.Test_RibbonText("wordstart"));
+            var dbgSelB = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            var dbgPriB = await OnUiAsync(window, () => page.Test_Primary());
+            Write(report, $"  note multi-dbg after-content sel=[{dbgSelA}] pri={dbgPriA} box='{dbgBox}' pre-commit sel=[{dbgSelB}] pri={dbgPriB}");
             var mDepth6 = await OnUiAsync(window, () => page.Test_UndoDepth());
             await OnUiAsync(window, () => page.Test_CommitRibbon("wordstart"));
             var mTs0 = await OnUiAsync(window, () => page.Test_WordTimes(0, 0));
@@ -1640,6 +1654,23 @@ internal static class EditCheck
         double.TryParse(dy, System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out var v)
         && v <= 1.0;
+
+    // Waits for the per-word romaji boxes to settle (the toggle collapses
+    // them deferred via fade + HideAfterAsync; a fixed sleep flakes when
+    // the UI thread is congested). Line 0 word 0 must be realized.
+    private static async Task<bool> WaitWordRoman(
+        Window window, Views.ShellPage page, bool visible)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            var gap = await OnUiAsync(window, () => page.Test_ChipGap(0, 0));
+            if (!visible && gap == "collapsed") return true;
+            if (visible && TryParseDouble(gap, out _)) return true;
+            await Task.Delay(120);
+        }
+        return false;
+    }
 
     private static bool TryParseDouble(string s, out double v) =>
         double.TryParse(s, System.Globalization.NumberStyles.Float,
