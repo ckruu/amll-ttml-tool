@@ -17,6 +17,11 @@ public sealed class SelectionService
     public string? SelectedLineId { get; private set; }
     public string? SelectedWordId { get; private set; }
 
+    // Range anchor for Shift+click (lines). Plain and Ctrl gestures set it;
+    // Shift gestures and focus moves (AnchorLine/AnchorWord) never do, so a
+    // Shift range always extends from where the user last clicked.
+    public string? AnchorLineId { get; private set; }
+
     public event Action? Changed;
 
     public void SelectLine(string? lineId)
@@ -24,6 +29,7 @@ public sealed class SelectionService
         _lineIds.Clear();
         _wordIds.Clear();
         if (lineId is not null) _lineIds.Add(lineId);
+        AnchorLineId = lineId;
         if (SelectedLineId == lineId && SelectedWordId is null) return;
         SelectedLineId = lineId;
         SelectedWordId = null;
@@ -36,6 +42,7 @@ public sealed class SelectionService
         _wordIds.Clear();
         _lineIds.Add(lineId);
         _wordIds.Add(wordId);
+        AnchorLineId = lineId;
         if (SelectedLineId == lineId && SelectedWordId == wordId) return;
         SelectedLineId = lineId;
         SelectedWordId = wordId;
@@ -49,6 +56,7 @@ public sealed class SelectionService
         if (!_lineIds.Remove(lineId)) _lineIds.Add(lineId);
         SelectedLineId = lineId;
         SelectedWordId = null;
+        AnchorLineId = lineId;
         Changed?.Invoke();
     }
 
@@ -58,6 +66,7 @@ public sealed class SelectionService
         if (!_wordIds.Remove(wordId)) _wordIds.Add(wordId);
         SelectedLineId = lineId;
         SelectedWordId = wordId;
+        AnchorLineId = lineId;
         Changed?.Invoke();
     }
 
@@ -96,6 +105,21 @@ public sealed class SelectionService
         Changed?.Invoke();
     }
 
+    // Shift line range: the set becomes exactly anchor..primary (inclusive),
+    // in document order. The anchor is untouched, so repeated Shift+clicks
+    // keep extending from the same base like native range selection.
+    public void SelectLineRange(IEnumerable<string> lineIdsInOrder, string primaryLineId)
+    {
+        _lineIds.Clear();
+        string? last = null;
+        foreach (var id in lineIdsInOrder) { _lineIds.Add(id); last = id; }
+        SelectedLineId = primaryLineId;
+        SelectedWordId = null;
+        if (AnchorLineId is null || !_lineIds.Contains(AnchorLineId))
+            AnchorLineId = primaryLineId;
+        Changed?.Invoke();
+    }
+
     public void SelectAllLines(IEnumerable<string> lineIds)
     {
         _lineIds.Clear();
@@ -103,6 +127,7 @@ public sealed class SelectionService
         _wordIds.Clear();
         SelectedLineId = _lineIds.FirstOrDefault();
         SelectedWordId = null;
+        AnchorLineId = SelectedLineId;
         Changed?.Invoke();
     }
 
@@ -114,17 +139,20 @@ public sealed class SelectionService
         foreach (var id in wordIds) _wordIds.Add(id);
         SelectedLineId = lineId;
         SelectedWordId = _wordIds.FirstOrDefault();
+        AnchorLineId = lineId;
         Changed?.Invoke();
     }
 
     public void Clear()
     {
         if (_lineIds.Count == 0 && _wordIds.Count == 0
-            && SelectedLineId is null && SelectedWordId is null) return;
+            && SelectedLineId is null && SelectedWordId is null
+            && AnchorLineId is null) return;
         _lineIds.Clear();
         _wordIds.Clear();
         SelectedLineId = null;
         SelectedWordId = null;
+        AnchorLineId = null;
         Changed?.Invoke();
     }
 
@@ -139,6 +167,7 @@ public sealed class SelectionService
         _lineIds.Clear();
         _lineIds.Add(lineId);
         SelectedLineId = lineId;
+        AnchorLineId = lineId;
         RetainWords(lineOfWord);
     }
 
@@ -151,6 +180,7 @@ public sealed class SelectionService
         foreach (var id in lineIds) { _lineIds.Add(id); last = id; }
         SelectedLineId = last ?? _lineIds.FirstOrDefault();
         SelectedWordId = null;
+        AnchorLineId = SelectedLineId;
         RetainWords(lineOfWord);
     }
 
@@ -173,11 +203,13 @@ public sealed class SelectionService
         foreach (var id in wordIds) _wordIds.Add(id);
         SelectedLineId = lineId;
         SelectedWordId = primaryWordId;
+        AnchorLineId = lineId;
         Changed?.Invoke();
     }
 
-    // Syncs the line set from the ListView (Extended mode). Words of
-    // removed lines drop; primary re-anchors inside the surviving set.
+    // Legacy ListView-sync entry point, kept for hook compatibility: with
+    // SelectionMode=None the ListView never fires SelectionChanged, so this
+    // is now an exact-set convergence identical to SetLines.
     public void SyncLineSet(
         IEnumerable<string> added, IEnumerable<string> removed,
         Func<string, string?> lineOfWord)
@@ -191,6 +223,7 @@ public sealed class SelectionService
         {
             SelectedLineId = addedList[^1];
             SelectedWordId = null;
+            AnchorLineId = SelectedLineId;
         }
         RetainWords(lineOfWord);
     }
@@ -210,5 +243,7 @@ public sealed class SelectionService
             SelectedLineId = _lineIds.FirstOrDefault();
         if (SelectedWordId is not null && !_wordIds.Contains(SelectedWordId))
             SelectedWordId = _wordIds.FirstOrDefault();
+        if (AnchorLineId is not null && !_lineIds.Contains(AnchorLineId))
+            AnchorLineId = SelectedLineId;
     }
 }

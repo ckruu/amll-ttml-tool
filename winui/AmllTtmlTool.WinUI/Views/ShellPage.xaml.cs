@@ -2946,6 +2946,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.Test_WordIndicated() ?? "nopage";
         internal string Test_LineFill(int line) =>
             _attachedEditPage?.Test_LineFill(line) ?? "nopage";
+        internal string Test_SelectionContrast() =>
+            _attachedEditPage?.Test_SelectionContrast() ?? "nopage";
         internal string Test_ChipOutline(int line, int word) =>
             _attachedEditPage?.Test_ChipOutline(line, word) ?? "nopage";
         internal string Test_FocusState() => _attachedEditPage?.Test_FocusState() ?? "nopage";

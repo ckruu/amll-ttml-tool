@@ -31,6 +31,13 @@ namespace AmllTtmlTool.WinUI.Views
         {
             this.InitializeComponent();
             this.Unloaded += (_, _) => Detach();
+            // Theme/accent changes flow through the template + theme resources
+            // by themselves (no code blending anywhere); re-apply visibility
+            // so recycled containers rejoin the right look.
+            this.ActualThemeChanged += (_, _) =>
+            {
+                ApplySelectionVisuals();
+            };
             // Drag tracking (handledEventsToo: presses on boxes are marked
             // handled, but moves/releases must still reach the session).
             this.AddHandler(UIElement.PointerMovedEvent,
@@ -347,9 +354,8 @@ namespace AmllTtmlTool.WinUI.Views
             var word = EditWord.New();
             word.Text = text;
             _store.Execute(new AddWordCommand(line.Id, line.Words.Count, word));
-            // Pair the ListView (service writers must never leave phantom
-            // lines the list doesn't show: multi-ops read the service set).
-            LineList.SelectedItem = line;
+            // Service-only selection (SelectionMode=None): the new word is
+            // selected, no ListView mirror exists.
             _selection?.SelectWord(line.Id, word.Id);
             _insertBox.Text = "";
             _insertTextStash = "";
@@ -427,19 +433,16 @@ namespace AmllTtmlTool.WinUI.Views
             if (_store is null) return;
             if (index < 0 || index >= _store.Document.Lines.Count) return;
             var line = _store.Document.Lines[index];
-            LineList.SelectedItem = line;
-            // Deterministic single pin (a re-select of the same item fires
-            // no ListView event, and unwired writers may have left phantom
-            // lines behind — PinLine converges exactly, keeping the line's
-            // own surviving word selection per the B5 rule).
+            // Single source of truth is the SelectionService (the ListView
+            // runs SelectionMode=None): PinLine converges exactly, keeping
+            // the line's own surviving word selection per the B5 rule.
             _selection?.PinLine(line.Id, LineOfWord);
         }
 
         internal int SelectedLineIndex()
         {
-            if (LineList.SelectedItem is null) return -1;
-            var container = LineList.ContainerFromItem(LineList.SelectedItem);
-            return container is null ? -1 : LineList.IndexFromContainer(container);
+            if (_store is null || _selection?.SelectedLineId is not string id) return -1;
+            return _store.Document.Lines.ToList().FindIndex(l => l.Id == id);
         }
 
         // --- Step-5 test helpers (driven by Test_ hooks, UI thread) --------
@@ -791,7 +794,7 @@ namespace AmllTtmlTool.WinUI.Views
             for (var i = 0; i < _store.Document.Lines.Count; i++)
             {
                 if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
-                var (_, pill) = FindCardChrome(container);
+                var (_, pill, _) = FindCardChrome(container);
                 if (pill is not null && pill.Visibility == Visibility.Visible) shown.Add(i);
             }
             return string.Join(",", shown);
@@ -1023,18 +1026,13 @@ namespace AmllTtmlTool.WinUI.Views
             return string.Join(",", idx);
         }
 
-        // Realized-or-not selected indices from the ListView itself.
+        // Selected indices from the ONE source of truth (the
+        // SelectionService). The ListView runs SelectionMode=None, so it
+        // holds no selection of its own; IndicatedIndices() (visual bars)
+        // must equal this exactly — asserted by the harness every step.
         internal string SelectedIndices()
         {
-            if (_store is null) return "nostore";
-            var sel = new List<int>();
-            foreach (var item in LineList.SelectedItems.OfType<EditLine>())
-            {
-                var idx = _store.Document.Lines.IndexOf(item);
-                if (idx >= 0) sel.Add(idx);
-            }
-            sel.Sort();
-            return string.Join(",", sel);
+            return Test_ServiceLineIdx();
         }
 
         // X of the first word chip relative to its card (identical on every
@@ -1436,10 +1434,12 @@ namespace AmllTtmlTool.WinUI.Views
             DeleteLineAt(LineList.IndexFromContainer(container));
         }
 
-        // Empty card area selects the line (single click; ctrl/shift extend
-        // through the native ListView pipeline like anywhere else — the
-        // press here only ensures the line joins single selection; with
-        // modifiers the native item handling applies).
+        // Empty card area selects the line. The ListView runs
+        // SelectionMode=None, so ALL selection state lives in the
+        // SelectionService: plain press selects, modified presses arm for
+        // release/dragstart (multi-selections survive until click completes).
+        // Modifiers come from the pointer event itself (KeyModifiers), with
+        // the thread key state as fallback.
         private void OnCardPointerPressed(object sender, PointerRoutedEventArgs e)
         {
             if (sender is not Grid card || _selection is null || _store is null) return;
@@ -1455,20 +1455,31 @@ namespace AmllTtmlTool.WinUI.Views
             var index = LineList.IndexFromContainer(container);
             if (index < 0 || index >= _store.Document.Lines.Count) return;
             var line = _store.Document.Lines[index];
-            var ctrl = IsCtrlDown();
-            var shift = IsShiftDown();
+            var (ctrl, shift) = PointerModifiers(e);
             // Plain press on an unselected line selects immediately;
             // modified presses and presses inside the selection defer to
             // release/dragstart (multi-selections survive).
             if (!ctrl && !shift && !_selection.SelectedLineIds.Contains(line.Id))
             {
-                LineList.SelectedItem = line;
                 _selection.SelectLine(line.Id);
                 container.Focus(FocusState.Programmatic);
             }
             ArmDrag(words: false, lineId: line.Id, wordId: null,
                 point: e.GetCurrentPoint(LineList).Position, ctrl: ctrl, shift: shift);
             e.Handled = true;
+        }
+
+        // Modifiers from the pointer event args (reliable even when the
+        // TextBox children swallowed key state); falls back to the thread
+        // key state for synthesized/test paths without event modifiers.
+        private static (bool Ctrl, bool Shift) PointerModifiers(PointerRoutedEventArgs e)
+        {
+            var mods = e.KeyModifiers;
+            var ctrl = mods.HasFlag(Windows.System.VirtualKeyModifiers.Control)
+                || IsCtrlDown();
+            var shift = mods.HasFlag(Windows.System.VirtualKeyModifiers.Shift)
+                || IsShiftDown();
+            return (ctrl, shift);
         }
 
 
@@ -1489,7 +1500,8 @@ namespace AmllTtmlTool.WinUI.Views
         }
 
         // Right-click / Shift+F10 / Menu key on an unselected line selects
-        // it first (single); inside a multi-selection the set is kept.
+        // it first (single, with the FULL selected look applied synchronously
+        // before the menu opens); inside a multi-selection the set is kept.
         private void EnsureLineSelectedForContext(Grid card)
         {
             if (_store is null || _selection is null) return;
@@ -1500,8 +1512,11 @@ namespace AmllTtmlTool.WinUI.Views
             var line = _store.Document.Lines[index];
             if (!_selection.SelectedLineIds.Contains(line.Id))
             {
-                LineList.SelectedItem = line;
                 _selection.SelectLine(line.Id);
+                // Paint before the menu opens: the Opening handler builds the
+                // menu right after this returns, so an async paint would show
+                // only the accent pill on the first frame.
+                ApplySelectionVisualsNow();
             }
         }
 
@@ -1554,7 +1569,6 @@ namespace AmllTtmlTool.WinUI.Views
                 if (_selection?.SelectedLineId is null && _store is not null)
                 {
                     var l = _store.Document.Lines[index];
-                    LineList.SelectedItem = l;
                     _selection?.SelectLine(l.Id);
                 }
                 MoveSelectedLines(-1);
@@ -1569,7 +1583,6 @@ namespace AmllTtmlTool.WinUI.Views
                 if (_selection?.SelectedLineId is null && _store is not null)
                 {
                     var l = _store.Document.Lines[index];
-                    LineList.SelectedItem = l;
                     _selection?.SelectLine(l.Id);
                 }
                 MoveSelectedLines(1);
@@ -1673,12 +1686,8 @@ namespace AmllTtmlTool.WinUI.Views
             if (line is null || !line.Words.Any(w => w.Id == wordId)) return;
             if (!_selection.SelectedWordIds.Contains(wordId))
             {
-                LineList.SelectedItem = line;
                 _selection.SelectWord(lineId, wordId);
-            }
-            else if (!LineList.SelectedItems.Contains(line))
-            {
-                LineList.SelectedItems.Add(line);
+                ApplySelectionVisualsNow();
             }
         }
 
@@ -1928,7 +1937,6 @@ namespace AmllTtmlTool.WinUI.Views
             if (line < 0 || line >= _store.Document.Lines.Count) return;
             var docLine = _store.Document.Lines[line];
             if (word < 0 || word >= docLine.Words.Count) return;
-            LineList.SelectedItem = docLine;
             _selection.SelectWord(docLine.Id, docLine.Words[word].Id);
         }
 
@@ -1938,15 +1946,7 @@ namespace AmllTtmlTool.WinUI.Views
             var ids = indices
                 .Where(i => i >= 0 && i < _store.Document.Lines.Count)
                 .Select(i => _store.Document.Lines[i].Id).ToList();
-            LineList.SelectedItems.Clear();
-            foreach (var id in ids)
-            {
-                var line = _store.Document.Lines.FirstOrDefault(l => l.Id == id);
-                if (line is not null) LineList.SelectedItems.Add(line);
-            }
-            // Converge the service NOW (ListView change events may arrive
-            // after the next hook reads the set; the event re-applies the
-            // same end-state idempotently when it lands).
+            // Service-only (SelectionMode=None): no ListView event follows.
             _selection.SetLines(ids, LineOfWord);
         }
 
@@ -1954,13 +1954,11 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (_store is null || _selection is null) return;
             CommitActiveBox();
-            LineList.SelectAll();
             _selection.SetLines(_store.Document.Lines.Select(l => l.Id), LineOfWord);
         }
 
         internal void ClearEditSelection()
         {
-            LineList.SelectedItem = null;
             _selection?.Clear();
         }
 
@@ -1970,8 +1968,6 @@ namespace AmllTtmlTool.WinUI.Views
             if (line < 0 || line >= _store.Document.Lines.Count) return false;
             var docLine = _store.Document.Lines[line];
             if (word < 0 || word >= docLine.Words.Count) return false;
-            if (!LineList.SelectedItems.Contains(docLine))
-                LineList.SelectedItems.Add(docLine);
             _selection.ToggleWord(docLine.Id, docLine.Words[word].Id);
             _selection.RetainWords(LineOfWord);
             return true;
@@ -2069,14 +2065,17 @@ namespace AmllTtmlTool.WinUI.Views
             // press already selected; the anchor is then a no-op.
             if (sender is not TextBox box || _selection is null || _store is null) return;
             _gotFocusCount++;
+            // Stale-event guard: a queued GotFocus for a box that is no
+            // longer focused (e.g. a programmatic Focus() whose event arrives
+            // after a later click already moved focus on) must not clobber
+            // the primary. Real tab/click focus always has sender == focused.
+            if (!ReferenceEquals(FocusManager.GetFocusedElement(XamlRoot), box)) return;
             // Resolve by Tag first (always accurate, no visual-tree
             // dependency); fall back to the container for line-field boxes.
             if (box.Tag is string wordId && LineOfWord(wordId) is string lineId)
             {
                 var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
                 if (line is null) return;
-                if (!LineList.SelectedItems.Contains(line))
-                    LineList.SelectedItems.Add(line);
                 _selection.AnchorWord(lineId, wordId);
                 // A space label can only be reached via its box: focusing it
                 // swaps in the editor (double-click/F2/Tab all land here).
@@ -2089,10 +2088,6 @@ namespace AmllTtmlTool.WinUI.Views
             var index = LineList.IndexFromContainer(container);
             if (index < 0 || index >= _store.Document.Lines.Count) return;
             var fieldLine = _store.Document.Lines[index];
-            // Pair the ListView (service writers must never leave phantom
-            // lines the list doesn't show: multi-ops read the service set).
-            if (!LineList.SelectedItems.Contains(fieldLine))
-                LineList.SelectedItems.Add(fieldLine);
             _selection.AnchorLine(fieldLine.Id);
             LineList.ScrollIntoView(fieldLine);
         }
@@ -2396,11 +2391,14 @@ namespace AmllTtmlTool.WinUI.Views
             // that shift here or it would visibly jump (observed: dy=32px).
             double beforeY = double.NaN;
             ListViewItem? anchorContainer = null;
-            if (LineList.SelectedItem is EditLine selected
-                && LineList.ContainerFromItem(selected) is ListViewItem c)
+            if (_store is not null && _selection?.SelectedLineId is string selId)
             {
-                anchorContainer = c;
-                beforeY = c.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == selId);
+                if (at >= 0 && LineList.ContainerFromIndex(at) is ListViewItem c)
+                {
+                    anchorContainer = c;
+                    beforeY = c.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                }
             }
             foreach (var el in hiding) el.Visibility = Visibility.Collapsed;
             if (anchorContainer is not null && !double.IsNaN(beforeY))
@@ -2440,8 +2438,9 @@ namespace AmllTtmlTool.WinUI.Views
         private void AnchorSelected(bool animate)
         {
             _ = animate;
-            if (LineList.SelectedItem is not EditLine selected) return;
-            if (LineList.ContainerFromItem(selected) is not ListViewItem container) return;
+            if (_store is null || _selection?.SelectedLineId is not string id) return;
+            var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == id);
+            if (at < 0 || LineList.ContainerFromIndex(at) is not ListViewItem container) return;
             var before = container.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
             LineList.UpdateLayout();
             var after = container.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
@@ -2451,9 +2450,12 @@ namespace AmllTtmlTool.WinUI.Views
 
         private (ListViewItem? Container, double Y) SnapshotSelected()
         {
-            if (LineList.SelectedItem is EditLine selected
-                && LineList.ContainerFromItem(selected) is ListViewItem container)
-                return (container, container.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y);
+            if (_store is not null && _selection?.SelectedLineId is string id)
+            {
+                var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == id);
+                if (at >= 0 && LineList.ContainerFromIndex(at) is ListViewItem container)
+                    return (container, container.TransformToVisual(LineList).TransformPoint(new Windows.Foundation.Point(0, 0)).Y);
+            }
             return (null, double.NaN);
         }
 
@@ -2499,10 +2501,11 @@ namespace AmllTtmlTool.WinUI.Views
         // iff the line's id is selected. Re-applied on every selection
         // change, container prepare and recycle/clear, so pooled containers
         // can never show stale bars on other lines.
-        private static (Border? Root, Rectangle? Pill) FindCardChrome(DependencyObject container)
+        private static (Border? Root, Rectangle? Pill, Rectangle? Tint) FindCardChrome(DependencyObject container)
         {
             Border? root = null;
             Rectangle? pill = null;
+            Rectangle? tint = null;
             var queue = new Queue<DependencyObject>();
             queue.Enqueue(container);
             while (queue.Count > 0)
@@ -2510,35 +2513,46 @@ namespace AmllTtmlTool.WinUI.Views
                 var current = queue.Dequeue();
                 if (current is Border border && border.Name == "Root") root = border;
                 else if (current is Rectangle rect && rect.Name == "Pill") pill = rect;
-                if (root is not null && pill is not null) break;
+                else if (current is Rectangle rect2 && rect2.Name == "SelectionTint") tint = rect2;
+                if (root is not null && pill is not null && tint is not null) break;
                 var count = VisualTreeHelper.GetChildrenCount(current);
                 for (var i = 0; i < count; i++)
                     queue.Enqueue(VisualTreeHelper.GetChild(current, i));
             }
-            return (root, pill);
+            return (root, pill, tint);
         }
 
-        // Selected lines get an accent-tinted fill (theme resource: follows
-        // light/dark/high-contrast); keyboard focus stays a border ring, so
-        // selected vs focused never confuse.
-        private static Brush? SelectedCardBrush =>
-            Application.Current.Resources.TryGetValue("AccentFillColorSecondaryBrush", out var v)
-            && v is Brush b ? b : null;
-
-        private static Brush? SelectedWordWashBrush =>
-            Application.Current.Resources.TryGetValue("AccentFillColorTertiaryBrush", out var v)
-            && v is Brush b ? b : null;
-
-        private static Brush? DefaultCardBrush =>
-            Application.Current.Resources.TryGetValue("CardBackgroundFillColorDefaultBrush", out var v)
-            && v is Brush b ? b : null;
+        // Selected lines get a LOW-SATURATION accent tint: the SelectionTint
+        // overlay (20% live Windows accent) over the card fill, normal text
+        // color kept, plus the accent bar. Far less bright than a full accent
+        // fill, so text stays readable; hover (CardBackgroundFillColorSecondary,
+        // no bar, no tint) is clearly different. The card Background is never
+        // overwritten, so Light/Dark/High Contrast all resolve via the
+        // template + theme resources with zero code blending.
+        // sRGB blend helper for the contrast PROBE only (mirrors what the
+        // 20%-opacity SelectionTint overlay composites on screen). No product
+        // visuals are computed in code: the tint/wash overlays use the live
+        // accent theme resource, and the card fill always comes from the
+        // template Background — so Light/Dark/High Contrast are correct with
+        // zero blending. (Application.Current.Resources lookups are NOT
+        // theme-resolved — they return Light values in Dark — which is why no
+        // product path may read colors from the app dictionary.)
+        private static Windows.UI.Color Blend(Windows.UI.Color baseColor, Windows.UI.Color accent, double accentAmount)
+        {
+            var a = Math.Clamp(accentAmount, 0, 1);
+            byte Mix(byte b, byte f) => (byte)Math.Round(b * (1 - a) + f * a);
+            return Windows.UI.Color.FromArgb(255, Mix(baseColor.R, accent.R), Mix(baseColor.G, accent.G), Mix(baseColor.B, accent.B));
+        }
 
         private void ApplySelectionVisual(ListViewItem container, bool selected)
         {
-            var (root, pill) = FindCardChrome(container);
+            var (root, pill, tint) = FindCardChrome(container);
+            _ = root;
             if (pill is not null) pill.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
-            if (root is not null)
-                root.Background = (selected ? SelectedCardBrush : DefaultCardBrush) ?? root.Background;
+            // The card fill is NEVER overwritten here: Root keeps its template
+            // Background ({ThemeResource}, theme-correct) and the translucent
+            // SelectionTint overlay supplies the accent tint.
+            if (tint is not null) tint.Visibility = selected ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void ApplySelectionVisuals()
@@ -2560,9 +2574,10 @@ namespace AmllTtmlTool.WinUI.Views
             ApplyWordSelectionVisualsNow();
         }
 
-        // Selected words: accent outline + subtle accent wash on their own
-        // boxes (behind their text, so it stays crisp) — the original's
-        // outlined chips on a filled line. From theme resources throughout.
+        // Selected words: accent outline + faint accent wash BEHIND the chip
+        // content (a translucent overlay at ZIndex -1, so text stays crisp)
+        // — the original's outlined chips on a filled line. The wash uses the
+        // live accent theme resource, so no theme can make it unreadable.
         private void ApplyWordSelectionVisualsNow()
         {
             if (_store is null || _selection is null) return;
@@ -2580,17 +2595,8 @@ namespace AmllTtmlTool.WinUI.Views
                     var on = selected.Contains(wordId);
                     if (chip.Children.Count >= 4 && chip.Children[3] is Border outline)
                         outline.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-                    Brush? wash = on ? SelectedWordWashBrush : null;
-                    if (chip.Children.Count >= 1 && chip.Children[0] is TextBox text)
-                    {
-                        if (wash is null) text.ClearValue(TextBox.BackgroundProperty);
-                        else text.Background = wash;
-                    }
-                    if (chip.Children.Count >= 2 && chip.Children[1] is TextBox roman)
-                    {
-                        if (wash is null) roman.ClearValue(TextBox.BackgroundProperty);
-                        else roman.Background = wash;
-                    }
+                    if (chip.Children.Count >= 6 && chip.Children[5] is Border wash)
+                        wash.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
                 }
             }
         }
@@ -2731,9 +2737,8 @@ namespace AmllTtmlTool.WinUI.Views
             chip.Children.Add(text);
             chip.Children.Add(roman);
             chip.Children.Add(label);
-            // Selected-word outline: accent border over the unit. The wash
-            // goes on the boxes' own Background (behind their text); the
-            // overlay carries the border only, so text stays crisp.
+            // Selected-word outline: accent border over the unit (the wash is
+            // a separate behind-content overlay, so text stays crisp).
             var selOutline = new Border
             {
                 BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"],
@@ -2760,6 +2765,22 @@ namespace AmllTtmlTool.WinUI.Views
             };
             Grid.SetRowSpan(dropMark, 2);
             chip.Children.Add(dropMark);
+            // Selected-word wash: translucent live-accent fill BEHIND the chip
+            // content (Canvas.ZIndex -1 renders it below the boxes regardless
+            // of child order, so text stays crisp). Opacity 0.15 ≈ the faint
+            // fill from the spec; the card never changes its own Background.
+            var selWash = new Border
+            {
+                Background = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                Opacity = 0.15,
+                CornerRadius = new CornerRadius(4),
+                Visibility = _selection?.SelectedWordIds.Contains(wordId) == true
+                    ? Visibility.Visible : Visibility.Collapsed,
+                IsHitTestVisible = false,
+            };
+            Grid.SetRowSpan(selWash, 2);
+            Canvas.SetZIndex(selWash, -1);
+            chip.Children.Add(selWash);
             AttachWordMenu(chip, text, roman, line.Id, wordId);
             return chip;
         }
@@ -2804,9 +2825,6 @@ namespace AmllTtmlTool.WinUI.Views
             // limited; GotFocus re-anchors identically for Tab users.
             if (LineOfWord(wordId) is string lineId)
             {
-                var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
-                if (line is not null && !LineList.SelectedItems.Contains(line))
-                    LineList.SelectedItems.Add(line);
                 _selection.AnchorWord(lineId, wordId);
             }
             foreach (var chip in FindChips(wordId))
@@ -2822,10 +2840,14 @@ namespace AmllTtmlTool.WinUI.Views
         // Drives the real GotFocus handler directly (same logic as keyboard
         // Tab focus; Focus() event delivery itself is observed separately
         // since inactive headless windows route focus state without events).
+        // The box is focused first so the handler's stale-event guard (which
+        // drops GotFocus for a box that is no longer focused) lets it through
+        // deterministically.
         internal bool Test_AnchorBox(int line, int word, bool roman)
         {
             var box = FindChipBox(line, word, roman);
             if (box is null) return false;
+            box.Focus(FocusState.Programmatic);
             OnEditGotFocus(box, new RoutedEventArgs());
             return true;
         }
@@ -2943,35 +2965,43 @@ namespace AmllTtmlTool.WinUI.Views
             }
             else if (arm.Ctrl && !arm.Shift)
             {
-                if (LineList.SelectedItems.Contains(line))
-                    LineList.SelectedItems.Remove(line);
-                else
-                    LineList.SelectedItems.Add(line);
+                _selection.ToggleLine(line.Id);
+                _selection.RetainWords(LineOfWord);
             }
             else if (arm.Shift)
             {
-                var anchor = _selection.SelectedLineId is string aid
-                    ? _store.Document.Lines.ToList().FindIndex(l => l.Id == aid)
-                    : -1;
-                var index = _store.Document.Lines.IndexOf(line);
-                if (anchor < 0) LineList.SelectedItem = line;
-                else
-                {
-                    var lo = Math.Min(anchor, index);
-                    var hi = Math.Max(anchor, index);
-                    for (var i = lo; i <= hi; i++)
-                        if (!LineList.SelectedItems.Contains(_store.Document.Lines[i]))
-                            LineList.SelectedItems.Add(_store.Document.Lines[i]);
-                }
+                ShiftSelectLineRange(line);
             }
             else
             {
-                LineList.SelectedItem = line;
                 _selection.SelectLine(line.Id);
             }
             if (FindListViewItemForLine(line.Id) is ListViewItem container)
                 container.Focus(FocusState.Programmatic);
             e.Handled = true;
+        }
+
+        // Shift+click line range from the anchor (SelectionService.AnchorLineId,
+        // falling back to the primary when no anchor exists yet). The set
+        // becomes exactly anchor..clicked, replacing any prior selection.
+        private void ShiftSelectLineRange(EditLine line)
+        {
+            if (_store is null || _selection is null) return;
+            var lines = _store.Document.Lines.ToList();
+            var anchorId = _selection.AnchorLineId ?? _selection.SelectedLineId;
+            var anchor = anchorId is string aid
+                ? lines.FindIndex(l => l.Id == aid) : -1;
+            var index = lines.FindIndex(l => l.Id == line.Id);
+            if (anchor < 0 || index < 0)
+            {
+                _selection.SelectLine(line.Id);
+                return;
+            }
+            var lo = Math.Min(anchor, index);
+            var hi = Math.Max(anchor, index);
+            _selection.SelectLineRange(
+                lines.Skip(lo).Take(hi - lo + 1).Select(l => l.Id),
+                line.Id);
         }
 
         private void OnDragCaptureLost(object sender, PointerRoutedEventArgs e)
@@ -2995,7 +3025,6 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
                 if (line is null) { DisarmDrag(); return; }
-                LineList.SelectedItem = line;
                 if (words && wordId is not null) _selection.SelectWord(lineId, wordId);
                 else _selection.SelectLine(lineId);
             }
@@ -3398,12 +3427,6 @@ namespace AmllTtmlTool.WinUI.Views
                     if (copy)
                     {
                         // Original copy: the clones are selected, words clear.
-                        LineList.SelectedItems.Clear();
-                        foreach (var id in resultIds)
-                        {
-                            var line = _store.Document.Lines.FirstOrDefault(l => l.Id == id);
-                            if (line is not null) LineList.SelectedItems.Add(line);
-                        }
                         _selection.SetLines(resultIds, LineOfWord);
                     }
                     var first = resultIds
@@ -3552,8 +3575,7 @@ namespace AmllTtmlTool.WinUI.Views
             var index = LineList.IndexFromContainer(container);
             if (index < 0 || index >= _store.Document.Lines.Count) return;
             var line = _store.Document.Lines[index];
-            var ctrl = IsCtrlDown();
-            var shift = IsShiftDown();
+            var (ctrl, shift) = PointerModifiers(e);
             // Select-first only for a plain press on an unselected word
             // (instant feedback + focus for keys). Modified presses and
             // presses inside the selection defer to release/dragstart, so a
@@ -3561,7 +3583,6 @@ namespace AmllTtmlTool.WinUI.Views
             // starts — the original's pointerdown/up split.
             if (!ctrl && !shift && !_selection.SelectedWordIds.Contains(wordId))
             {
-                LineList.SelectedItem = line;
                 _selection.SelectWord(line.Id, wordId);
                 container.Focus(FocusState.Programmatic);
             }
@@ -3594,8 +3615,6 @@ namespace AmllTtmlTool.WinUI.Views
             if (ctrl && !shift)
             {
                 // Multi-select: toggle the word, keep the line selected.
-                if (!LineList.SelectedItems.Contains(line))
-                    LineList.SelectedItems.Add(line);
                 _selection.ToggleWord(line.Id, wordId);
                 _selection.RetainWords(LineOfWord);
             }
@@ -3603,8 +3622,6 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 // Range within this line over the already-selected words of
                 // the line plus the clicked index (original); lines untouched.
-                if (!LineList.SelectedItems.Contains(line))
-                    LineList.SelectedItems.Add(line);
                 var order = line.Words.ToList();
                 var clicked = order.FindIndex(w => w.Id == wordId);
                 if (clicked < 0) return;
@@ -3619,7 +3636,6 @@ namespace AmllTtmlTool.WinUI.Views
             }
             else
             {
-                LineList.SelectedItem = line;
                 _selection.SelectWord(line.Id, wordId);
             }
         }
@@ -3676,15 +3692,118 @@ namespace AmllTtmlTool.WinUI.Views
             return string.Join(",", parts);
         }
 
-        // Which fill a realized card shows ("selected"/"default").
+        // Contrast probe for the selected-line look: composites the on-screen
+        // selected fill with ALPHA-CORRECT math and reports the WCAG ratio of
+        // the chip text color against it. Inputs: the live accent off a Pill
+        // fill and the live text off a chip foreground (both element-resolved,
+        // opaque, theme-correct); card + page bases from ThemeDictionaries
+        // resolved by the live theme ("Default" holds the dark values —
+        // Application.Current.Resources top-level lookups are NOT
+        // theme-resolved and must never be used). Card brushes are translucent
+        // layered colors, so alpha-blind brush math lied (1.23 on a visibly
+        // dark card), and headless renders sit on transparency instead of the
+        // page/Mica, so raw pixel reads lied too (2.51, pill-dominated).
+        // fill = 20% accent over the card rendered on the page, exactly what
+        // the SelectionTint overlay (Opacity 0.2) composites on screen.
+        internal string Test_SelectionContrast()
+        {
+            static string Hex(byte r, byte g, byte b) => $"#{r:X2}{g:X2}{b:X2}";
+            static double Lin(byte ch)
+            {
+                var s = ch / 255.0;
+                return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+            }
+            static double Lum(byte r, byte g, byte b) =>
+                0.2126 * Lin(r) + 0.7152 * Lin(g) + 0.0722 * Lin(b);
+            static (byte R, byte G, byte B) Over(Windows.UI.Color fg, (byte R, byte G, byte B) bg)
+            {
+                var a = fg.A / 255.0;
+                return ((byte)Math.Round(fg.R * a + bg.R * (1 - a)),
+                    (byte)Math.Round(fg.G * a + bg.G * (1 - a)),
+                    (byte)Math.Round(fg.B * a + bg.B * (1 - a)));
+            }
+            static Windows.UI.Color DictColor(ResourceDictionary dict, string key)
+            {
+                if (dict.TryGetValue(key, out var v) && v is Windows.UI.Color c) return c;
+                if (dict.TryGetValue(key + "Brush", out var bv) && bv is SolidColorBrush b) return b.Color;
+                return Windows.UI.Color.FromArgb(255, 0, 0, 0);
+            }
+            if (_store is null || _selection is null) return "nostore";
+            if (_store.Document.Lines.Count == 0) return "empty";
+            var hc = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+            var dictName = hc ? "HighContrast" : ActualTheme == ElementTheme.Light ? "Light" : "Default";
+            // ThemeDictionaries live on the merged XamlControlsResources, not
+            // on the app dictionary itself: walk the merge tree.
+            ResourceDictionary? FindThemeDict(ResourceDictionary root)
+            {
+                if (root.ThemeDictionaries.TryGetValue(dictName, out var hit) && hit is ResourceDictionary d)
+                    return d;
+                foreach (var m in root.MergedDictionaries)
+                {
+                    var found = FindThemeDict(m);
+                    if (found is not null) return found;
+                }
+                return null;
+            }
+            if (FindThemeDict(Application.Current.Resources) is not ResourceDictionary dict)
+                return $"nodict:{dictName}";
+            var cardC = DictColor(dict, "CardBackgroundFillColorDefault");
+            var pageC = DictColor(dict, "SolidBackgroundFillColorBase");
+            var page = (pageC.R, pageC.G, pageC.B);
+            var card = Over(cardC, page);
+            // Live accent + live text off realized elements.
+            byte ar = 0, ag = 0, ab2 = 0;
+            byte tr = 0, tg = 0, tb = 0;
+            var haveAccent = false;
+            var haveText = false;
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                var (_, pill, _) = FindCardChrome(container);
+                if (!haveAccent && pill?.Fill is SolidColorBrush pb)
+                {
+                    ar = pb.Color.R; ag = pb.Color.G; ab2 = pb.Color.B;
+                    haveAccent = true;
+                }
+                if (!haveText && container.ContentTemplateRoot is Grid rootCard
+                    && rootCard.FindName("ChipPanel") is LyricWrapPanel panel)
+                {
+                    foreach (var child in panel.Children)
+                    {
+                        if (child is Grid chip && chip.Children.Count >= 1
+                            && chip.Children[0] is TextBox textBox
+                            && textBox.Foreground is SolidColorBrush fgb)
+                        {
+                            tr = fgb.Color.R; tg = fgb.Color.G; tb = fgb.Color.B;
+                            haveText = true;
+                            break;
+                        }
+                    }
+                }
+                if (haveAccent && haveText) break;
+            }
+            if (!haveAccent) return "noaccent";
+            if (!haveText) return "notext";
+            var fr = (byte)Math.Round(card.R * 0.8 + ar * 0.2);
+            var fg = (byte)Math.Round(card.G * 0.8 + ag * 0.2);
+            var fb = (byte)Math.Round(card.B * 0.8 + ab2 * 0.2);
+            var l1 = Lum(tr, tg, tb);
+            var l2 = Lum(fr, fg, fb);
+            var ratio = (Math.Max(l1, l2) + 0.05) / (Math.Min(l1, l2) + 0.05);
+            return $"theme={ActualTheme} dict={dictName} accent={Hex(ar, ag, ab2)} " +
+                $"card={Hex(card.R, card.G, card.B)} text={Hex(tr, tg, tb)} " +
+                $"fill={Hex(fr, fg, fb)} ratio={F2(ratio)}";
+        }
+
+        // Which look a realized card shows ("selected" = tint + bar on,
+        // "default" = both off). The card Background itself is never touched.
         internal string Test_LineFill(int line)
         {
             if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
-            var (root, _) = FindCardChrome(container);
-            if (root?.Background is null) return "nobg";
-            return ReferenceEquals(root.Background, SelectedCardBrush) ? "selected"
-                : ReferenceEquals(root.Background, DefaultCardBrush) ? "default"
-                : "other";
+            var (_, pill, tint) = FindCardChrome(container);
+            if (pill is null || tint is null) return "nochrome";
+            return pill.Visibility == Visibility.Visible && tint.Visibility == Visibility.Visible
+                ? "selected" : "default";
         }
 
         // Outline state of one chip ("shown"/"hidden"/"nochip").
@@ -3794,8 +3913,9 @@ namespace AmllTtmlTool.WinUI.Views
             return $"card:{cardHit};panel:{panelHit}";
         }
 
-        // Line gestures for the hook (the real path is native ListView
-        // Extended selection through SelectionChanged; same pipeline).
+        // Line gestures for the hook (service-only; SelectionMode=None so no
+        // native ListView pipeline exists — the same code the real pointer
+        // release path runs through ShiftSelectLineRange).
         internal bool Test_LineGesture(int index, bool ctrl, bool shift)
         {
             if (_store is null || _selection is null) return false;
@@ -3804,45 +3924,32 @@ namespace AmllTtmlTool.WinUI.Views
             var line = _store.Document.Lines[index];
             if (!ctrl && !shift)
             {
-                LineList.SelectedItem = line;
                 _selection.PinLine(line.Id, LineOfWord);
             }
             else if (ctrl)
             {
-                if (LineList.SelectedItems.Contains(line))
-                    LineList.SelectedItems.Remove(line);
-                else
-                    LineList.SelectedItems.Add(line);
                 // Converge now (see SelectLines: the event repeats this).
                 _selection.ToggleLine(line.Id);
                 _selection.RetainWords(LineOfWord);
             }
             else
             {
-                var anchor = _selection.SelectedLineId is string aid
+                var anchor = _selection.AnchorLineId ?? _selection.SelectedLineId;
+                var anchorIdx = anchor is string aid
                     ? _store.Document.Lines.ToList().FindIndex(l => l.Id == aid)
                     : -1;
-                if (anchor < 0)
+                if (anchorIdx < 0)
                 {
-                    LineList.SelectedItem = line;
                     _selection.PinLine(line.Id, LineOfWord);
                     if (LineList.ContainerFromIndex(index) is ListViewItem container0)
                         container0.Focus(FocusState.Programmatic);
                     return true;
                 }
-                var lo = Math.Min(anchor, index);
-                var hi = Math.Max(anchor, index);
-                var added = new List<string>();
-                for (var i = lo; i <= hi; i++)
-                {
-                    if (!LineList.SelectedItems.Contains(_store.Document.Lines[i]))
-                    {
-                        LineList.SelectedItems.Add(_store.Document.Lines[i]);
-                        added.Add(_store.Document.Lines[i].Id);
-                    }
-                }
-                if (added.Count > 0)
-                    _selection.AddLines(added, line.Id, LineOfWord);
+                var lo = Math.Min(anchorIdx, index);
+                var hi = Math.Max(anchorIdx, index);
+                _selection.SelectLineRange(
+                    _store.Document.Lines.Skip(lo).Take(hi - lo + 1).Select(l => l.Id),
+                    line.Id);
             }
             if (LineList.ContainerFromIndex(index) is ListViewItem container)
                 container.Focus(FocusState.Programmatic);
@@ -3853,13 +3960,11 @@ namespace AmllTtmlTool.WinUI.Views
             _store?.Document.Lines
                 .FirstOrDefault(l => l.Words.Any(w => w.Id == wordId))?.Id;
 
+        // With SelectionMode=None the ListView never raises SelectionChanged:
+        // this stays only so old hook callers fail loudly at compile time if
+        // re-added. All selection flows through the SelectionService.
         private void OnLineSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_selection is null) return;
-            var added = e.AddedItems.OfType<EditLine>().Select(l => l.Id).ToList();
-            var removed = e.RemovedItems.OfType<EditLine>().Select(l => l.Id).ToList();
-            if (added.Count == 0 && removed.Count == 0) return;
-            _selection.SyncLineSet(added, removed, LineOfWord);
         }
 
         // List-scoped keys (KeyDown, NOT accelerators: a focused TextBox
@@ -3984,7 +4089,7 @@ namespace AmllTtmlTool.WinUI.Views
             ClearEditSelection();
             // Selection moves to the neighboring line.
             var neighbor = Math.Min(firstIndex, _store.Document.Lines.Count - 1);
-            if (neighbor >= 0) LineList.SelectedItem = _store.Document.Lines[neighbor];
+            if (neighbor >= 0) _selection.SelectLine(_store.Document.Lines[neighbor].Id);
         }
 
         internal void DeleteLineAt(int index)
@@ -3998,7 +4103,7 @@ namespace AmllTtmlTool.WinUI.Views
             _store.Execute(new RemoveLinesCommand(ids));
             ClearEditSelection();
             var neighbor = Math.Min(index, _store.Document.Lines.Count - 1);
-            if (neighbor >= 0) LineList.SelectedItem = _store.Document.Lines[neighbor];
+            if (neighbor >= 0) _selection.SelectLine(_store.Document.Lines[neighbor].Id);
         }
 
         internal void InsertLineBefore(int index)
@@ -4008,7 +4113,6 @@ namespace AmllTtmlTool.WinUI.Views
             index = Math.Clamp(index, 0, _store.Document.Lines.Count);
             var line = EditLine.New();
             _store.Execute(new AddLineCommand(index, line));
-            LineList.SelectedItem = line;
             _selection.SelectLine(line.Id);
             OpenInsertBox(index);
         }
@@ -4031,7 +4135,6 @@ namespace AmllTtmlTool.WinUI.Views
             }
             var line = EditLine.New();
             _store.Execute(new AddLineCommand(at, line));
-            LineList.SelectedItem = line;
             _selection.SelectLine(line.Id);
             OpenInsertBox(at);
         }
@@ -4177,8 +4280,7 @@ namespace AmllTtmlTool.WinUI.Views
             var word = EditWord.New();
             word.Text = text;
             _store.Execute(new AddWordCommand(lineId, line.Words.Count, word));
-            // Pair the ListView (see CommitInsertBox: no phantom lines).
-            LineList.SelectedItem = line;
+            // Service-only (see CommitInsertBox: no phantom lines).
             _selection.SelectWord(lineId, word.Id);
         }
 

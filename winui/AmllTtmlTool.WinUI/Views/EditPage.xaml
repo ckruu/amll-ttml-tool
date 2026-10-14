@@ -12,8 +12,7 @@
         <Grid>
         <ListView
             x:Name="LineList"
-            SelectionMode="Extended"
-            SelectionChanged="OnLineSelectionChanged"
+            SelectionMode="None"
             ContainerContentChanging="OnLineContainerChanging"
             KeyDown="OnLineListKeyDown"
             AutomationProperties.AutomationId="LineList"
@@ -82,6 +81,22 @@
                                         </VisualStateGroup>
                                     </VisualStateManager.VisualStateGroups>
                                     <Grid>
+                                        <!-- Selection tint BEHIND the content:
+                                             20% live accent over the card fill
+                                             (normal text color kept, plus the
+                                             accent bar). The card fill itself
+                                             always comes from the template
+                                             Background, so Light/Dark/High
+                                             Contrast stay correct with zero
+                                             code blending. -->
+                                        <Rectangle
+                                            x:Name="SelectionTint"
+                                            HorizontalAlignment="Stretch"
+                                            VerticalAlignment="Stretch"
+                                            Fill="{ThemeResource AccentFillColorDefaultBrush}"
+                                            Opacity="0.2"
+                                            Visibility="Collapsed"
+                                            IsHitTestVisible="False" />
                                         <ContentPresenter
                                             HorizontalAlignment="Stretch"
                                             Content="{TemplateBinding Content}"

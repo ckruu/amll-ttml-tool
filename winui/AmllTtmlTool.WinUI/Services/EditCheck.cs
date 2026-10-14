@@ -705,6 +705,114 @@ internal static class EditCheck
                 ctxW.StartsWith("sel:0:2;") && ctxW.Contains("Split word...")
                 && ctxW.Contains("Delete selected word"),
                 $"[{ctxW}]");
+            // --- 4c-ii. single-source convergence (Step 1) ------------------
+            // Click word A then word B: only B stays highlighted (the stale
+            // double-highlight from screenshot 5 is gone).
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(0));
+            await OnUiAsync(window, () => page.Test_WordGesture(0, 0, false, false));
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(1));
+            await OnUiAsync(window, () => page.Test_WordGesture(1, 0, false, false));
+            var abW = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+            var abWind = await OnUiAsync(window, () => page.Test_WordIndicated());
+            var abInd = await OnUiAsync(window, () => page.Test_IndicatedIndices());
+            Check("sel-ab-replace", abW == "1:0" && abWind == "1:0" && abInd == "1",
+                $"words=[{abW}] wind=[{abWind}] ind=[{abInd}]");
+            // 30 seeded random gestures (plain/Ctrl/Shift x line/word,
+            // interleaved with scrolling): realized highlights must equal the
+            // service sets EXACTLY after every step. Hooks drive the same
+            // gesture functions as the real pointer release path; real
+            // SendInput clicks are the host manual step (no winapp CLI here).
+            const int convergeSeed = 20261014;
+            var convergeOk = true;
+            var convergeDetail = "";
+            var rng = new Random(convergeSeed);
+            var nLines = await OnUiAsync(window, () => page.Test_LyricLineCount());
+            for (var step = 0; step < 30; step++)
+            {
+                var li = rng.Next(0, nLines);
+                var nw = await OnUiAsync(window, () => page.Test_LyricWordCount(li));
+                var wi = nw > 0 ? rng.Next(0, nw) : 0;
+                var kind = rng.Next(0, 7);
+                await OnUiAsync(window, () => page.Test_ScrollLineIntoView(li));
+                switch (kind)
+                {
+                    case 0: await OnUiAsync(window, () => page.Test_WordGesture(li, wi, false, false)); break;
+                    case 1: await OnUiAsync(window, () => page.Test_WordGesture(li, wi, true, false)); break;
+                    case 2: if (nw > 0) await OnUiAsync(window, () => page.Test_WordGesture(li, wi, false, true)); break;
+                    case 3: await OnUiAsync(window, () => page.Test_LineGesture(li, false, false)); break;
+                    case 4: await OnUiAsync(window, () => page.Test_LineGesture(li, true, false)); break;
+                    case 5: await OnUiAsync(window, () => page.Test_LineGesture(li, false, true)); break;
+                    default: await OnUiAsync(window, () => page.Test_ClearEditSelection()); break;
+                }
+                await Task.Delay(120);
+                var svcL = await OnUiAsync(window, () => page.Test_ServiceLineIdx());
+                var indL = await OnUiAsync(window, () => page.Test_IndicatedIndices());
+                var svcW = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+                var indW = await OnUiAsync(window, () => page.Test_WordIndicated());
+                // Indicated (realized visuals) must match the service sets
+                // restricted to realized lines: unrealized lines have no
+                // visuals by design (virtualization), never stale ones.
+                var svcLSet = new HashSet<string>(svcL.Split(',', StringSplitOptions.RemoveEmptyEntries));
+                var indLSet = new HashSet<string>(indL.Split(',', StringSplitOptions.RemoveEmptyEntries));
+                var realizedSelected = new List<string>();
+                for (var r = 0; r < nLines; r++)
+                {
+                    if (!svcLSet.Contains(r.ToString())) continue;
+                    var fill = await OnUiAsync(window, () => page.Test_LineFill(r));
+                    if (fill != "unrealized") realizedSelected.Add(r.ToString());
+                }
+                var okL = indLSet.SetEquals(realizedSelected);
+                var svcWSet = new HashSet<string>(svcW.Split(',', StringSplitOptions.RemoveEmptyEntries));
+                var indWSet = new HashSet<string>(indW.Split(',', StringSplitOptions.RemoveEmptyEntries));
+                // Word visuals only exist on realized lines; restrict the
+                // service side the same way.
+                var realizedW = new HashSet<string>();
+                foreach (var s in svcWSet)
+                {
+                    var parts = s.Split(':');
+                    if (parts.Length != 2) continue;
+                    var fill = await OnUiAsync(window, () => page.Test_LineFill(int.Parse(parts[0])));
+                    if (fill != "unrealized") realizedW.Add(s);
+                }
+                var okW = indWSet.SetEquals(realizedW);
+                if (!okL || !okW)
+                {
+                    convergeOk = false;
+                    convergeDetail += $"step{step}:kind={kind} li={li} wi={wi} svcL=[{svcL}] indL=[{indL}] svcW=[{svcW}] indW=[{indW}] ";
+                    break;
+                }
+            }
+            Check("sel-converge-30", convergeOk, $"seed={convergeSeed} {convergeDetail}");
+            // Right-click select-first paints the FULL look synchronously
+            // (fill + bar) before the menu builds, and nothing clears it
+            // afterwards. (List-Esc clears by design, so dismissal of a REAL
+            // open flyout — which keeps the selection — is a host manual
+            // step; in-harness no flyout opens.)
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await OnUiAsync(window, () => page.Test_ScrollLineIntoView(3));
+            await Task.Delay(150);
+            var ctxFill = await OnUiAsync(window, () => page.Test_LineContext(3, 2));
+            var ctxFillState = await OnUiAsync(window, () => page.Test_LineFill(3));
+            var ctxInd = await OnUiAsync(window, () => page.Test_IndicatedIndices());
+            await Task.Delay(200);
+            var ctxStay = await OnUiAsync(window, () => page.Test_ServiceLineIdx());
+            var ctxStayFill = await OnUiAsync(window, () => page.Test_LineFill(3));
+            Check("sel-ctx-full-look",
+                ctxFill.Contains("sel:3") && ctxFillState == "selected" && ctxInd.Contains("3")
+                && ctxStay == "3" && ctxStayFill == "selected",
+                $"ctx=[{ctxFill}] fill={ctxFillState} ind=[{ctxInd}] stay=[{ctxStay}] stayFill={ctxStayFill}");
+            // Live contrast of normal text vs the composited selected fill
+            // (>= 4.5:1). Alpha-correct math over theme-dictionary bases with
+            // live element accent/text (see probe for the rejected methods).
+            var contrast = await OnUiAsync(window, () => page.Test_SelectionContrast());
+            var ratio = 0.0;
+            var m = System.Text.RegularExpressions.Regex.Match(contrast, @"ratio=([\d.]+)");
+            if (m.Success) double.TryParse(m.Groups[1].Value,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out ratio);
+            Check("sel-contrast", ratio >= 4.5, $"[{contrast}]");
+            Write(report, $"  note sel-seed {convergeSeed}");
             // Multi-selection ops (each exactly one history step).
             await OnUiAsync(window, () => page.Test_ClearEditSelection());
             await OnUiAsync(window, () => page.Test_WordGesture(0, 0, false, false));
