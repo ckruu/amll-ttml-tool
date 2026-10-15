@@ -276,6 +276,7 @@
                     Visibility="Collapsed">
                     <TextBlock
                         x:Name="DragGhostText"
+                        AutomationProperties.AutomationId="DragGhostText"
                         Foreground="White"
                         FontSize="12" />
                 </Border>

@@ -56,6 +56,7 @@ internal static class HarnessHost
         "selftest" => 60,
         "load-lyrics" => 600,
         "lyrics-test" => 600,
+        "perf-report" => 900,
         _ => 180,
     };
 
