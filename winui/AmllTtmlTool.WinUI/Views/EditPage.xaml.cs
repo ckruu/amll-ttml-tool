@@ -4275,6 +4275,34 @@ namespace AmllTtmlTool.WinUI.Views
         internal bool Test_HandleListKey(Windows.System.VirtualKey key, bool ctrl, bool alt, bool shift) =>
             HandleListKey(key, ctrl, alt, shift);
 
+        // Step-4 regression pin: NO element inside the Edit page subtree may
+        // own a KeyboardAccelerator (a container-owned accelerator with the
+        // default PlacementMode=Auto is exactly what sprayed "Ctrl+O"
+        // tooltips over chips/cards/ribbon fields). The 8 real accelerators
+        // live on ShellPage with PlacementMode=Hidden (see
+        // Test_AcceleratorPlacements). Returns "ok:N" (N nodes walked) or
+        // "leak:<type>@<name>" for the first offender.
+        internal string Test_NoLocalAccelerators()
+        {
+            var count = 0;
+            var queue = new Queue<DependencyObject>();
+            queue.Enqueue(LineList);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                count++;
+                if (current is UIElement el && el.KeyboardAccelerators.Count > 0)
+                {
+                    var name = (current as FrameworkElement)?.Name ?? "";
+                    return $"leak:{current.GetType().Name}@{name}";
+                }
+                var n = VisualTreeHelper.GetChildrenCount(current);
+                for (var i = 0; i < n; i++)
+                    queue.Enqueue(VisualTreeHelper.GetChild(current, i));
+            }
+            return $"ok:{count}";
+        }
+
         // With SelectionMode=None the ListView never raises SelectionChanged:
         // this stays only so old hook callers fail loudly at compile time if
         // re-added. All selection flows through the SelectionService.

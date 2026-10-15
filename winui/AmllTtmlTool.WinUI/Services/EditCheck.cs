@@ -790,6 +790,11 @@ internal static class EditCheck
                 && accAudit.Contains("Ctrl+Y") && accAudit.Contains("Ctrl+Shift+Z")
                 && accAudit.Contains("Undo (Ctrl+Z)") && accAudit.Contains("Redo (Ctrl+Y)");
             Check("tooltip-audit", accOk, $"[{accAudit}]");
+            // No container inside the Edit page may own an accelerator (a
+            // future grid/list-owned accelerator with Auto placement would
+            // re-spray tooltips over every child).
+            var noLocalAcc = await OnUiAsync(window, () => page.Test_NoLocalAccelerators());
+            Check("tooltip-no-local-accel", noLocalAcc.StartsWith("ok:"), $"[{noLocalAcc}]");
 
             // --- 4c. selection model, visible selection, right-click -------
             await OnUiAsync(window, () => page.Test_ClearEditSelection());

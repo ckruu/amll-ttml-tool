@@ -2993,6 +2993,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.Test_ChipContrast(line, word) ?? "nopage";
         internal bool Test_HandleListKey(Windows.System.VirtualKey key, bool ctrl, bool alt, bool shift) =>
             _attachedEditPage?.Test_HandleListKey(key, ctrl, alt, shift) ?? false;
+        internal string Test_NoLocalAccelerators() =>
+            _attachedEditPage?.Test_NoLocalAccelerators() ?? "nopage";
         internal string Test_ChipOutline(int line, int word) =>
             _attachedEditPage?.Test_ChipOutline(line, word) ?? "nopage";
         internal string Test_FocusState() => _attachedEditPage?.Test_FocusState() ?? "nopage";
