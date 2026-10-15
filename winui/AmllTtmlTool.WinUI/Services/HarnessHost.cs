@@ -17,6 +17,10 @@ internal static class HarnessHost
     public static string? Mode { get; private set; }
     public static string? Report { get; private set; }
     public static bool IsTest => Mode is not null;
+    // Orthogonal input-event trace flag (Step 0): --input-trace <path> or
+    // AMLL_INPUT_TRACE. No lifecycle of its own; combines with hold modes
+    // (e.g. --load-lyrics) so real injected input can be traced.
+    public static string? InputTracePath { get; private set; }
 
     private static readonly System.Diagnostics.Stopwatch Clock =
         System.Diagnostics.Stopwatch.StartNew();
@@ -55,6 +59,7 @@ internal static class HarnessHost
         "layout-test" => 300,
         "selftest" => 60,
         "load-lyrics" => 600,
+        "input-hold" => 3600,
         "lyrics-test" => 600,
         "perf-report" => 900,
         _ => 180,
@@ -103,6 +108,14 @@ internal static class HarnessHost
         }
         if (string.IsNullOrWhiteSpace(mode)) return;
         Mode = mode;
+        // Orthogonal: --input-trace <path> (any position) or env.
+        var traceEnv = Environment.GetEnvironmentVariable("AMLL_INPUT_TRACE")?.Trim();
+        var ti = Array.IndexOf(args, "--input-trace");
+        var traceArg = (ti >= 0 && ti + 1 < args.Length) ? args[ti + 1]?.Trim() : null;
+        var trace = !string.IsNullOrWhiteSpace(traceArg) ? traceArg : traceEnv;
+        if (!string.IsNullOrWhiteSpace(trace) &&
+            trace is not null && !trace.StartsWith("--"))
+            InputTracePath = trace;
 
         var report = Environment.GetEnvironmentVariable("AMLL_HARNESS_REPORT");
         if (string.IsNullOrWhiteSpace(report) && fromArgs is not null)
@@ -120,7 +133,7 @@ internal static class HarnessHost
             var positionalIsReport = fromArgs is not (null
                 or "seek-ui-hold" or "seek-ui-target" or "minimize-ui-hold"
                 or "playerbar-ui-hold" or "playerbar-synth-hold" or "seek-drag"
-                or "load-lyrics" or "lyrics-test")
+                or "load-lyrics" or "lyrics-test" or "input-hold")
                 && firstPositional != "rate";
             if (positionalIsReport && i >= 0 && i + 1 < args.Length)
                 report = args[i + 1];

@@ -22,8 +22,13 @@ internal static class LyricsCheck
 
     public static async Task RunHoldAsync(Window window, FileIntake intake, LyricStore store, string file)
     {
+        // Interactive sessions (real-input driving) outlive the 10-minute
+        // default: AMLL_HOLD_MINUTES overrides both the watchdog and the
+        // hold below. Drivers that rely on the default are unaffected.
+        var holdMinEnv = System.Environment.GetEnvironmentVariable("AMLL_HOLD_MINUTES");
+        var holdMin = int.TryParse(holdMinEnv, out var hm) && hm >= 1 ? hm : 10;
         using var watchdogCts = new CancellationTokenSource();
-        _ = Task.Delay(TimeSpan.FromMinutes(10), watchdogCts.Token).ContinueWith(t =>
+        _ = Task.Delay(TimeSpan.FromMinutes(holdMin), watchdogCts.Token).ContinueWith(t =>
         {
             if (!t.IsCanceled) Environment.Exit(3);
         });
@@ -40,7 +45,7 @@ internal static class LyricsCheck
             }
             catch { }
             System.Diagnostics.Debug.WriteLine($"LOAD-LYRICS READY file={file} lines={lines}");
-            await Task.Delay(TimeSpan.FromMinutes(9));
+            await Task.Delay(TimeSpan.FromMinutes(Math.Max(1, holdMin - 1)));
         }
         catch (Exception ex)
         {

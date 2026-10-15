@@ -28,6 +28,73 @@ namespace AmllTtmlTool.WinUI.Views
         private int _toggleVersion;
         private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
 
+#if DEBUG
+        // Step-0 input trace: every pointer/key event chips/cards receive,
+        // with modifiers, handled state, source element and selection
+        // before/after. Enabled via --input-trace <path> / AMLL_INPUT_TRACE
+        // (see HarnessHost.InputTracePath). Single null-check when off.
+        private string? _inputTracePath;
+        private int _traceInstance;
+        private readonly object _traceGate = new();
+        internal void SetInputTrace(string path)
+        {
+            lock (_traceGate) { _inputTracePath = path; _traceInstance = GetHashCode(); }
+            TraceEvent("trace-start", $"path={path}");
+        }
+        private void TraceEvent(string ev, string detail)
+        {
+            string? path;
+            int inst;
+            lock (_traceGate) { path = _inputTracePath; inst = _traceInstance; }
+            if (path is null) return;
+            try
+            {
+                System.IO.File.AppendAllText(path,
+                    $"{DateTime.UtcNow:HH:mm:ss.fff} i={inst} {ev} {detail}\n");
+            }
+            catch { }
+        }
+        private static string TraceSrc(DependencyObject? src)
+        {
+            if (src is null) return "null";
+            var extra = "";
+            if (src is FrameworkElement fe)
+            {
+                var id = AutomationProperties.GetAutomationId(fe);
+                extra = $" name={fe.Name} auto={id} tag={fe.Tag}";
+            }
+            return src.GetType().Name + extra;
+        }
+        // Selection snapshot as line/word indices (stable across id churn).
+        private string TraceWordLoc(string id)
+        {
+            if (_store is null) return "?";
+            var lines = _store.Document.Lines.ToList();
+            for (var li = 0; li < lines.Count; li++)
+            {
+                var wi = lines[li].Words.ToList().FindIndex(x => x.Id == id);
+                if (wi >= 0) return $"{li}:{wi}";
+            }
+            return "?";
+        }
+        private string TraceSel()
+        {
+            if (_store is null || _selection is null) return "nostore";
+            var lines = _store.Document.Lines.ToList();
+            string L(string? id) => id is null ? "-"
+                : lines.FindIndex(l => l.Id == id).ToString();
+            return $"lines=[{string.Join(",", _selection.SelectedLineIds.Select(L))}]" +
+                $" words=[{string.Join(",", _selection.SelectedWordIds.Select(TraceWordLoc))}]" +
+                $" primary={L(_selection.SelectedLineId)}" +
+                $" anchor={L(_selection.AnchorLineId)}";
+        }
+#else
+        internal void SetInputTrace(string path) { }
+        private void TraceEvent(string ev, string detail) { }
+        private static string TraceSrc(DependencyObject? src) => "";
+        private string TraceSel() => "";
+#endif
+
         public EditPage()
         {
             this.InitializeComponent();
@@ -62,6 +129,16 @@ namespace AmllTtmlTool.WinUI.Views
                 new PointerEventHandler(OnDragPointerReleased), true);
             this.AddHandler(UIElement.PointerCaptureLostEvent,
                 new PointerEventHandler(OnDragCaptureLost), true);
+#if DEBUG
+            // Step-0 dispatch proof: page-level press sees EVERY press first.
+            this.AddHandler(UIElement.PointerPressedEvent,
+                new PointerEventHandler((s, e) =>
+                    TraceEvent("page-pressed",
+                        $"src={TraceSrc(e.OriginalSource as DependencyObject)} " +
+                        $"dev={e.Pointer.PointerDeviceType} mods={e.KeyModifiers} " +
+                        $"left={e.GetCurrentPoint(this).Properties.IsLeftButtonPressed} " +
+                        $"handled={e.Handled}")), true);
+#endif
         }
 
         // Called by ShellPage on navigation (fresh instance each time).
@@ -75,6 +152,7 @@ namespace AmllTtmlTool.WinUI.Views
 
         public void Attach(LyricStore store, SelectionService selection, LyricViewStateService viewState)
         {
+            TraceEvent("page-attach", $"instance={GetHashCode()}");
             Detach();
             _store = store;
             _selection = selection;
@@ -1308,16 +1386,28 @@ namespace AmllTtmlTool.WinUI.Views
             catch (Exception ex) { return "error:" + ex.Message; }
         }
 
-        private static async Task<string> ShotElementAsync(FrameworkElement el, string path)
+        // Rendered page pixels in memory (premultiplied BGRA). Shared core
+        // for file screenshots and the Step-0 pixel selection checks.
+        private static async Task<(byte[] Bgra, int W, int H)> ShotElementPixelsAsync(FrameworkElement el)
         {
             el.UpdateLayout();
             var rtb = new Microsoft.UI.Xaml.Media.Imaging.RenderTargetBitmap();
             await rtb.RenderAsync(el);
             var pixels = await rtb.GetPixelsAsync();
+            var bytes = new byte[pixels.Length];
+            using (var reader = Windows.Storage.Streams.DataReader.FromBuffer(pixels))
+                reader.ReadBytes(bytes);
+            return (bytes, (int)rtb.PixelWidth, (int)rtb.PixelHeight);
+        }
+
+        private static async Task<string> ShotElementAsync(FrameworkElement el, string path)
+        {
+            var (bytes, w, h) = await ShotElementPixelsAsync(el);
+            var buf = Windows.Security.Cryptography.CryptographicBuffer.CreateFromByteArray(bytes);
             var sb = Windows.Graphics.Imaging.SoftwareBitmap.CreateCopyFromBuffer(
-                pixels,
+                buf,
                 Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
-                rtb.PixelWidth, rtb.PixelHeight,
+                w, h,
                 Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied);
             var dir = System.IO.Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir)) System.IO.Directory.CreateDirectory(dir);
@@ -1328,12 +1418,12 @@ namespace AmllTtmlTool.WinUI.Views
             await enc.FlushAsync();
             mem.Seek(0);
             using var fs = System.IO.File.Create(path);
-            var reader = new Windows.Storage.Streams.DataReader(mem.GetInputStreamAt(0));
-            var bytes = new byte[mem.Size];
-            await reader.LoadAsync((uint)mem.Size);
-            reader.ReadBytes(bytes);
-            await fs.WriteAsync(bytes, 0, bytes.Length);
-            return $"ok:{rtb.PixelWidth}x{rtb.PixelHeight}";
+            var pngReader = new Windows.Storage.Streams.DataReader(mem.GetInputStreamAt(0));
+            var pngBytes = new byte[mem.Size];
+            await pngReader.LoadAsync((uint)mem.Size);
+            pngReader.ReadBytes(pngBytes);
+            await fs.WriteAsync(pngBytes, 0, pngBytes.Length);
+            return $"ok:{w}x{h}";
         }
 
         internal bool ToggleState(string which) => _viewState is not null && which switch
@@ -1546,18 +1636,27 @@ namespace AmllTtmlTool.WinUI.Views
         // the thread key state as fallback.
         private void OnCardPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is not Grid card || _selection is null || _store is null) return;
-            if (IsInCardControl(card, e.OriginalSource as DependencyObject)) return;
+            TraceEvent("card-pressed",
+                $"src={TraceSrc(e.OriginalSource as DependencyObject)} " +
+                $"dev={e.Pointer.PointerDeviceType} mods={e.KeyModifiers} " +
+                $"left={e.GetCurrentPoint(LineList).Properties.IsLeftButtonPressed} " +
+                $"handledBefore={e.Handled} sel-before=[{TraceSel()}]");
+            if (sender is not Grid card || _selection is null || _store is null)
+            { TraceEvent("card-pressed-outcome", "ignored=no-card-or-store"); return; }
+            if (IsInCardControl(card, e.OriginalSource as DependencyObject))
+            { TraceEvent("card-pressed-outcome", "ignored=in-card-control"); return; }
             // Right/middle mouse: the line context menu owns it (see chip
             // handler). Touch/pen tip presses arm like left-clicks.
             var props = e.GetCurrentPoint(LineList).Properties;
             if (!props.IsLeftButtonPressed
                 && e.Pointer.PointerDeviceType.ToString() == "Mouse")
-                return;
+            { TraceEvent("card-pressed-outcome", "ignored=non-left-mouse"); return; }
             var container = FindListViewItem(card);
-            if (container is null) return;
+            if (container is null)
+            { TraceEvent("card-pressed-outcome", "ignored=no-container"); return; }
             var index = LineList.IndexFromContainer(container);
-            if (index < 0 || index >= _store.Document.Lines.Count) return;
+            if (index < 0 || index >= _store.Document.Lines.Count)
+            { TraceEvent("card-pressed-outcome", $"ignored=bad-index {index}"); return; }
             var line = _store.Document.Lines[index];
             var (ctrl, shift) = PointerModifiers(e);
             // Plain press on an unselected line selects immediately;
@@ -1567,6 +1666,13 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 _selection.SelectLine(line.Id);
                 container.Focus(FocusState.Programmatic);
+                TraceEvent("card-pressed-outcome",
+                    $"select-line {index} sel-after=[{TraceSel()}]");
+            }
+            else
+            {
+                TraceEvent("card-pressed-outcome",
+                    $"armed line={index} ctrl={ctrl} shift={shift} sel-after=[{TraceSel()}]");
             }
             ArmDrag(words: false, lineId: line.Id, wordId: null,
                 point: e.GetCurrentPoint(LineList).Position, ctrl: ctrl, shift: shift);
@@ -1616,11 +1722,18 @@ namespace AmllTtmlTool.WinUI.Views
             var line = _store.Document.Lines[index];
             if (!_selection.SelectedLineIds.Contains(line.Id))
             {
+                TraceEvent("ctx-select-line",
+                    $"line={index} sel-before=[{TraceSel()}]");
                 _selection.SelectLine(line.Id);
                 // Paint before the menu opens: the Opening handler builds the
                 // menu right after this returns, so an async paint would show
                 // only the accent pill on the first frame.
                 ApplySelectionVisualsNow();
+                TraceEvent("ctx-select-line-outcome", $"sel-after=[{TraceSel()}]");
+            }
+            else
+            {
+                TraceEvent("ctx-select-line", $"line={index} kept sel=[{TraceSel()}]");
             }
         }
 
@@ -1793,8 +1906,15 @@ namespace AmllTtmlTool.WinUI.Views
             if (line is null || !line.Words.Any(w => w.Id == wordId)) return;
             if (!_selection.SelectedWordIds.Contains(wordId))
             {
+                TraceEvent("ctx-select-word",
+                    $"word={TraceWordLoc(wordId)} sel-before=[{TraceSel()}]");
                 _selection.SelectWord(lineId, wordId);
                 ApplySelectionVisualsNow();
+                TraceEvent("ctx-select-word-outcome", $"sel-after=[{TraceSel()}]");
+            }
+            else
+            {
+                TraceEvent("ctx-select-word", $"kept sel=[{TraceSel()}]");
             }
         }
 
@@ -2113,12 +2233,15 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (sender is not TextBox box) return;
             if (!_sessions.TryGetValue(box, out var session)) return;
+            TraceEvent("edit-keydown",
+                $"key={e.Key} orig={e.OriginalKey} composing={session.Composing} sel-before=[{TraceSel()}]");
             if (e.Key == Windows.System.VirtualKey.Enter)
             {
                 // The Enter that confirms an IME candidate must NOT commit
                 // and must not insert a newline (single-line boxes can't
                 // take one anyway). Only the next Enter commits.
-                if (session.Composing) return;
+                if (session.Composing)
+                { TraceEvent("edit-keydown-outcome", "ignored=ime-composing"); return; }
                 CommitBoxIfDirty(box);
                 // Enter returns to SELECT: focus back on the line container.
                 FindListViewItem(box)?.Focus(FocusState.Programmatic);
@@ -2172,6 +2295,8 @@ namespace AmllTtmlTool.WinUI.Views
             // press already selected; the anchor is then a no-op.
             if (sender is not TextBox box || _selection is null || _store is null) return;
             _gotFocusCount++;
+            TraceEvent("edit-gotfocus",
+                $"box={TraceSrc(box)} sel-before=[{TraceSel()}]");
             // Stale-event guard: a queued GotFocus for a box that is no
             // longer focused (e.g. a programmatic Focus() whose event arrives
             // after a later click already moved focus on) must not clobber
@@ -2739,6 +2864,44 @@ namespace AmllTtmlTool.WinUI.Views
             return Windows.UI.Color.FromArgb(255, Mix(baseColor.R, accent.R), Mix(baseColor.G, accent.G), Mix(baseColor.B, accent.B));
         }
 
+#if DEBUG
+        // Step-0 pixel checks: sample REAL rendered pixels (RenderTargetBitmap
+        // buffer, same path as ShotElementAsync) and compare against the
+        // composited theme colors. Catches ghost highlights regardless of
+        // internal visual-state bookkeeping.
+        private static (byte R, byte G, byte B) OverB(Windows.UI.Color fg, (byte R, byte G, byte B) bg)
+        {
+            var a = fg.A / 255.0;
+            return ((byte)Math.Round(fg.R * a + bg.R * (1 - a)),
+                (byte)Math.Round(fg.G * a + bg.G * (1 - a)),
+                (byte)Math.Round(fg.B * a + bg.B * (1 - a)));
+        }
+        // Card fill as rendered: translucent card dict color over the page.
+        private (byte R, byte G, byte B) RenderedCardFill()
+        {
+            var cardC = ResolveThemeColor("CardBackgroundFillColorDefault");
+            var pageC = ResolveThemeColor("SolidBackgroundFillColorBase");
+            return OverB(cardC, (pageC.R, pageC.G, pageC.B));
+        }
+        private (byte R, byte G, byte B) RenderedSelectedFill()
+        {
+            var card = RenderedCardFill();
+            var accent = ResolveThemeColor("AccentFillColorDefault");
+            return ((byte)Math.Round(card.R * 0.8 + accent.R * 0.2),
+                (byte)Math.Round(card.G * 0.8 + accent.G * 0.2),
+                (byte)Math.Round(card.B * 0.8 + accent.B * 0.2));
+        }
+        private (byte R, byte G, byte B) RenderedAccent()
+        {
+            var a = ResolveThemeColor("AccentFillColorDefault");
+            return (a.R, a.G, a.B);
+        }
+        private static bool NearPx((byte R, byte G, byte B) got,
+            (byte R, byte G, byte B) want, int tol = 22) =>
+            Math.Abs(got.R - want.R) <= tol && Math.Abs(got.G - want.G) <= tol
+            && Math.Abs(got.B - want.B) <= tol;
+#endif
+
         // Theme-aware brush resolution for CODE-created chip visuals.
         // Application.Current.Resources[key] bypasses ThemeDictionaries (Light
         // values leak into Dark/HC). This walks the merged dictionaries and
@@ -3246,13 +3409,22 @@ namespace AmllTtmlTool.WinUI.Views
             // here — anywhere, even off-element — with press-time modifiers.
             if (_drag is not null && _drag.Started)
             {
-                DropExecute(IsCtrlDown());
+                var dropCopy = IsCtrlDown();
+                TraceEvent("drag-released-drop",
+                    $"copy={dropCopy} eventMods={e.KeyModifiers} " +
+                    $"sel-before=[{TraceSel()}]");
+                DropExecute(dropCopy);
+                TraceEvent("drag-released-outcome", $"sel-after=[{TraceSel()}]");
                 e.Handled = true;
                 return;
             }
-            if (_pressArm is null || _selection is null || _store is null) return;
+            if (_pressArm is null || _selection is null || _store is null)
+            { TraceEvent("click-released", "ignored=no-arm-or-store"); return; }
             var arm = _pressArm;
             DisarmDrag();
+            TraceEvent("click-released",
+                $"arm words={arm.IsWords} ctrl={arm.Ctrl} shift={arm.Shift} " +
+                $"eventMods={e.KeyModifiers} sel-before=[{TraceSel()}]");
             var line = _store.Document.Lines.FirstOrDefault(l => l.Id == arm.LineId);
             if (line is null) return;
             if (arm.IsWords)
@@ -3347,6 +3519,9 @@ namespace AmllTtmlTool.WinUI.Views
             }
             _drag = session;
             _drag.ShownCopy = IsCtrlDown();
+            TraceEvent("drag-begin",
+                $"words={words} ids={session.Ids.Count} shownCopy={_drag.ShownCopy} " +
+                $"sel=[{TraceSel()}]");
             if (FindListViewItemForLine(lineId) is ListViewItem container)
                 container.Focus(FocusState.Programmatic);
             EnsureDragTimer();
@@ -3876,25 +4051,39 @@ namespace AmllTtmlTool.WinUI.Views
         // real pointer input).
         private void OnChipPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is not Grid chip || chip.Tag is not string wordId) return;
-            if (_selection is null || _store is null) return;
+            var chipTag = (sender as Grid)?.Tag as string;
+            TraceEvent("chip-pressed",
+                $"src={TraceSrc(e.OriginalSource as DependencyObject)} " +
+                $"word={TraceWordLoc(chipTag ?? "")} dev={e.Pointer.PointerDeviceType} " +
+                $"mods={e.KeyModifiers} " +
+                $"left={e.GetCurrentPoint(LineList).Properties.IsLeftButtonPressed} " +
+                $"handledBefore={e.Handled} sel-before=[{TraceSel()}]");
+            if (sender is not Grid chip || chip.Tag is not string wordId)
+            { TraceEvent("chip-pressed-outcome", "ignored=no-chip"); return; }
+            if (_selection is null || _store is null)
+            { TraceEvent("chip-pressed-outcome", "ignored=no-store"); return; }
             // Right/middle mouse never selects here (the context menu owns
             // right-click, including select-first in its Opening handler —
             // selecting here would destroy a multi-selection first).
             var props = e.GetCurrentPoint(LineList).Properties;
             if (!props.IsLeftButtonPressed
                 && e.Pointer.PointerDeviceType.ToString() == "Mouse")
-                return;
+            { TraceEvent("chip-pressed-outcome", "ignored=non-left-mouse"); return; }
             // Press on the box being edited: caret business, not selection
             // (the TextBox keeps focus; GotFocus anchors the primary).
             if (FocusManager.GetFocusedElement(XamlRoot) is TextBox focused && IsIn(chip, focused))
-                return;
+            { TraceEvent("chip-pressed-outcome", "ignored=press-in-focused-box"); return; }
             var container = FindListViewItem(chip);
-            if (container is null) return;
+            if (container is null)
+            { TraceEvent("chip-pressed-outcome", "ignored=no-container"); return; }
             var index = LineList.IndexFromContainer(container);
-            if (index < 0 || index >= _store.Document.Lines.Count) return;
+            if (index < 0 || index >= _store.Document.Lines.Count)
+            { TraceEvent("chip-pressed-outcome", $"ignored=bad-index {index}"); return; }
             var line = _store.Document.Lines[index];
             var (ctrl, shift) = PointerModifiers(e);
+            TraceEvent("chip-pressed-mods",
+                $"eventMods={e.KeyModifiers} threadCtrl={IsCtrlDown()} " +
+                $"threadShift={IsShiftDown()} resolved ctrl={ctrl} shift={shift}");
             // Select-first only for a plain press on an unselected word
             // (instant feedback + focus for keys). Modified presses and
             // presses inside the selection defer to release/dragstart, so a
@@ -3904,6 +4093,13 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 _selection.SelectWord(line.Id, wordId);
                 container.Focus(FocusState.Programmatic);
+                TraceEvent("chip-pressed-outcome",
+                    $"select-word sel-after=[{TraceSel()}]");
+            }
+            else
+            {
+                TraceEvent("chip-pressed-outcome",
+                    $"armed ctrl={ctrl} shift={shift} sel-after=[{TraceSel()}]");
             }
             ArmDrag(words: true, lineId: line.Id, wordId: wordId,
                 point: e.GetCurrentPoint(LineList).Position, ctrl: ctrl, shift: shift);
@@ -4123,6 +4319,134 @@ namespace AmllTtmlTool.WinUI.Views
             if (pill is null || tint is null) return "nochrome";
             return pill.Visibility == Visibility.Visible && tint.Visibility == Visibility.Visible
                 ? "selected" : "default";
+        }
+
+        // PIXEL selection check (Step 0): renders the page, samples the
+        // card background at two padding points per realized card and the
+        // left-edge pixel per realized chip, and asserts the LOOKING-selected
+        // sets equal the SelectionService sets exactly. Catches ghost
+        // highlights regardless of internal visual-state bookkeeping.
+        // SELF-CALIBRATING: reference colors come from the render itself
+        // (first service-selected/unselected realized card + the accent pill
+        // sample), because headless RenderTargetBitmap resolves theme
+        // resources differently than the compositor (observed: near-white
+        // card where the screen shows dark). Theme math stays only as the
+        // fallback when a class has no realized exemplar. Caller must park
+        // the real mouse away from cards first.
+        internal async Task<string> Test_PixelSelectionAsync()
+        {
+            if (_store is null || _selection is null) return "nostore";
+            var (bgra, pw, ph) = await ShotElementPixelsAsync(this);
+            var scale = XamlRoot?.RasterizationScale ?? 1.0;
+            static (byte R, byte G, byte B, byte A) Px(byte[] b, int w, int h, int x, int y)
+            {
+                x = Math.Clamp(x, 0, w - 1);
+                y = Math.Clamp(y, 0, h - 1);
+                var o = (y * w + x) * 4;
+                if (o + 3 >= b.Length) return (0, 0, 0, 0);
+                return (b[o + 2], b[o + 1], b[o], b[o + 3]);
+            }
+            static (byte R, byte G, byte B) Unpre((byte R, byte G, byte B, byte A) p) =>
+                p.A == 0 ? ((byte)0, (byte)0, (byte)0) : ((byte)Math.Round(p.R * 255.0 / p.A),
+                    (byte)Math.Round(p.G * 255.0 / p.A), (byte)Math.Round(p.B * 255.0 / p.A));
+            int P(double dip) => (int)Math.Round(dip * scale);
+            (byte R, byte G, byte B) CardPx(FrameworkElement root, double fx, double fy)
+            {
+                var org = root.TransformToVisual(this).TransformPoint(new Windows.Foundation.Point(0, 0));
+                return Unpre(Px(bgra, pw, ph, P(org.X + fx), P(org.Y + fy)));
+            }
+            var lines = _store.Document.Lines.ToList();
+            // Realized roots + per-card samples.
+            var roots = new Dictionary<int, Border>();
+            var samples = new Dictionary<int, ((byte R, byte G, byte B) a, (byte R, byte G, byte B) b)>();
+            for (var li = 0; li < lines.Count; li++)
+            {
+                if (LineList.ContainerFromIndex(li) is not ListViewItem container) continue;
+                var (root, _, _) = FindCardChrome(container);
+                if (root is null) continue;
+                roots[li] = root;
+                samples[li] = (CardPx(root, 6, 6),
+                    CardPx(root, root.ActualWidth - 6, root.ActualHeight - 6));
+            }
+            bool LineSel(int li) => _selection.SelectedLineIds.Contains(lines[li].Id);
+            // Calibrate from exemplars in the render.
+            var plainRef = RenderedCardFill();
+            var selRef = RenderedSelectedFill();
+            var accentRef = RenderedAccent();
+            foreach (var (li, s) in samples)
+                if (!LineSel(li)) { plainRef = s.a; break; }
+            foreach (var (li, s) in samples)
+                if (LineSel(li)) { selRef = s.a; break; }
+            foreach (var (li, _) in samples)
+            {
+                if (!LineSel(li)) continue;
+                if (LineList.ContainerFromIndex(li) is not ListViewItem container) continue;
+                var (_, pill, _) = FindCardChrome(container);
+                if (pill is null || pill.Visibility != Visibility.Visible) continue;
+                var po = pill.TransformToVisual(this).TransformPoint(new Windows.Foundation.Point(0, 0));
+                accentRef = Unpre(Px(bgra, pw, ph, P(po.X + 1.5), P(po.Y + pill.ActualHeight / 2)));
+                break;
+            }
+            var pixLines = new HashSet<int>();
+            var pixWords = new HashSet<string>();
+            var bad = new List<string>();
+            static string Hex((byte R, byte G, byte B) c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+            foreach (var (li, s) in samples)
+            {
+                var wantSel = LineSel(li);
+                // A card counts as one look only if BOTH padding points agree
+                // (catches partial/shrunken fills, bug #3).
+                var lookSel = NearPx(s.a, selRef, 26) && NearPx(s.b, selRef, 26);
+                var lookPlain = NearPx(s.a, plainRef, 26) && NearPx(s.b, plainRef, 26);
+                if (wantSel && lookSel) pixLines.Add(li);
+                else if (!wantSel && lookPlain) { }
+                else bad.Add($"L{li} wantSel={wantSel} {Hex(s.a)}/{Hex(s.b)} " +
+                    $"refs={Hex(plainRef)}/{Hex(selRef)}");
+                // Chip edge: accent outline when the word is selected, else
+                // the LINE's fill (a selected line tints unselected chips).
+                var lineFill = wantSel ? selRef : plainRef;
+                if (LineList.ContainerFromIndex(li) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is Grid cardGrid
+                    && cardGrid.FindName("ChipPanel") is LyricWrapPanel panel)
+                {
+                    for (var wi = 0; wi < lines[li].Words.Count; wi++)
+                    {
+                        var wid = lines[li].Words[wi].Id;
+                        foreach (var child in panel.Children)
+                        {
+                            if (child is not Grid chip || chip.Tag as string != wid) continue;
+                            var co = chip.TransformToVisual(this)
+                                .TransformPoint(new Windows.Foundation.Point(0, 0));
+                            var cp = Unpre(Px(bgra, pw, ph, P(co.X + 1),
+                                P(co.Y + chip.ActualHeight / 2)));
+                            var wSel = _selection.SelectedWordIds.Contains(wid);
+                            if (wSel && NearPx(cp, accentRef, 26)) pixWords.Add($"{li}:{wi}");
+                            else if (!wSel && NearPx(cp, lineFill, 26)) { }
+                            else bad.Add($"W{li}:{wi} wantSel={wSel} {Hex(cp)}");
+                        }
+                    }
+                }
+            }
+            // Service sets restricted to realized lines (virtualized lines
+            // have no pixels by design).
+            bool Real(int li) => LineList.ContainerFromIndex(li) is not null;
+            var svcL = lines.Select((l, i) => (l, i))
+                .Where(t => _selection.SelectedLineIds.Contains(t.l.Id) && Real(t.i))
+                .Select(t => t.i).ToHashSet();
+            var svcW = new HashSet<string>();
+            foreach (var id in _selection.SelectedWordIds)
+                for (var li = 0; li < lines.Count; li++)
+                {
+                    var wi = lines[li].Words.ToList().FindIndex(x => x.Id == id);
+                    if (wi >= 0 && Real(li)) svcW.Add($"{li}:{wi}");
+                }
+            var ok = svcL.SetEquals(pixLines) && svcW.SetEquals(pixWords);
+            if (ok) return $"ok:L{pixLines.Count}W{pixWords.Count}";
+            return $"mismatch svcL=[{string.Join(",", svcL.OrderBy(x => x))}] " +
+                $"pixL=[{string.Join(",", pixLines.OrderBy(x => x))}] " +
+                $"svcW=[{string.Join(",", svcW.OrderBy(x => x))}] " +
+                $"pixW=[{string.Join(",", pixWords.OrderBy(x => x))}] " +
+                string.Join(" ", bad.Take(5));
         }
 
         // Outline state of one chip ("shown"/"hidden"/"nochip").
@@ -4376,7 +4700,12 @@ namespace AmllTtmlTool.WinUI.Views
         // marks text-editing keys handled, so typing never triggers these).
         private void OnLineListKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (HandleListKey(e.Key, IsCtrlDown(), IsAltDown(), IsShiftDown()))
+            var before = TraceSel();
+            var ok = HandleListKey(e.Key, IsCtrlDown(), IsAltDown(), IsShiftDown());
+            TraceEvent("list-keydown",
+                $"key={e.Key} orig={e.OriginalKey} ctrl={IsCtrlDown()} alt={IsAltDown()} shift={IsShiftDown()} " +
+                $"handled={ok} sel-before=[{before}] sel-after=[{TraceSel()}]");
+            if (ok)
                 e.Handled = true;
         }
 

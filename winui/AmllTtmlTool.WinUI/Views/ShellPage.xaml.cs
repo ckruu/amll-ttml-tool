@@ -688,7 +688,49 @@ namespace AmllTtmlTool.WinUI.Views
                         await Task.Delay(800);
                         var win = ((App)Application.Current).MainWindow;
                         if (_intake is not null && !string.IsNullOrEmpty(lyricFile))
+                        {
+                            // Orthogonal Step-0 input trace: enable BEFORE
+                            // the hold blocks (re-navigation creates a fresh
+                            // page; re-enable via Test_SetInputTrace then).
+                            if (Services.HarnessHost.InputTracePath is string tp)
+                                _attachedEditPage?.SetInputTrace(tp);
                             await Services.LyricsCheck.RunHoldAsync(win, _intake, _store, lyricFile);
+                        }
+                    });
+                }
+                // Interactive real-input target: --input-hold <file>.
+                // Imports, enables --input-trace, serves pixel-*/sel-*
+                // requests from scripts/input.ps1 drivers until stop.req.
+                // DEBUG-only.
+                var inputHoldIdx = Array.IndexOf(audioArgs, "--input-hold");
+                if (inputHoldIdx >= 0)
+                {
+                    var inputHoldFile = inputHoldIdx + 1 < audioArgs.Length ? audioArgs[inputHoldIdx + 1] : "";
+                    var inputHoldReport = Services.HarnessHost.Report;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            if (_intake is not null && !string.IsNullOrEmpty(inputHoldFile))
+                                await Services.InputHoldCheck.RunHoldAsync(win, this, _intake, _store, inputHoldFile, inputHoldReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.InputHoldCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
                     });
                 }
                 // Self-driving edit verification: --edit-test <file>
@@ -2919,6 +2961,10 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.ChipBoxWidth(line, word, roman) ?? "nopage";
         internal string Test_ThemeDebug() =>
             _attachedEditPage?.Test_ThemeDebug() ?? "nopage";
+        internal void Test_SetInputTrace(string path) =>
+            _attachedEditPage?.SetInputTrace(path);
+        internal Task<string> Test_PixelSelectionAsync() =>
+            _attachedEditPage?.Test_PixelSelectionAsync() ?? Task.FromResult("nopage");
         internal bool Test_SetChipBoxText(int line, int word, bool roman, string text) =>
             _attachedEditPage?.SetChipBoxText(line, word, roman, text) ?? false;
         internal double Test_TypeChipChar(int line, int word, bool roman, char ch) =>
