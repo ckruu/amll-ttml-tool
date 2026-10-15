@@ -980,40 +980,55 @@ internal static class EditCheck
                     default: await OnUiAsync(window, () => page.Test_ClearEditSelection()); break;
                 }
                 await Task.Delay(120);
-                var svcL = await OnUiAsync(window, () => page.Test_ServiceLineIdx());
-                var indL = await OnUiAsync(window, () => page.Test_IndicatedIndices());
-                var svcW = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
-                var indW = await OnUiAsync(window, () => page.Test_WordIndicated());
-                // Indicated (realized visuals) must match the service sets
-                // restricted to realized lines: unrealized lines have no
-                // visuals by design (virtualization), never stale ones.
-                var svcLSet = new HashSet<string>(svcL.Split(',', StringSplitOptions.RemoveEmptyEntries));
-                var indLSet = new HashSet<string>(indL.Split(',', StringSplitOptions.RemoveEmptyEntries));
-                var realizedSelected = new List<string>();
-                for (var r = 0; r < nLines; r++)
+                async Task<(string svcL, string indL, string svcW, string indW)> ReadSelState()
                 {
-                    if (!svcLSet.Contains(r.ToString())) continue;
-                    var fill = await OnUiAsync(window, () => page.Test_LineFill(r));
-                    if (fill != "unrealized") realizedSelected.Add(r.ToString());
+                    var a = await OnUiAsync(window, () => page.Test_ServiceLineIdx());
+                    var b = await OnUiAsync(window, () => page.Test_IndicatedIndices());
+                    var c = await OnUiAsync(window, () => page.Test_SelectedWordIdx());
+                    var d = await OnUiAsync(window, () => page.Test_WordIndicated());
+                    return (a, b, c, d);
                 }
-                var okL = indLSet.SetEquals(realizedSelected);
-                var svcWSet = new HashSet<string>(svcW.Split(',', StringSplitOptions.RemoveEmptyEntries));
-                var indWSet = new HashSet<string>(indW.Split(',', StringSplitOptions.RemoveEmptyEntries));
-                // Word visuals only exist on realized lines; restrict the
-                // service side the same way.
-                var realizedW = new HashSet<string>();
-                foreach (var s in svcWSet)
+                async Task<string> FillOf(int r) =>
+                    await OnUiAsync(window, () => page.Test_LineFill(r));
+                async Task<(bool okL, bool okW)> EvalSelState((string svcL, string indL, string svcW, string indW) st)
                 {
-                    var parts = s.Split(':');
-                    if (parts.Length != 2) continue;
-                    var fill = await OnUiAsync(window, () => page.Test_LineFill(int.Parse(parts[0])));
-                    if (fill != "unrealized") realizedW.Add(s);
+                    var svcLSet = new HashSet<string>(st.svcL.Split(',', StringSplitOptions.RemoveEmptyEntries));
+                    var indLSet = new HashSet<string>(st.indL.Split(',', StringSplitOptions.RemoveEmptyEntries));
+                    var realizedSelected = new List<string>();
+                    for (var r = 0; r < nLines; r++)
+                    {
+                        if (!svcLSet.Contains(r.ToString())) continue;
+                        if (await FillOf(r) != "unrealized") realizedSelected.Add(r.ToString());
+                    }
+                    var okL = indLSet.SetEquals(realizedSelected);
+                    var svcWSet = new HashSet<string>(st.svcW.Split(',', StringSplitOptions.RemoveEmptyEntries));
+                    var indWSet = new HashSet<string>(st.indW.Split(',', StringSplitOptions.RemoveEmptyEntries));
+                    // Word visuals only exist on realized lines; restrict the
+                    // service side the same way.
+                    var realizedW = new HashSet<string>();
+                    foreach (var s in svcWSet)
+                    {
+                        var parts = s.Split(':');
+                        if (parts.Length != 2) continue;
+                        if (await FillOf(int.Parse(parts[0])) != "unrealized") realizedW.Add(s);
+                    }
+                    return (okL, indWSet.SetEquals(realizedW));
                 }
-                var okW = indWSet.SetEquals(realizedW);
-                if (!okL || !okW)
+                var st0 = await ReadSelState();
+                var (okL0, okW0) = await EvalSelState(st0);
+                // One settle retry: under load a scroll can still be
+                // virtualizing when the first read lands (stale panel for a
+                // frame). Re-read once after 400ms before failing.
+                if (!okL0 || !okW0)
+                {
+                    await Task.Delay(400);
+                    st0 = await ReadSelState();
+                    (okL0, okW0) = await EvalSelState(st0);
+                }
+                if (!okL0 || !okW0)
                 {
                     convergeOk = false;
-                    convergeDetail += $"step{step}:kind={kind} li={li} wi={wi} svcL=[{svcL}] indL=[{indL}] svcW=[{svcW}] indW=[{indW}] ";
+                    convergeDetail += $"step{step}:kind={kind} li={li} wi={wi} svcL=[{st0.svcL}] indL=[{st0.indL}] svcW=[{st0.svcW}] indW=[{st0.indW}] ";
                     break;
                 }
             }
@@ -1612,7 +1627,7 @@ internal static class EditCheck
                 p95med = mid[mid.Count / 2];
             }
             Check("typing-budget", p95med >= 0 && p95med < 16,
-                $"median-p95={p95med:F2}ms rounds=[{string.Join(",", p95s.Select(v => v.ToString("F2")))}]");
+                $"median-p95={p95med.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}ms rounds=[{string.Join(",", p95s.Select(v => v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)))}]");
             var wEq = await OnUiAsync(window, () => page.Test_ChipWidths(150, 5));
             Check("perf-width-hug", WidthsEqual(wEq), $"[{wEq}]");
             var topReal = await OnUiAsync(window, () => page.Test_RealizedLineCount());
