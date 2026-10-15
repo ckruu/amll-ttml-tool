@@ -762,11 +762,14 @@ internal static class EditCheck
                     if (!ok) { gridOk = false; gridDetail += $"w={w} roman={roman} [{geo}] "; }
                     else Write(report, $"  note grid w={w} roman={roman} tier={tierName} [{geo}]");
                 }
+                // At 672 the Tiny tier collapses the group (both roman states):
+                // asserted, not measured (overflow mirror carries the values).
+                await OnUiAsync(window, () => page.Test_SetWindowWidth(672));
+                await Task.Delay(500);
+                var geoTiny = await OnUiAsync(window, () => page.Test_WordGridGeometry());
+                if (!geoTiny.Contains("vis:0")) { gridOk = false; gridDetail += $"tiny roman={roman} [{geoTiny}] "; }
+                else Write(report, $"  note grid tiny roman={roman} [{geoTiny}]");
             }
-            await OnUiAsync(window, () => page.Test_SetWindowWidth(672));
-            await Task.Delay(500);
-            var geoTiny = await OnUiAsync(window, () => page.Test_WordGridGeometry());
-            if (!geoTiny.Contains("vis:0")) { gridOk = false; gridDetail += $"tiny [{geoTiny}] "; }
             await OnUiAsync(window, () => page.Test_SetToggle("wordroman", wrGridBefore));
             Check("word-grid-geometry", gridOk, gridDetail);
             await OnUiAsync(window, () => page.Test_SetWindowWidth(1280));
