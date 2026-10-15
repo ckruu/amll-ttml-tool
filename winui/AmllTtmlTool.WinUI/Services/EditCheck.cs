@@ -1256,7 +1256,9 @@ internal static class EditCheck
                 geoDetail = $"x {xs[0]:F2}..{xs[^1]:F2} h {hs[0]:F2}..{hs[^1]:F2}";
             }
             Check("card-geometry", geoOk, geoDetail);
-            // Consecutive card gaps identical on a scrolled long doc.
+            // Consecutive card gaps identical on a scrolled long doc. One
+            // settle retry: under VM load the first measure can catch
+            // virtualization mid-settle (too few plausible pairs).
             await OnUiAsync(window, () => page.Test_ScrollLineIntoView(40));
             await Task.Delay(250);
             var gaps = await OnUiAsync(window, () => page.Test_CardGaps());
@@ -1266,6 +1268,19 @@ internal static class EditCheck
                 && TryParseDouble(gapParts[1], out var gMax)
                 && int.TryParse(gapParts[2], out var gN) && gN >= 3
                 && gMax - gMin <= 1.0;
+            if (!cardGapsOk)
+            {
+                await Task.Delay(750);
+                await OnUiAsync(window, () => page.Test_ScrollLineIntoView(40));
+                await Task.Delay(400);
+                gaps = await OnUiAsync(window, () => page.Test_CardGaps());
+                gapParts = gaps.Split(',');
+                cardGapsOk = gapParts.Length == 3
+                    && TryParseDouble(gapParts[0], out gMin)
+                    && TryParseDouble(gapParts[1], out gMax)
+                    && int.TryParse(gapParts[2], out gN) && gN >= 3
+                    && gMax - gMin <= 1.0;
+            }
             Check("card-gaps", cardGapsOk, $"gaps=[{gaps}]");
             // --- 4c-iii. line numbers are derived (Step 2) -----------------
             // 200 seeded random structural ops + scrolling: every realized

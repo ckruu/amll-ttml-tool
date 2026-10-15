@@ -2803,8 +2803,11 @@ namespace AmllTtmlTool.WinUI.Views
         }
 
         // Repaints code-created chip brushes on every realized card (outline,
-        // wash, space label + drop mark). Called on theme/accent change and
-        // from ApplyWordSelectionVisualsNow so colors can never go stale.
+        // wash, space label + drop mark). Called on theme/accent change only
+        // (ActualThemeChanged + UISettings.ColorValuesChanged): selection
+        // passes touch visibility alone, and (re)built chips resolve fresh
+        // brushes at build time, so colors can never go stale and selection
+        // stays O(realized) cheap even in scroll/selection storms.
         // Children order is fixed in BuildChip: 0 text, 1 roman, 2 label,
         // 3 outline, 4 dropMark, 5 wash.
         private void RefreshChipThemeBrushes()
@@ -2860,10 +2863,6 @@ namespace AmllTtmlTool.WinUI.Views
                 ApplySelectionVisual(container, selected.Contains(_store.Document.Lines[i].Id));
             }
             ApplyWordSelectionVisualsNow();
-            // Brush colors (not just visibility) refresh on every selection
-            // pass so a theme/accent change can never leave stale Light
-            // values on realized chips between explicit theme events.
-            RefreshChipThemeBrushes();
         }
 
         // Selected words: accent outline + faint accent wash BEHIND the chip
@@ -4165,16 +4164,30 @@ namespace AmllTtmlTool.WinUI.Views
                 if (chip.Children.Count < 6) return "nochildren";
                 if (chip.Children[0] is not TextBox tb || tb.Foreground is not SolidColorBrush fg) return "notext";
                 if (chip.Children[5] is not Border wash || wash.Background is not SolidColorBrush wb) return "nowash";
-                // Chip base = card fill; wash composites at 15% over it.
+                // Chip base = the card fill as rendered: the card dictionary
+                // color is TRANSLUCENT (theme-debug shows alpha 0x0D — a layer
+                // over the page), so composite card-over-page first (same as
+                // Test_SelectionContrast), then the 15% wash over that.
+                static (byte R, byte G, byte B) Over(Windows.UI.Color fg, (byte R, byte G, byte B) bg)
+                {
+                    var a = fg.A / 255.0;
+                    return ((byte)Math.Round(fg.R * a + bg.R * (1 - a)),
+                        (byte)Math.Round(fg.G * a + bg.G * (1 - a)),
+                        (byte)Math.Round(fg.B * a + bg.B * (1 - a)));
+                }
                 var cardC = ResolveThemeColor("CardBackgroundFillColorDefault");
-                var fr = (byte)Math.Round(cardC.R * 0.85 + wb.Color.R * 0.15);
-                var fg2 = (byte)Math.Round(cardC.G * 0.85 + wb.Color.G * 0.15);
-                var fb = (byte)Math.Round(cardC.B * 0.85 + wb.Color.B * 0.15);
+                var pageC = ResolveThemeColor("SolidBackgroundFillColorBase");
+                var page = (pageC.R, pageC.G, pageC.B);
+                var cardBase = Over(cardC, page);
+                var fr = (byte)Math.Round(cardBase.R * 0.85 + wb.Color.R * 0.15);
+                var fg2 = (byte)Math.Round(cardBase.G * 0.85 + wb.Color.G * 0.15);
+                var fb = (byte)Math.Round(cardBase.B * 0.85 + wb.Color.B * 0.15);
                 var l1 = Lum(fg.Color.R, fg.Color.G, fg.Color.B);
                 var l2 = Lum(fr, fg2, fb);
                 var ratio = (Math.Max(l1, l2) + 0.05) / (Math.Min(l1, l2) + 0.05);
                 return $"theme={ActualTheme} text=#{fg.Color.R:X2}{fg.Color.G:X2}{fg.Color.B:X2} " +
-                    $"wash=#{wb.Color.R:X2}{wb.Color.G:X2}{wb.Color.B:X2} ratio={F2(ratio)}";
+                    $"wash=#{wb.Color.R:X2}{wb.Color.G:X2}{wb.Color.B:X2} " +
+                    $"card=#{cardBase.R:X2}{cardBase.G:X2}{cardBase.B:X2} ratio={F2(ratio)}";
             }
             return "nochip";
         }
