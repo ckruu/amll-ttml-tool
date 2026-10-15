@@ -218,6 +218,16 @@ internal static class EditCheck
             var seText = await OnUiAsync(window, () => page.Test_ChipBoxText(0, s0, false));
             Check("space-edit-text", seFocus == $"chipbox 0:{s0}:M" && seText == " ",
                 $"focus=[{seFocus}] text='{seText}'");
+            // The raw-whitespace box must be visible AND wide enough to see
+            // the caret (a 1-space edit in a 0-width box is unusable).
+            var seWidthRaw = await OnUiAsync(window, () => page.Test_ChipBoxWidth(0, s0, false));
+            var seWidth = 0.0;
+            var swm = System.Text.RegularExpressions.Regex.Match(seWidthRaw, @"width:([\d.]+)");
+            if (swm.Success) double.TryParse(swm.Groups[1].Value,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out seWidth);
+            Check("space-edit-width", seWidthRaw.StartsWith("visible:1") && seWidth >= 24,
+                $"[{seWidthRaw}]");
             await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s0, false, "    "));
             await OnUiAsync(window, () => page.Test_CommitChip(0, s0, false));
             // Blur out of the box: while focused the raw editor shows (EDIT),

@@ -619,6 +619,15 @@ namespace AmllTtmlTool.WinUI.Views
         internal string ChipBoxText(int line, int word, bool roman) =>
             FindChipBox(line, word, roman)?.Text ?? "nobox";
 
+        // Edit-box width probe (space chips must be wide enough to SEE the
+        // caret while editing raw whitespace): "visible:1;width:NN.NN".
+        internal string ChipBoxWidth(int line, int word, bool roman)
+        {
+            var box = FindChipBox(line, word, roman);
+            if (box is null) return "nobox";
+            return $"visible:{(box.Visibility == Visibility.Visible ? 1 : 0)};width:{box.ActualWidth.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}";
+        }
+
         internal bool SetChipBoxText(int line, int word, bool roman, string text)
         {
             if (FindChipBox(line, word, roman) is not TextBox box) return false;

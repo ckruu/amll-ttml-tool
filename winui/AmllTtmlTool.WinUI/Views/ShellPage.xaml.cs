@@ -2913,6 +2913,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.FocusChip(line, word, roman) ?? false;
         internal string Test_ChipBoxText(int line, int word, bool roman) =>
             _attachedEditPage?.ChipBoxText(line, word, roman) ?? "nopage";
+        internal string Test_ChipBoxWidth(int line, int word, bool roman) =>
+            _attachedEditPage?.ChipBoxWidth(line, word, roman) ?? "nopage";
         internal bool Test_SetChipBoxText(int line, int word, bool roman, string text) =>
             _attachedEditPage?.SetChipBoxText(line, word, roman, text) ?? false;
         internal double Test_TypeChipChar(int line, int word, bool roman, char ch) =>
