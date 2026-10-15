@@ -31,7 +31,13 @@ public sealed record LyricLine(
     double StartTime,
     double EndTime,
     bool IgnoreSync,
-    EndTimeLink? EndTimeLink = null)
+    EndTimeLink? EndTimeLink = null,
+    // Raw ttm:agent attribute as parsed from the file (null when the <p>
+    // carried none). Interchange-only display hint: the effective duet
+    // presentation derives from this plus the document primary agent, while
+    // IsDuet keeps exact WASM semantics for export. Null by default so all
+    // hand-built records behave exactly as before.
+    string? Agent = null)
 {
     public static LyricLine New() => new(
         Guid.NewGuid().ToString("N"), [], string.Empty, string.Empty,

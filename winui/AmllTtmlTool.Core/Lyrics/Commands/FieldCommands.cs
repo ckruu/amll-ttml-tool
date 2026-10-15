@@ -204,6 +204,7 @@ public sealed class SetLineFlagsCommand : LyricCommand
     private bool _bgBefore;
     private bool _duetBefore;
     private bool _ignoreBefore;
+    private string? _agentBefore;
     private bool _applied;
 
     public SetLineFlagsCommand(string lineId, bool? isBg = null, bool? isDuet = null, bool? ignoreSync = null)
@@ -222,10 +223,15 @@ public sealed class SetLineFlagsCommand : LyricCommand
         _bgBefore = line.IsBg;
         _duetBefore = line.IsDuet;
         _ignoreBefore = line.IgnoreSync;
+        _agentBefore = line.Unmapped.TryGetValue(EditLine.AgentKey, out var a) ? a : null;
         _applied = true;
         if (_isBg.HasValue) line.IsBg = _isBg.Value;
         if (_isDuet.HasValue) line.IsDuet = _isDuet.Value;
         if (_ignoreSync.HasValue) line.IgnoreSync = _ignoreSync.Value;
+        // Toggling V2 or BG retires the imported raw agent: from here on the
+        // line exports the standard form derived from its flags. (IgnoreSync
+        // is sync-only and never touches the agent.)
+        if (_isBg.HasValue || _isDuet.HasValue) line.Unmapped.Remove(EditLine.AgentKey);
     }
 
     public override void Revert(EditDocument document)
@@ -235,6 +241,8 @@ public sealed class SetLineFlagsCommand : LyricCommand
         line.IsBg = _bgBefore;
         line.IsDuet = _duetBefore;
         line.IgnoreSync = _ignoreBefore;
+        if (_agentBefore is not null) line.Unmapped[EditLine.AgentKey] = _agentBefore;
+        else line.Unmapped.Remove(EditLine.AgentKey);
     }
 }
 

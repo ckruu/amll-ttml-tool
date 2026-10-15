@@ -990,6 +990,12 @@ namespace AmllTtmlTool.WinUI.Views
                 : $"lines:{_drag.Ids.Count}>{_drag.DropLineIndex} ghost:[{ghost}]";
         }
 
+        // The PAINTED ghost label (what the overlay shows right now — driven
+        // by the 16ms Ctrl poll, not by pointer moves). Host test: start a
+        // drag, hold still, SendInput Ctrl down/up, read this within 50ms.
+        internal string Test_DragGhost() =>
+            _drag is null ? "nodrag" : DragGhostText.Text;
+
         internal void Test_BuildDragDoc(int lines, int wordsPer)
         {
             if (_store is null) return;
@@ -1646,15 +1652,18 @@ namespace AmllTtmlTool.WinUI.Views
             };
             // Tri-state from the scope: all-set reads checked, else clear;
             // one click applies to every in-scope line (original, one step).
+            // Duet state shown is the EFFECTIVE duet (agent vs primary).
             var scopeIds = ScopeLineIds(lineId);
             var bg = new ToggleMenuFlyoutItem { Text = "BG lyric" };
             var duet = new ToggleMenuFlyoutItem { Text = "Duet lyric" };
             if (_store is not null)
             {
+                var primary = DuetDisplay.PrimaryAgent(_store.Document.Lines);
                 var scopeLines = _store.Document.Lines
                     .Where(l => scopeIds.Contains(l.Id)).ToList();
                 bg.IsChecked = scopeLines.Count > 0 && scopeLines.All(l => l.IsBg);
-                duet.IsChecked = scopeLines.Count > 0 && scopeLines.All(l => l.IsDuet);
+                duet.IsChecked = scopeLines.Count > 0
+                    && scopeLines.All(l => DuetDisplay.EffectiveDuet(l, primary));
             }
             bg.Click += (_, _) => ToggleLineFlag(lineId, isBg: true, bg.IsChecked);
             duet.Click += (_, _) => ToggleLineFlag(lineId, isBg: false, duet.IsChecked);
@@ -2251,7 +2260,8 @@ namespace AmllTtmlTool.WinUI.Views
                 WireBox(romanField,
                     () => line.RomanLyric,
                     _ => CommitLineFieldBox(romanField, line, translation: false));
-            ApplyFlagVisual(args.ItemContainer, index, line);
+            ApplyFlagVisual(args.ItemContainer, index, line,
+                _store is null ? "v1" : DuetDisplay.PrimaryAgent(_store.Document.Lines));
             // Indicator from the selection set (single source), not the VSM:
             // recycled containers arrive here with arbitrary stale states.
             if (_selection is not null && args.ItemContainer is ListViewItem prepared)
@@ -2530,31 +2540,62 @@ namespace AmllTtmlTool.WinUI.Views
         }
 
         // Flag visuals: BG/duet badges (WinUI tinted-border style) plus an
-        // automation-name suffix for AT.
-        private void ApplyFlagVisual(DependencyObject container, int index, EditLine line)
+        // automation-name suffix for AT. Duet shown is the EFFECTIVE duet
+        // (raw agent vs document primary), not the raw model flag.
+        private void ApplyFlagVisual(DependencyObject container, int index, EditLine line, string primary)
         {
+            var duet = DuetDisplay.EffectiveDuet(line, primary);
             var name = $"Line {index + 1}";
             if (line.IsBg) name += ", BG";
-            if (line.IsDuet) name += ", duet";
+            if (duet) name += ", duet";
             AutomationProperties.SetName(container, name);
             if (container is ListViewItem item
                 && item.ContentTemplateRoot is Grid card)
             {
                 if (card.FindName("BgBadge") is FrameworkElement bg)
                     bg.Visibility = line.IsBg ? Visibility.Visible : Visibility.Collapsed;
-                if (card.FindName("DuetBadge") is FrameworkElement duet)
-                    duet.Visibility = line.IsDuet ? Visibility.Visible : Visibility.Collapsed;
+                if (card.FindName("DuetBadge") is FrameworkElement duetBadge)
+                    duetBadge.Visibility = duet ? Visibility.Visible : Visibility.Collapsed;
             }
         }
 
         private void RefreshFlagVisuals()
         {
             if (_store is null) return;
+            var primary = DuetDisplay.PrimaryAgent(_store.Document.Lines);
             for (var i = 0; i < _store.Document.Lines.Count; i++)
             {
                 if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
-                ApplyFlagVisual(container, i, _store.Document.Lines[i]);
+                ApplyFlagVisual(container, i, _store.Document.Lines[i], primary);
             }
+        }
+
+        // Realized indices showing the duet badge + the document primary
+        // agent (Step-6 display probes, one round-trip each).
+        internal string Test_PrimaryAgent() =>
+            _store is null ? "nostore" : DuetDisplay.PrimaryAgent(_store.Document.Lines);
+
+        internal string Test_DuetBadges()
+        {
+            if (_store is null) return "nostore";
+            var primary = DuetDisplay.PrimaryAgent(_store.Document.Lines);
+            var shown = new List<int>();
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (!DuetDisplay.EffectiveDuet(_store.Document.Lines[i], primary)) continue;
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                if (card.FindName("DuetBadge") is FrameworkElement badge
+                    && badge.Visibility == Visibility.Visible) shown.Add(i);
+            }
+            return string.Join(",", shown);
+        }
+
+        internal string Test_LineAgent(int index)
+        {
+            if (_store is null || index < 0 || index >= _store.Document.Lines.Count) return "noline";
+            var line = _store.Document.Lines[index];
+            return line.Unmapped.TryGetValue(EditLine.AgentKey, out var a) ? $"[{a}]" : "nostash";
         }
 
         // Line numbers are DERIVED from the live document index (number text
@@ -2990,6 +3031,10 @@ namespace AmllTtmlTool.WinUI.Views
             public bool DropAfter;
             public double LastX;
             public double LastY;
+            // Copy flag as last painted on the ghost. Refreshed from the live
+            // Ctrl state on every pointer move AND every 16ms timer tick, so
+            // a press/release with a still mouse flips the label promptly.
+            public bool ShownCopy;
             public List<(FrameworkElement El, double Opacity)> Dimmed = new();
             public Grid? MarkChip;
             public int ScrollDir;
@@ -3149,6 +3194,7 @@ namespace AmllTtmlTool.WinUI.Views
                 if (session.Ids.Count == 0) return;
             }
             _drag = session;
+            _drag.ShownCopy = IsCtrlDown();
             if (FindListViewItemForLine(lineId) is ListViewItem container)
                 container.Focus(FocusState.Programmatic);
             EnsureDragTimer();
@@ -3176,6 +3222,7 @@ namespace AmllTtmlTool.WinUI.Views
             if (_drag is null || _store is null) return;
             _drag.LastX = x;
             _drag.LastY = y;
+            _drag.ShownCopy = IsCtrlDown();
             if (_drag.IsWords) UpdateWordTarget(x, y);
             else UpdateLineTarget(y);
             // Auto-scroll near the list edges (40px, original profile).
@@ -3383,7 +3430,11 @@ namespace AmllTtmlTool.WinUI.Views
                 }
             }
             // Ghost label: "Move to N" / "Copy to N" with the item count.
-            var copy = IsCtrlDown();
+            // The copy flag is the session's polled value (updated within one
+            // 16ms timer tick of a Ctrl press/release, even with the mouse
+            // still — WinUI delivers no pointer move then, so moves alone
+            // would leave a stale label).
+            var copy = _drag.ShownCopy;
             DragGhost.Visibility = Visibility.Visible;
             DragGhostText.Text = GhostText(copy);
             DragOverlay.UpdateLayout();
@@ -3431,6 +3482,15 @@ namespace AmllTtmlTool.WinUI.Views
         private void ScrollTick()
         {
             if (_drag is null || !_drag.Started) return;
+            // Ctrl poll: flip Move<->Copy within one 16ms tick even when the
+            // mouse is still (no pointer move arrives then). The drop itself
+            // reads the live state, so label and operation never disagree.
+            var copy = IsCtrlDown();
+            if (copy != _drag.ShownCopy)
+            {
+                _drag.ShownCopy = copy;
+                RefreshDragVisuals();
+            }
             if (_drag.ScrollDir == 0) return;
             var sv = FindScroller();
             if (sv is null) return;
@@ -3524,7 +3584,7 @@ namespace AmllTtmlTool.WinUI.Views
                         return "noop:same-place";
                     CommitActiveBox();
                     var cmd = new ReorderLinesCommand(ordered, session.DropLineIndex, copy);
-                    try { _store.Execute(cmd); }
+                    try { RunWithMoveFlip(() => _store.Execute(cmd)); }
                     catch (InvalidOperationException) { return "noop:stale"; }
                     var resultIds = cmd.ResultIds.ToList();
                     if (copy)
@@ -4161,6 +4221,94 @@ namespace AmllTtmlTool.WinUI.Views
 
         // --- structure ops (each Execute = one history step) ----------------
 
+        // Realized line-id -> Y position snapshot (for move FLIP).
+        private Dictionary<string, double> SnapshotLineTops()
+        {
+            var tops = new Dictionary<string, double>();
+            if (_store is null) return tops;
+            var lines = _store.Document.Lines;
+            for (var i = 0; i < lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                try
+                {
+                    tops[lines[i].Id] = container.TransformToVisual(LineList)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                }
+                catch { }
+            }
+            return tops;
+        }
+
+        // Composition-thread FLIP for a line move/drop: affected VISIBLE
+        // cards glide from their old offset to the new layout in ~175ms with
+        // the Fluent decelerate (no per-frame layout work). More than ~12
+        // moving cards snap + flash instead. Animations-off snaps. The
+        // ListView RepositionThemeTransition is parked during the op so the
+        // heavy TextBox cards are never layout-animated.
+        private void RunWithMoveFlip(Action op)
+        {
+            if (_store is null) { op(); return; }
+            var animate = AnimationsOn() && _compositor is not null && _decelerate is not null;
+            var saved = LineList.ItemContainerTransitions;
+            var before = SnapshotLineTops();
+            try
+            {
+                if (animate) LineList.ItemContainerTransitions = new TransitionCollection();
+                op();
+                LineList.UpdateLayout();
+            }
+            finally
+            {
+                LineList.ItemContainerTransitions = saved;
+            }
+            if (!animate) return;
+            var moved = new List<(FrameworkElement El, float Dy)>();
+            var lines = _store.Document.Lines.ToList();
+            foreach (var (id, oldY) in before)
+            {
+                var at = lines.FindIndex(l => l.Id == id);
+                if (at < 0 || LineList.ContainerFromIndex(at) is not ListViewItem container) continue;
+                double newY;
+                try
+                {
+                    newY = container.TransformToVisual(LineList)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+                }
+                catch { continue; }
+                var dy = (float)(oldY - newY);
+                if (Math.Abs(dy) >= 0.5) moved.Add((container, dy));
+            }
+            if (moved.Count == 0) return;
+            if (moved.Count > 12)
+            {
+                // Snap + brief highlight pulse on the moved cards.
+                foreach (var (el, _) in moved)
+                {
+                    var visual = ElementCompositionPreview.GetElementVisual(el);
+                    visual.StopAnimation("Opacity");
+                    var pulse = _compositor!.CreateScalarKeyFrameAnimation();
+                    pulse.Duration = TimeSpan.FromMilliseconds(200);
+                    pulse.InsertKeyFrame(0f, 1f);
+                    pulse.InsertKeyFrame(0.5f, 0.55f, _decelerate);
+                    pulse.InsertKeyFrame(1f, 1f, _decelerate);
+                    visual.StartAnimation("Opacity", pulse);
+                }
+                return;
+            }
+            foreach (var (el, dy) in moved)
+            {
+                var visual = ElementCompositionPreview.GetElementVisual(el);
+                visual.StopAnimation("Offset");
+                var baseOff = visual.Offset;
+                visual.Offset = new Vector3(baseOff.X, baseOff.Y + dy, baseOff.Z);
+                var glide = _compositor!.CreateVector3KeyFrameAnimation();
+                glide.Duration = TimeSpan.FromMilliseconds(175);
+                glide.InsertKeyFrame(1f, baseOff, _decelerate);
+                visual.StartAnimation("Offset", glide);
+            }
+        }
+
         internal void DeleteSelected()
         {
             if (_store is null || _selection is null) return;
@@ -4278,7 +4426,7 @@ namespace AmllTtmlTool.WinUI.Views
                 var id = lines[idx[0]].Id;
                 var to = Math.Clamp(idx[0] + delta, 0, lines.Count - 1);
                 if (to == idx[0]) return;
-                _store.Execute(new MoveLineCommand(id, to));
+                RunWithMoveFlip(() => _store.Execute(new MoveLineCommand(id, to)));
                 LineList.ScrollIntoView(_store.Document.Lines[to]);
                 return;
             }
@@ -4286,7 +4434,7 @@ namespace AmllTtmlTool.WinUI.Views
             var cmds = order
                 .Select(i => (ILyricCommand)new MoveLineCommand(lines[i].Id, i + delta))
                 .ToList();
-            _store.Execute(new CompositeCommand("Move lines", cmds));
+            RunWithMoveFlip(() => _store.Execute(new CompositeCommand("Move lines", cmds)));
             if (_selection.SelectedLineId is string primary)
             {
                 var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == primary);

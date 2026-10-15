@@ -216,8 +216,12 @@ public static partial class TtmlParser
 
         var agent = Attr(p, "agent") ?? "v1";
         var pDuet = agent != baselineAgent;
+        // Raw agent attribute for the display layer (null when the <p>
+        // carried none; explicit "" stays distinct). IsDuet above keeps
+        // exact WASM semantics; the effective duet presentation derives
+        // from the raw agents plus the document primary agent instead.
+        var rawAgent = Attr(p, "agent");
         var key = Attr(p, "key");
-
         var words = new List<LyricWord>();
         var translations = new List<(string? Lang, string Text)>();
         string? roman = null;
@@ -314,11 +318,11 @@ public static partial class TtmlParser
         }
         AttachRoman(key, mainWords, lineRomans);
 
-        result.Add(NewLine(pBegin, pEnd, false, pDuet, mainWords, translated, roman));
+        result.Add(NewLine(pBegin, pEnd, false, pDuet, mainWords, translated, roman, rawAgent));
 
         foreach (var (wrapper, wAgent) in bgGroups)
         {
-            var bg = ParseBgWrapper(wrapper, pBegin, pEnd, wAgent ?? agent, baselineAgent, cursor, stack);
+            var bg = ParseBgWrapper(wrapper, pBegin, pEnd, wAgent ?? agent, baselineAgent, cursor, stack, wAgent ?? rawAgent);
             if (!bg.Success) return Result<List<LyricLine>>.Fail(bg.Error!);
             result.Add(bg.Data!);
         }
@@ -410,7 +414,7 @@ public static partial class TtmlParser
     }
 
     private static Result<LyricLine> ParseBgWrapper(
-        XElement wrapper, double pBegin, double pEnd, string? agent, string? baselineAgent, Cursor cursor, List<string> stack)
+        XElement wrapper, double pBegin, double pEnd, string? agent, string? baselineAgent, Cursor cursor, List<string> stack, string? rawAgent = null)
     {
         var wBeginAttr = Attr(wrapper, "begin");
         var wEndAttr = Attr(wrapper, "end");
@@ -479,7 +483,7 @@ public static partial class TtmlParser
                 ReplaceWord(words, currentLast, currentLast.Word[..^1]);
         }
 
-        return Result<LyricLine>.Ok(NewLine(begin, end, true, (agent ?? "v1") != baselineAgent, words));
+        return Result<LyricLine>.Ok(NewLine(begin, end, true, (agent ?? "v1") != baselineAgent, words, rawAgent: rawAgent));
     }
 
     private static void ReplaceWord(List<LyricWord> words, LyricWord target, string word)
@@ -497,8 +501,8 @@ public static partial class TtmlParser
     private static LyricWord NewWord(double start, double end, string word, bool obscene = false, double emptyBeat = 0.0) =>
         new(Guid.NewGuid().ToString("N"), start, end, word, string.Empty, obscene, emptyBeat);
 
-    private static LyricLine NewLine(double start, double end, bool isBg, bool isDuet, List<LyricWord> words, string translated = "", string roman = "") =>
-        new(Guid.NewGuid().ToString("N"), words, translated, roman, isBg, isDuet, start, end, false);
+    private static LyricLine NewLine(double start, double end, bool isBg, bool isDuet, List<LyricWord> words, string translated = "", string roman = "", string? rawAgent = null) =>
+        new(Guid.NewGuid().ToString("N"), words, translated, roman, isBg, isDuet, start, end, false, Agent: rawAgent);
 
     private static bool Is(string localName, XElement el) =>
         el.Name.LocalName == localName;

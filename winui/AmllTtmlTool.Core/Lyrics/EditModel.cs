@@ -78,6 +78,12 @@ public sealed partial class EditLine : ObservableObject
     [ObservableProperty] private bool _ignoreSync;
     [ObservableProperty] private EditEndTimeLink? _endTimeLink;
 
+    // Raw ttm:agent attribute stashed at import (absent when the <p> carried
+    // none). The effective duet presentation derives from this plus the
+    // document primary agent; toggling V2/BG in the UI drops it so export
+    // writes the standard form.
+    public const string AgentKey = "agent";
+
     public Dictionary<string, string> Unmapped { get; } = new();
 
     public static EditLine New() => new();

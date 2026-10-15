@@ -4,8 +4,9 @@ namespace AmllTtmlTool.Core.Lyrics;
 
 // Adapters between the immutable interchange records (Models) and the
 // mutable int-ms editing model. Total in both directions for everything
-// the records hold; the Unmapped carry-bags stay empty here (extension
-// point for Phase 4 formats) and round-trip untouched.
+// the records hold; the record Agent (raw ttm:agent) rides the line
+// Unmapped carry-bag under key "agent" (extension point for Phase 4
+// formats) and round-trips untouched.
 // Times: parser doubles are WHOLE ms up to float noise — anything beyond
 // 1e-6 off an integer is reported (source + count + locations) instead of
 // silently rounded. EndTimeLink has no record counterpart (the original
@@ -49,6 +50,8 @@ public static class LyricAdapters
                 EndTimeMs = WholeMs(src.EndTime, $"line[{li}].endTime", sourceName, violations),
                 IgnoreSync = src.IgnoreSync,
             };
+            // Raw agent display hint (null/absent stays out of the bag).
+            if (src.Agent is not null) line.Unmapped[EditLine.AgentKey] = src.Agent;
             for (var wi = 0; wi < src.Words.Count; wi++)
             {
                 var w = src.Words[wi];
@@ -103,7 +106,8 @@ public static class LyricAdapters
                     new LyricWordBase(r.StartTimeMs, r.EndTimeMs, r.Text)).ToList()
             )).ToList(),
             l.TranslatedLyric, l.RomanLyric, l.IsBg, l.IsDuet,
-            l.StartTimeMs, l.EndTimeMs, l.IgnoreSync
+            l.StartTimeMs, l.EndTimeMs, l.IgnoreSync,
+            Agent: l.Unmapped.TryGetValue(EditLine.AgentKey, out var agent) ? agent : null
         )).ToList());
 
     private static int WholeMs(double value, string where, string source, List<string> violations)
