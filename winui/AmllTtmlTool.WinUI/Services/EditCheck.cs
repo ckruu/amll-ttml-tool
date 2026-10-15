@@ -261,11 +261,16 @@ internal static class EditCheck
             Check("space-esc", seRevert == "", $"box='{seRevert}'");
             // Hug: single glyph + long kana + long romaji units. Box widths
             // equal within 1px; the single glyph stays compact (< 64px, the
-            // old TextBox theme floor). Word-roman is forced ON here: the
-            // check needs visible roman boxes and must not depend on the
-            // ambient (persisted) toggle state.
+            // old TextBox theme floor). Word-roman AND the line trans/roman
+            // rows are forced ON here: the checks need visible roman boxes
+            // and must not depend on ambient (persisted, cross-suite-shared)
+            // toggle state (lyrics-test combos leave their own behind).
             var wrHugBefore = await OnUiAsync(window, () => page.Test_ToggleState("wordroman"));
+            var trHugBefore = await OnUiAsync(window, () => page.Test_ToggleState("trans"));
+            var roHugBefore = await OnUiAsync(window, () => page.Test_ToggleState("roman"));
             await OnUiAsync(window, () => page.Test_SetToggle("wordroman", true));
+            await OnUiAsync(window, () => page.Test_SetToggle("trans", true));
+            await OnUiAsync(window, () => page.Test_SetToggle("roman", true));
             await Task.Delay(450);
             await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s0, false, "キ"));
             await OnUiAsync(window, () => page.Test_CommitChip(0, s0, false));
@@ -283,7 +288,7 @@ internal static class EditCheck
                 && double.TryParse(uS0, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var unitW)
                 && unitW < 64;
-            Check("chip-hug", hugOk, $"widths=[{wS0}][{wS1}][{wS2}] unit={uS0} wrBefore={wrHugBefore}");
+            Check("chip-hug", hugOk, $"widths=[{wS0}][{wS1}][{wS2}] unit={uS0} wrBefore={wrHugBefore} trBefore={trHugBefore} roBefore={roHugBefore}");
             var shotHug = await await OnUiAsync(window, () =>
                 page.Test_ShotCard(0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-hug.png")));
             Check("shot-hug", shotHug.StartsWith("ok:"), shotHug);
@@ -296,6 +301,8 @@ internal static class EditCheck
                 && Math.Abs(gapV - 6) <= 1.0;
             Check("romaji-gap", gapsOk, $"chip={chipGap} row={rowGap}");
             await OnUiAsync(window, () => page.Test_SetToggle("wordroman", wrHugBefore));
+            await OnUiAsync(window, () => page.Test_SetToggle("trans", trHugBefore));
+            await OnUiAsync(window, () => page.Test_SetToggle("roman", roHugBefore));
             await Task.Delay(350);
             // Card top pad == bottom pad, romaji on and off; "+" centered.
             var padsOn = await OnUiAsync(window, () => page.Test_CardPads(0));
