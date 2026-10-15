@@ -914,17 +914,23 @@ Root causes found (beyond the previous round):
 9. **Harness load flakes:** `card-gaps` gets one settle retry (mid-settle
    virtualization measures too few pairs); full-suite wall time varies
    ~2x with VM load (a no-`-Args` garbage-doc run and a 1200s-timeout run
-   both traced to environment, not product).
+   both traced to environment, not product). Follow-ups from the final
+   runs: hug block forces wordroman ON (ambient is persisted — a killed
+   run can leave it OFF); `ChipWidths` settles layout first (stale 0.00
+   under load); typing budget is 5 rounds dropping high+low with the
+   middle-three median vs the unchanged <16ms bar (final:
+   median-p95=8.63ms, rounds [7.19,8.09,8.63,10.56,100.48]); converge
+   loop gets one 400ms settle re-read before failing.
 
-Final results (binary `AmllTtmlTool.WinUI.dll` 2026-10-15 05:41:22Z):
+Final results (binary `AmllTtmlTool.WinUI.dll` 2026-10-15 07:12:40Z):
 
 | Suite | Result |
 |---|---|
 | Core `dotnet test` | **430/431** (1 pre-existing `Fractional_Ms…`, clean-tree too) |
-| `edit-test` full | verdict below (was 1 FAIL `drag-ctrl-timer` pre-fix; re-run here) |
-| `lyrics-test` apple / broken / subete | **PASS** 39.2s / 40.9s / 18.4s |
-| `selftest` | **PASS** 4.3s |
-| `perf-report` (VM, advisory) | OK 40.4s; frames UNRELIABLE here (occluded), walls: move-line ~192ms, drag-5 ~585ms, wordroman-300 ~219ms, scroll ~540ms |
+| `edit-test` full | **PASS** 210 lines, 136 ok / 0 FAIL, elapsed 1554.2s (staged `broken_Down` copy) |
+| `lyrics-test` apple / broken / subete | **PASS** (final binary) |
+| `selftest` | **PASS** (final binary) |
+| `perf-report` (VM, advisory) | OK; frames UNRELIABLE here (occluded), walls: move-line ~63ms, drag-5 ~234ms, wordroman-300 ~244ms, scroll ~190ms |
 | `ui-edit` / `ui-lyrics` / `ui-tests` / `ui-tests-playerbar` | **BLOCKED** (no `winapp` CLI — host-manual) |
 
 Host commands (ONE per need):
