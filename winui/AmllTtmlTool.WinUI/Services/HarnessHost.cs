@@ -60,6 +60,7 @@ internal static class HarnessHost
         "selftest" => 60,
         "load-lyrics" => 600,
         "input-hold" => 3600,
+        "profile" => 900,
         "lyrics-test" => 600,
         "perf-report" => 900,
         _ => 180,
@@ -133,7 +134,7 @@ internal static class HarnessHost
             var positionalIsReport = fromArgs is not (null
                 or "seek-ui-hold" or "seek-ui-target" or "minimize-ui-hold"
                 or "playerbar-ui-hold" or "playerbar-synth-hold" or "seek-drag"
-                or "load-lyrics" or "lyrics-test" or "input-hold")
+                or "load-lyrics" or "lyrics-test" or "input-hold" or "profile")
                 && firstPositional != "rate";
             if (positionalIsReport && i >= 0 && i + 1 < args.Length)
                 report = args[i + 1];

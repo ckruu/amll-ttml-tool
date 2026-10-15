@@ -958,3 +958,76 @@ Blue/yellow rows are accent-swap computations from the prior round, not
 re-probed live here (accent is a host setting; VM accent is salmon).
 High Contrast needs an OS-level pass (theme-dictionary + system-color
 paths are wired; not eyeballed).
+
+---
+
+# Phase 3 chip rewrite (Steps 0–5), branch `winui-port`
+
+Rules: project-only `dotnet build
+winui/AmllTtmlTool.WinUI/AmllTtmlTool.WinUI.csproj --no-incremental`, DLL
+timestamp checked before every run, one commit per numbered step,
+`EditDocument`-only mutations, theme resources, no suite regresses.
+Tag `before-chip-rewrite` is created before Step 2.
+
+## Step 0 — real-input test infrastructure (commit fa37132 + fixup)
+
+- `scripts/check-input-env.ps1`: session≠0, desktop unlocked, screenshot
+  non-black — all PASS, nothing missing.
+- `scripts/input.ps1`: user32 input, VM-local only. Moves (absolute,
+  cursor-verified), clicks/drags (SetCursorPos + `mouse_event` — SendInput
+  button flags were PROVEN dead here: moves+keys arrived, buttons never
+  did; desktop-menu pixel proof), wheel, key chords/holds, unicode typing,
+  UIA rect/focus by AutomationId, PrintWindow shots + full-screen capture.
+- `--input-trace <path>` (orthogonal flag, `AMLL_INPUT_TRACE` env):
+  per-event type/position/modifiers/handled/source + selection
+  before/after on card/chip press, release gesture/drop, list/edit keys,
+  GotFocus anchors, context select-first, drag begin.
+- Pixel selection checks (`Test_PixelSelectionAsync`): page render sampling
+  vs service sets, SELF-CALIBRATING (headless RTB resolves theme resources
+  lighter than the compositor — expectations come from the render, contrast
+  math stays in the brush probes). `ok:L1W0`, `ok:L2W0` live.
+- `--input-hold <file>`: interactive target serving `pixel-*/sel-*` request
+  files for input.ps1 drivers until `stop.req` (+ `AMLL_HOLD_MINUTES`
+  override; LyricsCheck hold got the same override).
+- Baseline Ctrl+click trace (current build, before changes): press arrives
+  with `e.KeyModifiers=None` despite physical Ctrl held; press skipped via
+  `press-in-focused-box` (native focus lands in the chip synchronously on
+  mouse-down, before routed handlers); no arm → release no-ops. Ghost
+  reproduced with triple evidence: service `svcL=[0,2]`, pixels `ok:L2W0`,
+  trace showing skip + `AnchorWord` additive line. Root-cause notes for
+  Steps 2–3: press guard too broad (any focused box in chip, incl. initial
+  focus), `AnchorWord` line-additive, `e.Key` reads `None` for Esc/Ctrl-up
+  (use `OriginalKey`), `e.KeyModifiers` untrustworthy for injected input.
+- Screenshots viewed+described: app render, desktop menu proof, ghost
+  (lines 1+3 fully tinted with pills, ribbon `Multiple...`).
+
+## Step 1 — profile table, CURRENT build (`--profile`, staged broken_down)
+
+Doc 88 lines, avg 12.9 words/line; realized=7, textboxes=216, elements=3628.
+
+| Stage | n | median | p95 | max |
+|---|---|---|---|---|
+| prepare.total / card | 84 | 65.21ms | 264.89ms | 376.02ms |
+| prepare.chips (of total) | 84 | 62.78ms | 264.44ms | 375.13ms |
+| prepare.chipword (per word) | 84 | 4.92ms | 18.41ms | 34.10ms |
+| prepare.fields/flags/number/selection | 84 | ≤0.20ms | ≤0.62ms | ≤2.3ms |
+| panel measure / call | 88 | — | — | — (avg 114–169ms × 88 calls) |
+| panel arrange / call | 85 | — | — | — (avg ~3–4ms) |
+| realize.scrollStep (ScrollIntoView) | 88 | 194.87ms | 409.44ms | 545.24ms |
+| pipe.move-up cmd/layout/frame | 5 | 1159.08 / 3.66 / 224.84ms | 1837.88 / 1531.41 / 514.59ms |
+| pipe.move-down cmd/layout/frame | 5 | 985.72 / 0.36 / 50.86ms |
+| pipe.dup cmd/layout | 5 | 52.71 / 376.95ms |
+| pipe.delete cmd/layout | 5 | 389.88 / 2.00ms |
+| scroll.into-view + sync layout | 22 | 2158.22ms | 3222.85ms | 3340.36ms |
+| scroll.linedown (steady) | 20 | 4.59ms (first cold 713ms) |
+| scroll.thumbsnap/pagedown | 6 | ~5ms steady (first cold ~3s) |
+| maxrestore layout | 2 | ~40–140ms + first-frame ~400–530ms |
+
+Verdict: hypothesis CONFIRMED and extended. Per-card cost is chip
+creation (~5ms/word for 2 TextBoxes + overlays + wiring); the MULTIPLIERS
+are panel re-measure (~114ms/call, re-triggered constantly) and synchronous
+full `UpdateLayout` (~1–2s: ScrollIntoView+layout 2.1s median explains the
+empty viewport — realization can't keep up; move ~1s explains "2 seconds
+before anything moves"). `PrimaryAgent`/`IndexOf` fears UNFOUNDED
+(flags 0.11ms). Step 2 follows the data: kill per-word TextBoxes (shared
+editor), kill re-measure storms, kill sync full layouts.

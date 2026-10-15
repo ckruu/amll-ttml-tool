@@ -1496,6 +1496,139 @@ namespace AmllTtmlTool.WinUI.Views
             }
         }
 
+        // Step-1 command pipeline probe (DEBUG): time Execute, UpdateLayout
+        // and first composed frame separately for one structural op.
+        // Runs through the REAL EditPage paths (incl. FLIP + scrollIntoView).
+        internal async Task<string> ProfileOpOnceAsync(string kind)
+        {
+            // Invariant formatting (C1 rule): harness parses with invariant.
+            static string F(double v) =>
+                v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            if (_store is null || _selection is null) return "nostore";
+            const int at = 40;
+            if (at >= _store.Document.Lines.Count) return "toofew";
+            _selection.SelectLine(_store.Document.Lines[at].Id);
+            LineList.UpdateLayout();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            switch (kind)
+            {
+                case "move-up": MoveSelectedLines(-1); break;
+                case "move-down": MoveSelectedLines(1); break;
+                case "dup": DuplicateSelectedLines(); break;
+                case "delete": DeleteLineAt(at); break;
+                default: return "badkind";
+            }
+            var cmdMs = sw.Elapsed.TotalMilliseconds;
+            sw.Restart();
+            LineList.UpdateLayout();
+            var layoutMs = sw.Elapsed.TotalMilliseconds;
+            var frameMs = await FirstFrameMsAsync(2000);
+            if (kind == "dup" || kind == "delete") _store.Undo();
+            return $"cmd={F(cmdMs)} layout={F(layoutMs)} frame={F(frameMs)}";
+        }
+
+        private static async Task<double> FirstFrameMsAsync(int capMs)
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            void Handler(object? sender, object args) => tcs.TrySetResult(true);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Microsoft.UI.Xaml.Media.CompositionTarget.Rendering += Handler;
+            try
+            {
+                var done = await Task.WhenAny(tcs.Task, Task.Delay(capMs));
+                sw.Stop();
+                return done == tcs.Task ? sw.Elapsed.TotalMilliseconds : -1;
+            }
+            finally
+            {
+                Microsoft.UI.Xaml.Media.CompositionTarget.Rendering -= Handler;
+            }
+        }
+
+        // Step-1 scroll probe (DEBUG): one scroll action + layout. Kinds:
+        // into-view (ScrollIntoView), linedown x3 (~one wheel notch),
+        // thumbsnap (ChangeView jump), pagedown (viewport-height jump).
+        internal string ProfileScrollOnce(string kind, int index)
+        {
+            if (_store is null) return "nostore";
+            var n = _store.Document.Lines.Count;
+            if (n == 0) return "empty";
+            index = Math.Clamp(index, 0, n - 1);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            switch (kind)
+            {
+                case "into-view":
+                    LineList.ScrollIntoView(_store.Document.Lines[index]);
+                    break;
+                case "linedown":
+                case "thumbsnap":
+                case "pagedown":
+                    if (FindScroller() is not ScrollViewer sv) return "noscroller";
+                    if (kind == "linedown")
+                        sv.ChangeView(null, sv.VerticalOffset + 48, null, true);
+                    else if (kind == "thumbsnap")
+                        sv.ChangeView(null, sv.ScrollableHeight * index / Math.Max(1, n - 1), null, true);
+                    else
+                        sv.ChangeView(null, sv.VerticalOffset + sv.ViewportHeight, null, true);
+                    break;
+                default: return "badkind";
+            }
+            LineList.UpdateLayout();
+            sw.Stop();
+            return "op=" + sw.Elapsed.TotalMilliseconds.ToString("F2",
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        // Step-1 maximize/restore probe (DEBUG): presenter op + layout +
+        // first frame, each direction separately.
+        internal async Task<string> ProfileMaxRestoreAsync()
+        {
+            var win = ((App)Application.Current).MainWindow;
+            if (win?.AppWindow?.Presenter is not
+                Microsoft.UI.Windowing.OverlappedPresenter presenter)
+                return "nopresenter";
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            presenter.Maximize();
+            LineList.UpdateLayout();
+            var maxLayout = sw.Elapsed.TotalMilliseconds;
+            var maxFrame = await FirstFrameMsAsync(2000);
+            await Task.Delay(400);
+            sw.Restart();
+            presenter.Restore();
+            LineList.UpdateLayout();
+            var restLayout = sw.Elapsed.TotalMilliseconds;
+            var restFrame = await FirstFrameMsAsync(2000);
+            static string F(double v) =>
+                v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            return $"maxLayout={F(maxLayout)} maxFrame={F(maxFrame)} " +
+                $"restLayout={F(restLayout)} restFrame={F(restFrame)}";
+        }
+
+        // Step-1 element census (DEBUG): realized TextBox count (existing
+        // helper) plus TOTAL realized element count.
+        internal string ProfileElementCounts()
+        {
+            if (_store is null) return "nostore";
+            var boxes = RealizedTextBoxCount();
+            var total = 0;
+            for (var i = 0; i < LineList.Items.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not DependencyObject root) continue;
+                total += CountElements(root);
+            }
+            return $"lines={_store.Document.Lines.Count} " +
+                $"realized={RealizedLineCount()} textboxes={boxes} elements={total}";
+        }
+
+        private static int CountElements(DependencyObject root)
+        {
+            var n = 1;
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+                n += CountElements(VisualTreeHelper.GetChild(root, i));
+            return n;
+        }
+
         private static async Task<List<TimeSpan>> SampleFramesAsync(Action op, int durationMs)
         {
             var stamps = new List<TimeSpan>();
@@ -2408,6 +2541,12 @@ namespace AmllTtmlTool.WinUI.Views
             }
             if (args.ItemContainer.ContentTemplateRoot is not Grid card) return;
             if (args.Item is not EditLine line) return;
+#if DEBUG
+            var swPrep = System.Diagnostics.Stopwatch.StartNew();
+            void PrepAdd(string stage, double ms) =>
+                Services.ProfileTimers.Add("prepare." + stage, ms);
+            var swStage = System.Diagnostics.Stopwatch.StartNew();
+#endif
             // The displayed number is DERIVED from the line's CURRENT index
             // in the document (not the container index, which can lag during
             // structural layout). Fallback to the container index only if the
@@ -2424,8 +2563,18 @@ namespace AmllTtmlTool.WinUI.Views
                     AutomationProperties.SetName(number, $"Line number {index + 1}");
                 }
             }
+#if DEBUG
+            PrepAdd("number", swStage.Elapsed.TotalMilliseconds);
+            swStage.Restart();
+#endif
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return;
             BuildLinePanel(panel, line, index);
+#if DEBUG
+            var chipsMs = swStage.Elapsed.TotalMilliseconds;
+            PrepAdd("chips", chipsMs);
+            PrepAdd("chipword", chipsMs / Math.Max(1, line.Words.Count));
+            swStage.Restart();
+#endif
             // Line field boxes persist across recycles: refresh delegates +
             // text instead of rewiring. BG/duet visuals follow flags.
             if (card.FindName("TransBox") is TextBox transField)
@@ -2436,12 +2585,25 @@ namespace AmllTtmlTool.WinUI.Views
                 WireBox(romanField,
                     () => line.RomanLyric,
                     _ => CommitLineFieldBox(romanField, line, translation: false));
+#if DEBUG
+            PrepAdd("fields", swStage.Elapsed.TotalMilliseconds);
+            swStage.Restart();
+#endif
             ApplyFlagVisual(args.ItemContainer, index, line,
                 _store is null ? "v1" : DuetDisplay.PrimaryAgent(_store.Document.Lines));
+#if DEBUG
+            PrepAdd("flags", swStage.Elapsed.TotalMilliseconds);
+            swStage.Restart();
+#endif
             // Indicator from the selection set (single source), not the VSM:
             // recycled containers arrive here with arbitrary stale states.
             if (_selection is not null && args.ItemContainer is ListViewItem prepared)
                 ApplySelectionVisual(prepared, _selection.SelectedLineIds.Contains(line.Id));
+#if DEBUG
+            PrepAdd("selection", swStage.Elapsed.TotalMilliseconds);
+            swPrep.Stop();
+            Services.ProfileTimers.Add("prepare.total", swPrep.Elapsed.TotalMilliseconds);
+#endif
             if (card.FindName("DeleteButton") is Button delete)
             {
                 AutomationProperties.SetAutomationId(delete, $"DeleteLine{index + 1}");

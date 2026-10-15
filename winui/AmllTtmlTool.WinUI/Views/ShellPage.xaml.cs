@@ -803,6 +803,41 @@ namespace AmllTtmlTool.WinUI.Views
                         }
                     });
                 }
+                // Step-1 profiler: --profile <file> [report]. Imports the
+                // staged doc, measures realization stages, command pipeline,
+                // scroll and maximize costs, writes the table, self-closes.
+                // DEBUG-only.
+                var profileIdx = Array.IndexOf(audioArgs, "--profile");
+                if (profileIdx >= 0)
+                {
+                    var profileFile = profileIdx + 1 < audioArgs.Length ? audioArgs[profileIdx + 1] : "";
+                    var profileReport = profileIdx + 2 < audioArgs.Length ? audioArgs[profileIdx + 2] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            if (_intake is not null && !string.IsNullOrEmpty(profileFile))
+                                await Services.ProfileCheck.RunAsync(win, this, _intake, _store, profileFile, profileReport);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.ProfileCheck.DefaultReportFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
                 // Self-driving lyrics verification: --lyrics-test <file>
                 // [report]. Imports, asserts model/combos/widths/errors/perf,
                 // writes the verdict, self-closes. DEBUG-only.
@@ -2860,6 +2895,14 @@ namespace AmllTtmlTool.WinUI.Views
         internal int Test_RealizedLineCount() => _attachedEditPage?.RealizedLineCount() ?? -1;
         internal int Test_RealizedTextBoxCount() => _attachedEditPage?.RealizedTextBoxCount() ?? -1;
         internal void Test_ScrollLineIntoView(int index) => _attachedEditPage?.ScrollLineIntoView(index);
+        internal string Test_ProfileElementCounts() =>
+            _attachedEditPage?.ProfileElementCounts() ?? "nopage";
+        internal Task<string> Test_ProfileOpOnce(string kind) =>
+            _attachedEditPage is null ? Task.FromResult("nopage") : _attachedEditPage.ProfileOpOnceAsync(kind);
+        internal string Test_ProfileScrollOnce(string kind, int index) =>
+            _attachedEditPage?.ProfileScrollOnce(kind, index) ?? "nopage";
+        internal Task<string> Test_ProfileMaxRestore() =>
+            _attachedEditPage is null ? Task.FromResult("nopage") : _attachedEditPage.ProfileMaxRestoreAsync();
         internal int Test_RowVisibility(int line, int which) =>
             _attachedEditPage?.RowVisibility(line, which) ?? -1;
         internal string Test_ChipWidths(int line, int word) =>
