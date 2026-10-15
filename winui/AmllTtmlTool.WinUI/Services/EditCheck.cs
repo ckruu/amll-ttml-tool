@@ -633,12 +633,12 @@ internal static class EditCheck
             await OnUiAsync(window, () => page.Test_FlipToggle("wordroman"));
             await Task.Delay(200);
             var romanBack = await OnUiAsync(window, () => page.Test_WordRomanVisible());
-            // Beats shares Roman's columns, so hiding Roman only sheds the
-            // roman-over-beats excess (~15-20px: label 42->35, box 88->80);
-            // ~0 with roman still visible would mean a leftover column (the
-            // visibility asserts already pin the collapsed state).
+            // Beats shares Roman's columns and the label columns are shared
+            // across all three pairs, so hiding Roman only sheds the
+            // roman-over-beats input excess (88->80 = 8px); ~0 would mean a
+            // leftover column, ~90+ would mean Beats went with it.
             var romanOk = romanOn && !romanOff && romanBack
-                && wOn - wOff >= 10 && wOn - wOff <= 40;
+                && wOn - wOff >= 5 && wOn - wOff <= 15;
             Check("ribbon-roman-toggle", romanOk,
                 $"vis={romanOn}/{romanOff}/{romanBack} w={wOn:F2}->{wOff:F2}");
             // Multi-select: caption "3 selected"; short placeholder + full
@@ -691,6 +691,74 @@ internal static class EditCheck
                 }
             }
             Check("ribbon-tiers", tierOk, tierDetail);
+            // --- 4e. word grid shared columns (Step 5) -------------------
+            // Same-column inputs (Content/Obscene, Beats/Roman, Start/End)
+            // share left edge + width within 1px; label columns one width;
+            // rows equal height. Roman shown + hidden. At 672 the group is
+            // collapsed by the Tiny tier (asserted, not measured).
+            static Dictionary<string, double[]> ParseGrid(string geo)
+            {
+                var map = new Dictionary<string, double[]>();
+                foreach (var part in geo.Split(';'))
+                {
+                    var kv = part.Split(':');
+                    if (kv.Length != 2) continue;
+                    var nums = kv[1].Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    var vals = new List<double>();
+                    foreach (var s in nums)
+                        if (double.TryParse(s, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var v)) vals.Add(v);
+                    map[kv[0]] = vals.ToArray();
+                }
+                return map;
+            }
+            var gridOk = true;
+            var gridDetail = "";
+            var wrGridBefore = await OnUiAsync(window, () => page.Test_ToggleState("wordroman"));
+            foreach (var roman in new[] { true, false })
+            {
+                await OnUiAsync(window, () => page.Test_SetToggle("wordroman", roman));
+                await Task.Delay(450);
+                foreach (var w in new[] { 1400, 1116, 900, 750 })
+                {
+                    await OnUiAsync(window, () => page.Test_SetWindowWidth(w));
+                    await Task.Delay(500);
+                    var geo = await OnUiAsync(window, () => page.Test_WordGridGeometry());
+                    var tierName = await OnUiAsync(window, () => page.Test_TierName());
+                    var g = ParseGrid(geo);
+                    double[]? vis = null, labs = null, rows = null;
+                    double[]? S = null, E = null, C = null, O = null, B = null, R = null;
+                    var ok = g.TryGetValue("vis", out vis) && vis.Length > 0 && vis[0] == 1
+                        && g.TryGetValue("labs", out labs) && labs.Length == 3
+                        && g.TryGetValue("rows", out rows) && rows.Length == 2
+                        && g.TryGetValue("S", out S) && S.Length == 4
+                        && g.TryGetValue("E", out E) && E.Length == 4
+                        && g.TryGetValue("C", out C) && C.Length == 4
+                        && g.TryGetValue("O", out O) && O.Length == 4
+                        && g.TryGetValue("B", out B) && B.Length == 4
+                        && (!roman || (g.TryGetValue("R", out R) && R.Length == 4));
+                    if (ok && vis is not null && labs is not null && rows is not null
+                        && S is not null && E is not null && C is not null
+                        && O is not null && B is not null && (R is not null || !roman))
+                    {
+                        ok = Math.Abs(C[0] - O[0]) <= 1 && Math.Abs(C[1] - O[1]) <= 1
+                            && Math.Abs(S[0] - E[0]) <= 1 && Math.Abs(S[1] - E[1]) <= 1
+                            && labs.Max() - labs.Min() <= 1
+                            && Math.Abs(rows[0] - rows[1]) <= 1;
+                        if (roman && R is not null)
+                            ok = ok && Math.Abs(B[0] - R[0]) <= 1 && Math.Abs(B[1] - R[1]) <= 1;
+                    }
+                    else ok = false;
+                    if (!ok) { gridOk = false; gridDetail += $"w={w} roman={roman} [{geo}] "; }
+                    else Write(report, $"  note grid w={w} roman={roman} tier={tierName} [{geo}]");
+                }
+            }
+            await OnUiAsync(window, () => page.Test_SetWindowWidth(672));
+            await Task.Delay(500);
+            var geoTiny = await OnUiAsync(window, () => page.Test_WordGridGeometry());
+            if (!geoTiny.Contains("vis:0")) { gridOk = false; gridDetail += $"tiny [{geoTiny}] "; }
+            await OnUiAsync(window, () => page.Test_SetToggle("wordroman", wrGridBefore));
+            Check("word-grid-geometry", gridOk, gridDetail);
             await OnUiAsync(window, () => page.Test_SetWindowWidth(1280));
             await Task.Delay(300);
             // Single selection hides the caption again (no leftover column).
@@ -1553,6 +1621,99 @@ internal static class EditCheck
             var emoji = await OnUiAsync(window, () => page.Test_WordText(0, 0));
             await OnUiAsync(window, () => page.Test_Undo());
             Check("edge-emoji", emoji.Length > 0, $"len={emoji.Length}");
+
+            // --- 9. duet display (Step 6) --------------------------------
+            // broken_down.ttml staged to temp (originals read-only). The
+            // MODEL stays WASM-exact (all 88 lines duet) while badges follow
+            // raw agents vs the primary (most frequent = v1): v1 lines show
+            // no V2. Export is model-derived, byte-identical to the pre-fix
+            // path; toggling retires the stash (standard form after).
+            // Skipped where C:\Lyrics is absent (vacuous pass, like the
+            // D:\Lyrics-gated Core real-file tests).
+            const string brokenSrc = @"C:\Lyrics\broken_down.ttml";
+            if (!System.IO.File.Exists(brokenSrc))
+            {
+                Write(report, "  note duet-display skipped (no C:\\Lyrics\\broken_down.ttml)");
+            }
+            else
+            {
+                var brokenStage = System.IO.Path.Combine(
+                    System.IO.Path.GetTempPath(), "duet-broken-" + Guid.NewGuid().ToString("N") + ".ttml");
+                System.IO.File.Copy(brokenSrc, brokenStage, true);
+                var imp = await await OnUiAsync(window, () => page.Test_ImportStaged(brokenStage));
+                try { System.IO.File.Delete(brokenStage); } catch { }
+                var impN = await OnUiAsync(window, () => page.Test_LyricLineCount());
+                var primary = await OnUiAsync(window, () => page.Test_PrimaryAgent());
+                // Badge set over three realized windows must equal exactly
+                // the v2-agent lines in those windows.
+                var badgeOk = imp == $"ok:{impN}" && impN == 88 && primary == "v1";
+                var badgeDetail = $"import=[{imp}] primary=[{primary}] ";
+                foreach (var top in new[] { 0, 30, 60 })
+                {
+                    await OnUiAsync(window, () => page.Test_ScrollLineIntoView(Math.Min(top, impN - 1)));
+                    await Task.Delay(250);
+                    var badges = (await OnUiAsync(window, () => page.Test_DuetBadges()))
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(s => int.Parse(s)).ToHashSet();
+                    for (var i = 0; i < impN; i++)
+                    {
+                        if (!await OnUiAsync(window, () => page.Test_IsLineRealized(i))) continue;
+                        var agent = await OnUiAsync(window, () => page.Test_LineAgent(i));
+                        var want = agent == "[v2]";
+                        if (badges.Contains(i) != want)
+                        {
+                            badgeOk = false;
+                            badgeDetail += $"line{i}:agent={agent} badge={badges.Contains(i)} ";
+                        }
+                    }
+                }
+                Check("duet-display-badges", badgeOk, badgeDetail);
+                // Export unchanged: every agented line is v2 (the model is
+                // all-duet, exactly like the pre-fix path — BG-only groups
+                // emit bare spans with no agent attr at all).
+                var exp0 = await OnUiAsync(window, () => page.Test_ExportTtml());
+                var expP = System.Text.RegularExpressions.Regex.Matches(exp0, "<p ").Count;
+                var expV2 = System.Text.RegularExpressions.Regex.Matches(exp0, "ttm:agent=\"v2\"").Count;
+                var expV1 = System.Text.RegularExpressions.Regex.Matches(exp0, "ttm:agent=\"v1\"").Count;
+                Check("duet-display-export", expP > 0 && expV2 == expP && expV1 == 0,
+                    $"p={expP} v2={expV2} v1={expV1}");
+                // Toggling V2 off retires the stash and hides the badge; the
+                // line exports the standard form (v1); toggling back on shows
+                // the badge from the flag (stash stays retired).
+                var v2idx = -1;
+                for (var i = 0; i < impN && v2idx < 0; i++)
+                    if (await OnUiAsync(window, () => page.Test_LineAgent(i)) == "[v2]") v2idx = i;
+                var togOk = v2idx >= 0;
+                var togDetail = $"line={v2idx} ";
+                if (togOk)
+                {
+                    await OnUiAsync(window, () => page.Test_SelectLine(v2idx));
+                    await OnUiAsync(window, () => page.Test_ClickRibbonToggle("duet"));
+                    var stashOff = await OnUiAsync(window, () => page.Test_LineAgent(v2idx));
+                    await OnUiAsync(window, () => page.Test_ScrollLineIntoView(v2idx));
+                    await Task.Delay(200);
+                    var badgesOff = await OnUiAsync(window, () => page.Test_DuetBadges());
+                    var exp1 = await OnUiAsync(window, () => page.Test_ExportTtml());
+                    var v2c1 = System.Text.RegularExpressions.Regex.Matches(exp1, "ttm:agent=\"v2\"").Count;
+                    var v1c1 = System.Text.RegularExpressions.Regex.Matches(exp1, "ttm:agent=\"v1\"").Count;
+                    togOk = stashOff == "nostash"
+                        && !badgesOff.Split(',', StringSplitOptions.RemoveEmptyEntries).Contains(v2idx.ToString())
+                        && v2c1 == expP - 1 && v1c1 == 1;
+                    togDetail += $"stash=[{stashOff}] v2/v1={v2c1}/{v1c1} ";
+                    await OnUiAsync(window, () => page.Test_ClickRibbonToggle("duet"));
+                    var stashOn = await OnUiAsync(window, () => page.Test_LineAgent(v2idx));
+                    await OnUiAsync(window, () => page.Test_ScrollLineIntoView(v2idx));
+                    await Task.Delay(200);
+                    var badgesOn = await OnUiAsync(window, () => page.Test_DuetBadges());
+                    var exp2 = await OnUiAsync(window, () => page.Test_ExportTtml());
+                    var v2c2 = System.Text.RegularExpressions.Regex.Matches(exp2, "ttm:agent=\"v2\"").Count;
+                    togOk = togOk && stashOn == "nostash"
+                        && badgesOn.Split(',', StringSplitOptions.RemoveEmptyEntries).Contains(v2idx.ToString())
+                        && v2c2 == expP;
+                    togDetail += $"restash=[{stashOn}] v2={v2c2}";
+                }
+                Check("duet-toggle-standard", togOk, togDetail);
+            }
 
             Write(report, fails == 0 ? "edit-test | OK" : $"edit-test | FAIL {fails}");
         }

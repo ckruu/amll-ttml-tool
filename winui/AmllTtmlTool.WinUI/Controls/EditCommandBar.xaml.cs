@@ -125,6 +125,33 @@ namespace AmllTtmlTool.WinUI.Controls
             var visibility = show ? Visibility.Visible : Visibility.Collapsed;
             WordRomanLabel.Visibility = visibility;
             WordRomanBox.Visibility = visibility;
+            SyncWordLabelColumns();
+        }
+
+        // Label columns (Start/Content/Beats over End/Obscene/Roman) share
+        // one width: the longest visible label wins. WinUI Grid has no
+        // SharedSizeGroup, so this runs after layout-affecting changes
+        // (tier switch, roman toggle, group resize). Guarded: setting an
+        // unchanged width never re-invalidates layout.
+        private void SyncWordLabelColumns()
+        {
+            var labels = new[] { WordStartLabel, WordContentLabel, EmptyBeatLabel,
+                WordEndModeLabel, ObsceneLabel, WordRomanLabel };
+            var widest = 0.0;
+            foreach (var label in labels)
+            {
+                if (label.Visibility != Visibility.Visible) continue;
+                label.Measure(new Windows.Foundation.Size(
+                    double.PositiveInfinity, double.PositiveInfinity));
+                widest = System.Math.Max(widest, label.DesiredSize.Width);
+            }
+            if (widest <= 0) return;
+            foreach (var index in new[] { 0, 2, 4 })
+            {
+                var column = WordGroup.ColumnDefinitions[index];
+                if (System.Math.Abs(column.Width.Value - widest) > 0.5)
+                    column.Width = new GridLength(widest);
+            }
         }
 
         private (EditLine? Line, EditWord? Word) Targets()
@@ -428,7 +455,9 @@ namespace AmllTtmlTool.WinUI.Controls
             SetBox(LineStartBox, line is null ? "" : LyricTime.Format(line.StartTimeMs));
             SetBox(LineEndBox, LineEndText(line));
             BgToggle.IsChecked = line?.IsBg == true;
-            DuetToggle.IsChecked = line?.IsDuet == true;
+            DuetToggle.IsChecked = line is not null && _store is not null
+                && DuetDisplay.EffectiveDuet(line,
+                    DuetDisplay.PrimaryAgent(_store.Document.Lines));
             IgnoreSyncToggle.IsChecked = line?.IgnoreSync == true;
             SetBox(WordStartBox, word is null ? "" : LyricTime.Format(word.StartTimeMs));
             SetBox(WordEndBox, WordEndText(line, word));
@@ -655,10 +684,13 @@ namespace AmllTtmlTool.WinUI.Controls
                 else { ObsceneToggle.IsChecked = false; ObsceneToggle.Content = "No"; }
                 ApplyMasterToggles();
                 AppSettings.DisplayChanged += ApplyMasterToggles;
+                WordGroup.SizeChanged += OnWordGroupSizeChanged;
+                SyncWordLabelColumns();
             };
             this.Unloaded += (_, _) =>
             {
                 AppSettings.DisplayChanged -= ApplyMasterToggles;
+                WordGroup.SizeChanged -= OnWordGroupSizeChanged;
                 if (_selection is not null) _selection.Changed -= RefreshSelectionDisplay;
                 if (_store is not null) _store.Changed -= RefreshSelectionDisplay;
             };
@@ -689,8 +721,14 @@ namespace AmllTtmlTool.WinUI.Controls
                 showSection && !wide ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        private void OnWidthTierChanged(object sender, VisualStateChangedEventArgs e) =>
+        private void OnWidthTierChanged(object sender, VisualStateChangedEventArgs e)
+        {
             ApplyMasterToggles();
+            SyncWordLabelColumns();
+        }
+
+        private void OnWordGroupSizeChanged(object sender, SizeChangedEventArgs e) =>
+            SyncWordLabelColumns();
 
         private void OnNewLineClick(object sender, RoutedEventArgs e) =>
             NewLineRequested?.Invoke();
@@ -798,6 +836,8 @@ namespace AmllTtmlTool.WinUI.Controls
         // except BarReport which reads live layout after Test_SetWindowWidth).
         internal int WordGroupRows() => WordGroup.RowDefinitions.Count;
 
+        internal string Test_TierName() => WidthTiers?.CurrentState?.Name ?? "none";
+
         internal bool WordRomanVisible() => WordRomanBox.Visibility == Visibility.Visible;
 
         internal string WordCaption() =>
@@ -835,6 +875,37 @@ namespace AmllTtmlTool.WinUI.Controls
             static string Num(double v) =>
                 v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
             return $"{box.PlaceholderText}|{tip}|{Num(probe.DesiredSize.Width)}|{Num(box.ActualWidth)}";
+        }
+
+        // Shared-column geometry: per input "left,width,top,height" for the
+        // six word inputs + label column widths + row heights, in one call.
+        // "S:l,w;C:l,w;B:l,w;E:l,w;O:l,w;R:l,w;labs:w,w,w;rows:h,h;vis:1/0"
+        // (R omitted while Roman is collapsed). Same-column inputs must share
+        // left edge and width within 1px; label columns one width; rows equal.
+        internal string Test_WordGridGeometry()
+        {
+            static string Num(double v) =>
+                v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            WordGroup.UpdateLayout();
+            string Geo(FrameworkElement el)
+            {
+                var p = el.TransformToVisual(WordGroup)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0));
+                return $"{Num(p.X)},{Num(el.ActualWidth)},{Num(p.Y)},{Num(el.ActualHeight)}";
+            }
+            // Label COLUMN widths (not label text widths: labels left-align
+            // inside their shared column).
+            var labs = string.Join(",", new[] { 0, 2, 4 }
+                .Select(i => Num(WordGroup.ColumnDefinitions[i].ActualWidth)));
+            var r0h = Num(System.Math.Max(WordStartBox.ActualHeight, WordContentBox.ActualHeight));
+            var r1els = new List<FrameworkElement> { WordEndBox, ObsceneToggle };
+            if (WordRomanBox.Visibility == Visibility.Visible) r1els.Add(WordRomanBox);
+            var r1h = Num(r1els.Max(e => e.ActualHeight));
+            var roman = WordRomanBox.Visibility == Visibility.Visible
+                ? $";R:{Geo(WordRomanBox)}" : "";
+            return $"S:{Geo(WordStartBox)};C:{Geo(WordContentBox)};B:{Geo(EmptyBeatBox)};" +
+                $"E:{Geo(WordEndBox)};O:{Geo(ObsceneToggle)}{roman};" +
+                $"labs:{labs};rows:{r0h},{r1h};vis:{(WordGroup.Visibility == Visibility.Visible ? 1 : 0)}";
         }
 
         // Same-row baseline check: max vertical-center deviation within row

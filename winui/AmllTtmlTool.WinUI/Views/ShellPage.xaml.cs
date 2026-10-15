@@ -726,6 +726,41 @@ namespace AmllTtmlTool.WinUI.Views
                         }
                     });
                 }
+                // Animation/scroll benchmark: --perf-report <path>. Runs the
+                // move/drag/toggle/scroll scenarios and writes frame stats
+                // (median, p95, max, over-2x count) plus op wall times to
+                // <path> (temp default). Pass the path via -Args (env
+                // AMLL_HARNESS_FILE is only honored for lyrics file modes).
+                // DEBUG-only.
+                var perfIdx = Array.IndexOf(audioArgs, "--perf-report");
+                if (perfIdx >= 0)
+                {
+                    var perfOut = perfIdx + 1 < audioArgs.Length ? audioArgs[perfIdx + 1] : null;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(800);
+                            var win = ((App)Application.Current).MainWindow;
+                            await Services.PerfReport.RunAsync(win, this, perfOut);
+                        }
+                        catch (Exception ex)
+                        {
+                            try
+                            {
+                                System.IO.File.AppendAllText(Services.PerfReport.DefaultFile,
+                                    "HARNESS-ERROR: " + ex.ToString() + "\n");
+                            }
+                            catch { }
+                        }
+                        finally
+                        {
+                            var win = ((App)Application.Current).MainWindow;
+                            Services.HarnessHost.Finish();
+                            win.DispatcherQueue.TryEnqueue(() => win.Close());
+                        }
+                    });
+                }
                 // Self-driving lyrics verification: --lyrics-test <file>
                 // [report]. Imports, asserts model/combos/widths/errors/perf,
                 // writes the verdict, self-closes. DEBUG-only.
@@ -2835,6 +2870,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.Test_DragCancel() ?? "nopage";
         internal string Test_DragState() =>
             _attachedEditPage?.Test_DragState() ?? "nopage";
+        internal string Test_DragGhost() =>
+            _attachedEditPage?.Test_DragGhost() ?? "nopage";
         internal void Test_BuildDragDoc(int lines, int wordsPer) =>
             _attachedEditPage?.Test_BuildDragDoc(lines, wordsPer);
         internal string Test_DragEdgeScroll(bool top, int ticks) =>
@@ -3010,6 +3047,41 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.EscapeInsertBox() ?? false;
         internal string Test_InsertInfo() =>
             _attachedEditPage?.Test_InsertInfo() ?? "nopage";
+        internal async Task<string> Test_ImportStaged(string path)
+        {
+            // Mid-run import through the SAME FileIntake funnel (dirty-confirm
+            // is app-shell; the harness doc is disposable). Callers stage a
+            // temp copy first — originals stay read-only.
+            try
+            {
+                if (_intake is null || _store is null) return "nointake";
+                var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+                await _intake.ImportFileAsync(file);
+                return $"ok:{_store.Document.Lines.Count}";
+            }
+            catch (Exception ex) { return "error:" + ex.GetType().Name; }
+        }
+        internal string Test_ExportTtml()
+        {
+            // The exact non-Apple save path (ToRecords -> NormalizeForExport
+            // -> PostProcess -> Generate), without dialogs.
+            try
+            {
+                if (_store is null) return "nostore";
+                var prepared = Core.TtmlNormalize.PostProcess(
+                    Core.TtmlNormalize.NormalizeForExport(_store.ToRecords()));
+                var gen = Core.TtmlGenerator.Generate(prepared, new(),
+                    new(false, false, Core.TtmlNormalize.IsLineTimingLyrics(prepared)));
+                return gen.Success ? gen.Data! : "gen-error:" + gen.Error?.Message;
+            }
+            catch (Exception ex) { return "error:" + ex.GetType().Name; }
+        }
+        internal string Test_PrimaryAgent() =>
+            _attachedEditPage?.Test_PrimaryAgent() ?? "nopage";
+        internal string Test_DuetBadges() =>
+            _attachedEditPage?.Test_DuetBadges() ?? "nopage";
+        internal string Test_LineAgent(int index) =>
+            _attachedEditPage?.Test_LineAgent(index) ?? "nopage";
 
         // Accelerator audit (Step 4): every Page-owned KeyboardAccelerator
         // with its effective placement + the button tooltips that must stay.
@@ -3073,6 +3145,8 @@ namespace AmllTtmlTool.WinUI.Views
         internal void Test_ClickRibbonToggle(string which) => EditBar.ClickRibbonToggle(which);
         internal bool Test_DurationMode() => EditBar.DurationMode();
         internal int Test_WordGroupRows() => EditBar.WordGroupRows();
+        internal string Test_WordGridGeometry() => EditBar.Test_WordGridGeometry();
+        internal string Test_TierName() => EditBar.Test_TierName();
         internal bool Test_WordRomanVisible() => EditBar.WordRomanVisible();
         internal string Test_WordCaption() => EditBar.WordCaption();
         internal double Test_WordGroupWidth() => EditBar.WordGroupWidth();
