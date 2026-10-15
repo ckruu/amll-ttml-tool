@@ -690,6 +690,13 @@ step below); the VM runs the in-app harnesses (`edit-test`,
 `lyrics-test`, Core) whose `Test_` hooks drive the same gesture/command
 code paths as the pointer handlers.
 
+The 13 reported items were consolidated into 8 fix steps (one commit
+each, `a531c39`→`b36ce34`): step 1 selection model, step 2 line
+numbers, step 3 chips, step 4 accelerator tooltips, step 5 ribbon word
+grid, step 6 duet/V2 display, step 7 drag Ctrl latency + move FLIP +
+`--perf-report`, step 8 final verification. Results below; `edit-test`
+covers every item with a named check.
+
 ## Step 4: accelerator audit (the "Ctrl+O" tooltip, item 3)
 
 Hypothesis CONFIRMED by inspection: the 8 `KeyboardAccelerator`s are
@@ -725,3 +732,129 @@ handlers, not accelerators — they never produce tooltips.
 Harness: `tooltip-audit` pins `page=Hidden`, all 8 combos present, and
 the Undo/Redo button tooltips intact. Host manual: hover 25 elements x
 1.5s each — no unexpected tooltip; real buttons still show theirs.
+
+## Steps 1–3: selection, line numbers, chips
+
+- **Step 1 (`a531c39`) single selection model.** One source of truth:
+  `SelectionService` (line set / word set / primary / anchor);
+  `ListView SelectionMode="None"`; modifiers read from `e.KeyModifiers`;
+  right-click select-first paints synchronously. Bug fixed: the visible
+  ListView selection and the service could desync (multiple "selected"
+  rows, phantom primaries). Root cause of the *unreadable* Dark
+  selection was code-behind `Application.Current.Resources` lookups,
+  which are NOT theme-resolved (return Light values in Dark). Fix:
+  translucent overlay elements using `{ThemeResource}` — a `SelectionTint`
+  Rectangle (accent, Opacity 0.2) and a chip wash (Opacity 0.15,
+  ZIndex −1); the card `Root.Background` is never overwritten.
+  Checks: `sel-ab-replace`, `sel-converge-30` (seed 20261014),
+  `sel-ctx-full-look`, `sel-contrast`, `visible-selection`,
+  `selection-indicator`, `focus-anchor`, `gesture-*`.
+- **Step 2 (`29a2222`) derived line numbers.** The number is derived
+  (`index+1`) and refreshed on every store change + prepare/recycle;
+  sets are guarded (only when the value changes — an unconditional set
+  caused 0.5 px layout drift). Bug fixed: stale numbers after
+  insert/delete/move. Check: `line-numbers-200` (seed 20261015),
+  `seed-and-empty`.
+- **Step 3 (`fe38e03`) chips.** Space edits as text (`space-edit-text`,
+  `space-add`, `space-20`, `space-verbatim`, `space-esc`, `space-labels`,
+  `space-recount`); romanization shows after a `+`
+  (`romaji-plus-visibility`, `romaji-gap` collapsed); insert-box lifetime
+  (`insert-lifetime` stay/left/esc/emptyClosed/tab, `insert-cleanup`,
+  `insert-word`). `BuildLinePanel` snaps card visibility;
+  `CloseInsertOnSelectionMove` fires on `_selection.Changed`; an
+  empty-Enter closes.
+
+## Step 5: ribbon word grid (shared columns)
+
+WinUI 3 `Grid` has NO `SharedSizeGroup`/`IsSharedSizeScope`, so the
+label columns are equalized in `EditCommandBar.SyncWordLabelColumns()`
+(longest label wins), wired to Loaded/Unloaded/`OnWidthTierChanged`/
+`OnWordGroupSizeChanged`. VSM `MinWidth` setters are INERT when a base
+`MinWidth` floor exists and **MinWidth wins over Width**, so each tier
+sets BOTH `Width` and `MinWidth` per input (Narrow 72/72, Tight 56/56,
+Tiny 72/72). Checks: `word-grid-geometry` (1400/1116/900/750 +
+collapsed), `ribbon-tiers`, `ribbon-2row`, `ribbon-baselines`,
+`ribbon-count`, `ribbon-roman-toggle` (width delta window 5–15 px).
+
+## Step 6: duet display from raw agents (`broken_Down.ttml`)
+
+The WASM marks ALL 88 lines of `real-broken.wasm.json` `isDuet=true`; the
+fix intentionally diverges at the DISPLAY layer only. Model `IsDuet`
+keeps exact WASM semantics (parity goldens unchanged). Raw `ttm:agent`
+is stashed in `EditLine.Unmapped[EditLine.AgentKey]` (`"agent"`).
+`DuetDisplay` (`AmllTtmlTool.Core.Lyrics`): `PrimaryAgent` = most-frequent
+normalized agent among non-BG lines (tie→first non-BG; none/no-stash→
+`"v1"`); `EffectiveDuet` = stashed? `NormalizeAgent != primary` :
+`IsDuet`. Toggling V2/BG retires the stash (`SetLineFlagsCommand`,
+restorable on undo); `ignoreSync` never touches it. Export derives from
+the model (unchanged; BG-only groups emit bare spans — no agent attr).
+New `AgentDisplayTests` (10, all pass). Checks:
+`duet-display-badges` (88 lines, primary `v1`),
+`duet-display-export` (`p=82 v2=82 v1=0` — the 6 agentless lines),
+`duet-toggle-standard` (retire → `v2/v1=81/1`, re-toggle → `v2=82`).
+
+## Step 7: drag Ctrl latency, move animation, `--perf-report`
+
+- **Ctrl latency:** the drag ghost label (`Move`↔`Copy`) now follows
+  Ctrl live by polling `IsCtrlDown()` on the drag timer (≤16 ms,
+  `ScrollTick`) instead of waiting for key events. Check: `gesture-ctrl`,
+  `Test_DragGhost`.
+- **Move animation:** composition-thread FLIP (`RunWithMoveFlip`) —
+  affected VISIBLE cards glide from their old offset to the new layout
+  in 175 ms with the Fluent decelerate (no per-frame layout work);
+  >12 moving cards snap + opacity-pulse instead; animations-off snaps;
+  the ListView `RepositionThemeTransition` is parked during the op so
+  heavy TextBox cards are never layout-animated. Wired into
+  `MoveSelectedLines` and drag-drop (`ReorderLinesCommand`). Regression:
+  all 26 `drag-*`, `multi-move*`, `moveline` checks green.
+- **`--perf-report <path>` mode** (this is a MEASUREMENT; always reports
+  OK when it completes — frame targets are advisory and only
+  trustworthy on a real host). Host command (ONE command):
+  `pwsh scripts/run-harness.ps1 -Mode perf-report -Args @('<path>') -TimeoutSec 900`.
+  It builds a 300×3 doc and samples `CompositionTarget.Rendering` across
+  move-one-line, drag-5-lines, toggle-word-roman-300, and a scroll sweep,
+  writing `frames median p95 max over2x over3x wallMedian wallMax ops`
+  per scenario. This VM is occluded/headless (documented), so its
+  frame samples read UNRELIABLE/FAIL from compositor jitter; wall times
+  are valid (`move-line` wallMedian ~42–65 ms, `drag-5lines` ~188–393 ms,
+  `toggle-wordroman-300` ~66–166 ms, `scroll-sweep` ~164–340 ms). The
+  host run gives the authoritative frames.
+
+## Step 8: final results (measured)
+
+Final binary `AmllTtmlTool.WinUI.dll` 2026-10-15 02:48:47Z; all runs via
+`scripts/run-harness.ps1`.
+
+| Suite | Result |
+|---|---|
+| Core `dotnet test` | **430/431** (1 pre-existing, see below) |
+| `edit-test` (in-app, 193 checks) | **PASS** 523.5 s, 0 FAIL |
+| `lyrics-test` apple | **PASS** 19.5 s |
+| `lyrics-test` broken | **PASS** 18.7 s |
+| `lyrics-test` standard LRC | **PASS** 12.4 s |
+| `selftest` | **PASS** 2.9 s |
+| `perf-report` (VM, advisory) | completed OK (frames unreliable here) |
+| `ui-edit` / `ui-lyrics` / `ui-tests` / `ui-tests-playerbar` | **BLOCKED** (no `winapp` CLI on this machine — host-manual) |
+
+Pre-existing unrelated Core failure (not introduced here):
+`LyricAdapterTests.Fractional_Ms_Reported_With_Source_And_Count`.
+
+Contrast (alpha-correct, theme-dictionary bases; card `#2B2B2B`
+Dark / text `#FFFFFF`):
+
+| Theme | Accent | Ratio |
+|---|---|---|
+| Dark | salmon `#F46762` | 10.67 (live probe `sel-contrast`) |
+| Dark | blue | 11.80 |
+| Dark | yellow | 8.50 |
+| Light | salmon | 13.47 |
+| Light | blue | 12.75 |
+| Light | yellow | 15.45 |
+
+`edit-test` check names (193, all `ok`, 0 `FAIL`) include the six
+Phase-3-fix groups: selection (`sel-*`, `visible-selection`,
+`selection-indicator`, `focus-anchor`, `gesture-*`), line numbers
+(`line-numbers-200`, `seed-and-empty`), chips (`space-*`, `romaji-*`,
+`insert-*`), tooltips (`tooltip-audit`), ribbon (`ribbon-*`,
+`word-grid-geometry`), duet (`duet-*`), plus the untouched baseline
+(`card-*`, `chip-*`, `drag-*`, `ribbon-*`, `perf-*`, `stress-200`).
