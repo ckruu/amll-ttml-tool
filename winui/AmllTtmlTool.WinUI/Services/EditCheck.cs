@@ -1749,6 +1749,10 @@ internal static class EditCheck
                         && badgesOn.Split(',', StringSplitOptions.RemoveEmptyEntries).Contains(v2idx.ToString())
                         && v2c2 == expP;
                     togDetail += $"restash=[{stashOn}] v2={v2c2}";
+                    // Round-trip exact: off+on returns the export byte-for-byte
+                    // (stash is display-only; unedited lines export identical).
+                    togOk = togOk && exp2 == exp0;
+                    if (exp2 != exp0) togDetail += " export-bytes-differ";
                 }
                 Check("duet-toggle-standard", togOk, togDetail);
             }
