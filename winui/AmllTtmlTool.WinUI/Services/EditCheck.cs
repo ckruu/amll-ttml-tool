@@ -1360,6 +1360,11 @@ internal static class EditCheck
             var dId5 = await OnUiAsync(window, () => page.Test_LineId(5));
             await OnUiAsync(window, () => page.Test_DragBeginLines(new[] { 5 }));
             var dSt0 = await OnUiAsync(window, () => page.Test_DragState());
+            // Ctrl-latency budget: the poll timer (not pointer moves) flips
+            // the ghost, so a still mouse meets 50ms (16ms interval, running
+            // while the drag is active). Real Ctrl down/up is host-manual.
+            var dTimer = await OnUiAsync(window, () => page.Test_DragTimerInfo());
+            Check("drag-ctrl-timer", dTimer == "interval:16;running:1", $"[{dTimer}]");
             await OnUiAsync(window, () => page.Test_DragToLineIndex(10));
             var dSt1 = await OnUiAsync(window, () => page.Test_DragState());
             var dDepth0 = await OnUiAsync(window, () => page.Test_UndoDepth());

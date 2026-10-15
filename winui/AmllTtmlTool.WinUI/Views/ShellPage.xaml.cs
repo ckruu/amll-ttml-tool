@@ -2872,6 +2872,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.Test_DragState() ?? "nopage";
         internal string Test_DragGhost() =>
             _attachedEditPage?.Test_DragGhost() ?? "nopage";
+        internal string Test_DragTimerInfo() =>
+            _attachedEditPage?.Test_DragTimerInfo() ?? "nopage";
         internal void Test_BuildDragDoc(int lines, int wordsPer) =>
             _attachedEditPage?.Test_BuildDragDoc(lines, wordsPer);
         internal string Test_DragEdgeScroll(bool top, int ticks) =>

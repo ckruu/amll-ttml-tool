@@ -1021,6 +1021,17 @@ namespace AmllTtmlTool.WinUI.Views
         internal string Test_DragGhost() =>
             _drag is null ? "nodrag" : DragGhostText.Text;
 
+        // Ctrl-latency budget probe: the poll timer interval + whether it is
+        // running while a drag is active (the poll — not pointer moves —
+        // flips Move<->Copy, so a still mouse still meets the 50ms budget).
+        internal string Test_DragTimerInfo()
+        {
+            if (_dragTimer is null) return "notimer";
+            var ms = _dragTimer.Interval.TotalMilliseconds;
+            var running = _drag is not null && _drag.Started && _dragTimer.IsEnabled;
+            return $"interval:{ms.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)};running:{(running ? 1 : 0)}";
+        }
+
         internal void Test_BuildDragDoc(int lines, int wordsPer)
         {
             if (_store is null) return;
