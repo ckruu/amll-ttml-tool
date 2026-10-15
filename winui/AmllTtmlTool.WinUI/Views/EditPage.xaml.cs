@@ -888,6 +888,7 @@ namespace AmllTtmlTool.WinUI.Views
             _drag = new DragSession { IsWords = false, Started = true };
             _drag.Ids.AddRange(ids);
             EnsureDragTimer();
+            _dragTimer?.Start();
             if (indices.Length > 0
                 && LineList.ContainerFromIndex(indices[0]) is ListViewItem container)
                 container.Focus(FocusState.Programmatic);
@@ -918,6 +919,7 @@ namespace AmllTtmlTool.WinUI.Views
             _drag = new DragSession { IsWords = true, Started = true };
             _drag.Ids.AddRange(ordered);
             EnsureDragTimer();
+            _dragTimer?.Start();
             if (LineList.ContainerFromIndex(line) is ListViewItem container)
                 container.Focus(FocusState.Programmatic);
             RefreshDragVisuals();
