@@ -2246,14 +2246,24 @@ namespace AmllTtmlTool.WinUI.Views
                 // A pooled container keeps its last visuals until rebind: a
                 // selected-then-recycled card would otherwise flash (or keep)
                 // its bar on another line. Reset to unselected now; prepare
-                // re-applies from the selection set.
+                // re-applies from the selection set. The number is cleared
+                // too so a pooled card can never show another line's number
+                // if prepare is delayed (the "2, 2" / "7, 7" duplicates).
                 if (args.ItemContainer is ListViewItem recycled)
                     ResetSelectionVisual(recycled);
+                if (args.ItemContainer.ContentTemplateRoot is Grid oldCard2
+                    && oldCard2.FindName("LineNumber") is TextBlock oldNumber)
+                    oldNumber.Text = "";
                 return;
             }
             if (args.ItemContainer.ContentTemplateRoot is not Grid card) return;
             if (args.Item is not EditLine line) return;
-            var index = LineList.IndexFromContainer(args.ItemContainer);
+            // The displayed number is DERIVED from the line's CURRENT index
+            // in the document (not the container index, which can lag during
+            // structural layout). Fallback to the container index only if the
+            // line is momentarily absent from the document.
+            var index = _store?.Document.Lines.IndexOf(line) ?? -1;
+            if (index < 0) index = LineList.IndexFromContainer(args.ItemContainer);
             var number = card.FindName("LineNumber") as TextBlock;
             if (number is not null)
             {
