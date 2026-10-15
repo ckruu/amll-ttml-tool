@@ -1021,6 +1021,26 @@ internal static class EditCheck
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out ratio);
             Check("sel-contrast", ratio >= 4.5, $"[{contrast}]");
+            // Chip wash contrast (15% accent behind chip text, same bar).
+            var chipContrast = await OnUiAsync(window, () => page.Test_ChipContrast(0, 0));
+            var chipRatio = 0.0;
+            var cm = System.Text.RegularExpressions.Regex.Match(chipContrast, @"ratio=([\d.]+)");
+            if (cm.Success) double.TryParse(cm.Groups[1].Value,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out chipRatio);
+            Check("sel-chip-contrast", chipRatio >= 4.5, $"[{chipContrast}]");
+            // Keyboard Shift+Up/Down range from the anchor (same convergence
+            // as Shift+click). Select line 2, extend down twice, up once.
+            await OnUiAsync(window, () => page.Test_ClearEditSelection());
+            await OnUiAsync(window, () => page.Test_LineGesture(2, false, false));
+            await OnUiAsync(window, () => page.Test_HandleListKey(Windows.System.VirtualKey.Down, false, false, true));
+            var kSel1 = await OnUiAsync(window, () => page.Test_ServiceLineIdx());
+            await OnUiAsync(window, () => page.Test_HandleListKey(Windows.System.VirtualKey.Down, false, false, true));
+            var kSel2 = await OnUiAsync(window, () => page.Test_ServiceLineIdx());
+            await OnUiAsync(window, () => page.Test_HandleListKey(Windows.System.VirtualKey.Up, false, false, true));
+            var kSel3 = await OnUiAsync(window, () => page.Test_ServiceLineIdx());
+            Check("sel-keyboard-range", kSel1 == "2,3" && kSel2 == "2,3,4" && kSel3 == "2,3",
+                $"down=[{kSel1}] down2=[{kSel2}] up=[{kSel3}]");
             Write(report, $"  note sel-seed {convergeSeed}");
             // Multi-selection ops (each exactly one history step).
             await OnUiAsync(window, () => page.Test_ClearEditSelection());

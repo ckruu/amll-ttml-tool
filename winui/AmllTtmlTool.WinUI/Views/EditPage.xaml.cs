@@ -26,18 +26,34 @@ namespace AmllTtmlTool.WinUI.Views
         private Compositor? _compositor;
         private CubicBezierEasingFunction? _decelerate;
         private int _toggleVersion;
+        private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
 
         public EditPage()
         {
             this.InitializeComponent();
             this.Unloaded += (_, _) => Detach();
-            // Theme/accent changes flow through the template + theme resources
-            // by themselves (no code blending anywhere); re-apply visibility
-            // so recycled containers rejoin the right look.
+            // Theme/accent changes: XAML {ThemeResource} parts (card tint,
+            // pill) follow automatically; CODE-created chip brushes (outline,
+            // wash, space label) are re-resolved + repainted here so Dark and
+            // High Contrast never keep stale Light values (the unreadable-
+            // selection root cause: Application.Current.Resources lookups are
+            // NOT theme-resolved). Accent-only changes do not raise
+            // ActualThemeChanged, so UISettings changes refresh too.
             this.ActualThemeChanged += (_, _) =>
             {
                 ApplySelectionVisuals();
+                RefreshChipThemeBrushes();
             };
+            try
+            {
+                _uiSettings.ColorValuesChanged += (_, _) =>
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        ApplySelectionVisuals();
+                        RefreshChipThemeBrushes();
+                    });
+            }
+            catch { }
             // Drag tracking (handledEventsToo: presses on boxes are marked
             // handled, but moves/releases must still reach the session).
             this.AddHandler(UIElement.PointerMovedEvent,
@@ -2688,6 +2704,75 @@ namespace AmllTtmlTool.WinUI.Views
             return Windows.UI.Color.FromArgb(255, Mix(baseColor.R, accent.R), Mix(baseColor.G, accent.G), Mix(baseColor.B, accent.B));
         }
 
+        // Theme-aware brush resolution for CODE-created chip visuals.
+        // Application.Current.Resources[key] bypasses ThemeDictionaries (Light
+        // values leak into Dark/HC). This walks the merged dictionaries and
+        // picks the entry for the CURRENT theme (HighContrast / Light /
+        // Default), so code brushes match the XAML {ThemeResource} parts.
+        // High Contrast maps to system colors via the HC dictionary entries.
+        private Windows.UI.Color ResolveThemeColor(string key)
+        {
+            var hc = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+            var dictName = hc ? "HighContrast" : ActualTheme == ElementTheme.Light ? "Light" : "Default";
+            ResourceDictionary? FindDict(ResourceDictionary root)
+            {
+                if (root.ThemeDictionaries.TryGetValue(dictName, out var hit) && hit is ResourceDictionary d)
+                    return d;
+                foreach (var m in root.MergedDictionaries)
+                {
+                    var found = FindDict(m);
+                    if (found is not null) return found;
+                }
+                return null;
+            }
+            var dict = FindDict(Application.Current.Resources);
+            if (dict is not null)
+            {
+                if (dict.TryGetValue(key, out var v) && v is Windows.UI.Color c) return c;
+                if (dict.TryGetValue(key + "Brush", out var bv) && bv is SolidColorBrush b) return b.Color;
+            }
+            // Fallback: live accent / text from a realized element, else white.
+            if (key.StartsWith("Accent", StringComparison.Ordinal))
+            {
+                try { return _uiSettings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Accent); }
+                catch { }
+            }
+            return Windows.UI.Color.FromArgb(255, 255, 255, 255);
+        }
+
+        private SolidColorBrush MakeThemeBrush(string key) =>
+            new(ResolveThemeColor(key));
+
+        // Repaints code-created chip brushes on every realized card (outline,
+        // wash, space label + drop mark). Called on theme/accent change and
+        // from ApplyWordSelectionVisualsNow so colors can never go stale.
+        // Children order is fixed in BuildChip: 0 text, 1 roman, 2 label,
+        // 3 outline, 4 dropMark, 5 wash.
+        private void RefreshChipThemeBrushes()
+        {
+            if (_store is null) return;
+            var accent = ResolveThemeColor("AccentFillColorDefault");
+            var secondary = ResolveThemeColor("TextFillColorSecondary");
+            for (var i = 0; i < _store.Document.Lines.Count; i++)
+            {
+                if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
+                if (container.ContentTemplateRoot is not Grid card) continue;
+                if (card.FindName("ChipPanel") is not LyricWrapPanel panel) continue;
+                foreach (var child in panel.Children)
+                {
+                    if (child is not Grid chip) continue;
+                    if (chip.Children.Count > 2 && chip.Children[2] is TextBlock label)
+                        label.Foreground = new SolidColorBrush(secondary);
+                    if (chip.Children.Count > 3 && chip.Children[3] is Border outline)
+                        outline.BorderBrush = new SolidColorBrush(accent);
+                    if (chip.Children.Count > 4 && chip.Children[4] is Border mark)
+                        mark.BorderBrush = new SolidColorBrush(accent);
+                    if (chip.Children.Count > 5 && chip.Children[5] is Border wash)
+                        wash.Background = new SolidColorBrush(accent);
+                }
+            }
+        }
+
         private void ApplySelectionVisual(ListViewItem container, bool selected)
         {
             var (root, pill, tint) = FindCardChrome(container);
@@ -2716,6 +2801,10 @@ namespace AmllTtmlTool.WinUI.Views
                 ApplySelectionVisual(container, selected.Contains(_store.Document.Lines[i].Id));
             }
             ApplyWordSelectionVisualsNow();
+            // Brush colors (not just visibility) refresh on every selection
+            // pass so a theme/accent change can never leave stale Light
+            // values on realized chips between explicit theme events.
+            RefreshChipThemeBrushes();
         }
 
         // Selected words: accent outline + faint accent wash BEHIND the chip
@@ -2830,7 +2919,7 @@ namespace AmllTtmlTool.WinUI.Views
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Center,
                 Padding = new Thickness(6, 3, 6, 3),
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                Foreground = MakeThemeBrush("TextFillColorSecondary"),
                 IsHitTestVisible = false,
                 Tag = word.Id,
             };
@@ -2885,7 +2974,7 @@ namespace AmllTtmlTool.WinUI.Views
             // a separate behind-content overlay, so text stays crisp).
             var selOutline = new Border
             {
-                BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                BorderBrush = MakeThemeBrush("AccentFillColorDefault"),
                 Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
                 BorderThickness = new Thickness(2),
                 CornerRadius = new CornerRadius(4),
@@ -2900,7 +2989,7 @@ namespace AmllTtmlTool.WinUI.Views
             // layout shift; side set per hover half.
             var dropMark = new Border
             {
-                BorderBrush = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                BorderBrush = MakeThemeBrush("AccentFillColorDefault"),
                 Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
                 BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(2),
@@ -2915,7 +3004,7 @@ namespace AmllTtmlTool.WinUI.Views
             // fill from the spec; the card never changes its own Background.
             var selWash = new Border
             {
-                Background = (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"],
+                Background = MakeThemeBrush("AccentFillColorDefault"),
                 Opacity = 0.15,
                 CornerRadius = new CornerRadius(4),
                 Visibility = _selection?.SelectedWordIds.Contains(wordId) == true
@@ -3987,6 +4076,46 @@ namespace AmllTtmlTool.WinUI.Views
             return "nochip";
         }
 
+        // Chip contrast probe: text vs 15%-accent wash over the chip base.
+        // Mirrors Test_SelectionContrast math so the word wash (thinner than
+        // the 20% line tint) is pinned to the same >= 4.5:1 bar.
+        internal string Test_ChipContrast(int line, int word)
+        {
+            static double Lin(byte ch)
+            {
+                var s = ch / 255.0;
+                return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+            }
+            static double Lum(byte r, byte g, byte b) =>
+                0.2126 * Lin(r) + 0.7152 * Lin(g) + 0.0722 * Lin(b);
+            if (_store is null) return "nostore";
+            if (line < 0 || line >= _store.Document.Lines.Count) return "noline";
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return "noword";
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            var wordId = docLine.Words[word].Id;
+            foreach (var child in panel.Children)
+            {
+                if (child is not Grid chip || chip.Tag is not string tag || tag != wordId) continue;
+                if (chip.Children.Count < 6) return "nochildren";
+                if (chip.Children[0] is not TextBox tb || tb.Foreground is not SolidColorBrush fg) return "notext";
+                if (chip.Children[5] is not Border wash || wash.Background is not SolidColorBrush wb) return "nowash";
+                // Chip base = card fill; wash composites at 15% over it.
+                var cardC = ResolveThemeColor("CardBackgroundFillColorDefault");
+                var fr = (byte)Math.Round(cardC.R * 0.85 + wb.Color.R * 0.15);
+                var fg2 = (byte)Math.Round(cardC.G * 0.85 + wb.Color.G * 0.15);
+                var fb = (byte)Math.Round(cardC.B * 0.85 + wb.Color.B * 0.15);
+                var l1 = Lum(fg.Color.R, fg.Color.G, fg.Color.B);
+                var l2 = Lum(fr, fg2, fb);
+                var ratio = (Math.Max(l1, l2) + 0.05) / (Math.Min(l1, l2) + 0.05);
+                return $"theme={ActualTheme} text=#{fg.Color.R:X2}{fg.Color.G:X2}{fg.Color.B:X2} " +
+                    $"wash=#{wb.Color.R:X2}{wb.Color.G:X2}{wb.Color.B:X2} ratio={F2(ratio)}";
+            }
+            return "nochip";
+        }
+
         // Edit-state probe: where focus sits ("chipbox li:wi:M/R",
         // "linebox li:T/R", "item li", "box", "none").
         internal string Test_FocusState()
@@ -4123,6 +4252,10 @@ namespace AmllTtmlTool.WinUI.Views
             _store?.Document.Lines
                 .FirstOrDefault(l => l.Words.Any(w => w.Id == wordId))?.Id;
 
+        // Hook for list-key shortcuts (same HandleListKey path as real keys).
+        internal bool Test_HandleListKey(Windows.System.VirtualKey key, bool ctrl, bool alt, bool shift) =>
+            HandleListKey(key, ctrl, alt, shift);
+
         // With SelectionMode=None the ListView never raises SelectionChanged:
         // this stays only so old hook callers fail loudly at compile time if
         // re-added. All selection flows through the SelectionService.
@@ -4134,13 +4267,13 @@ namespace AmllTtmlTool.WinUI.Views
         // marks text-editing keys handled, so typing never triggers these).
         private void OnLineListKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (HandleListKey(e.Key, IsCtrlDown(), IsAltDown()))
+            if (HandleListKey(e.Key, IsCtrlDown(), IsAltDown(), IsShiftDown()))
                 e.Handled = true;
         }
 
         // Factored for the Test_ hook so every list shortcut is covered
         // deterministically (real key routing is framework behavior).
-        internal bool HandleListKey(Windows.System.VirtualKey key, bool ctrl, bool alt)
+        internal bool HandleListKey(Windows.System.VirtualKey key, bool ctrl, bool alt, bool shift = false)
         {
             if (_store is null || _selection is null) return false;
             // Esc mid-drag cancels the drag (it must not clear selection).
@@ -4187,6 +4320,15 @@ namespace AmllTtmlTool.WinUI.Views
                 MoveSelectedLines(key == Windows.System.VirtualKey.Up ? -1 : 1);
                 return true;
             }
+            // Shift+Up/Down extends the line selection from the anchor
+            // (native range behavior; pointer Shift+click path converges
+            // through the same SelectLineRange).
+            if ((key == Windows.System.VirtualKey.Up
+                || key == Windows.System.VirtualKey.Down) && shift && !ctrl && !alt)
+            {
+                ExtendLineSelection(key == Windows.System.VirtualKey.Up ? -1 : 1);
+                return true;
+            }
             // F2 / Enter enter EDIT on the primary word (double-click path
             // for the keyboard; original has no keyboard edit-entry, so F2
             // — free, since the original binds Ctrl+F2 — is the port key).
@@ -4202,6 +4344,32 @@ namespace AmllTtmlTool.WinUI.Views
                 return EnterPrimaryWordEdit();
             }
             return false;
+        }
+
+        // Shift+Up/Down keyboard range: moves the primary one line and the
+        // set becomes anchor..primary in document order (same convergence as
+        // Shift+click via SelectLineRange). Anchor defaults to the primary.
+        internal bool ExtendLineSelection(int delta)
+        {
+            if (_store is null || _selection is null) return false;
+            var lines = _store.Document.Lines;
+            if (lines.Count == 0) return false;
+            var ids = lines.Select(l => l.Id).ToList();
+            var anchorId = _selection.AnchorLineId ?? _selection.SelectedLineId ?? ids[0];
+            var primaryId = _selection.SelectedLineId ?? anchorId;
+            var primaryIdx = ids.IndexOf(primaryId);
+            if (primaryIdx < 0) primaryIdx = ids.IndexOf(anchorId);
+            if (primaryIdx < 0) primaryIdx = 0;
+            var next = Math.Clamp(primaryIdx + delta, 0, ids.Count - 1);
+            var anchorIdx = ids.IndexOf(anchorId);
+            if (anchorIdx < 0) anchorIdx = next;
+            var lo = Math.Min(anchorIdx, next);
+            var hi = Math.Max(anchorIdx, next);
+            var range = ids.GetRange(lo, hi - lo + 1);
+            _selection.SelectLineRange(range, ids[next]);
+            if (LineList.ContainerFromIndex(next) is ListViewItem container)
+                container.Focus(FocusState.Programmatic);
+            return true;
         }
 
         // Focuses the primary word's box for editing (primary line's first
