@@ -801,6 +801,9 @@ namespace AmllTtmlTool.WinUI.Views
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
             if (word < 0 || word >= panel.Children.Count) return "norow";
             if (panel.Children[word] is not Grid chip || chip.Children.Count < 2) return "nochip";
+            // Settle layout first (sibling probes UpdateLayout too): under
+            // load a just-committed box can otherwise still read 0.00.
+            card.UpdateLayout();
             // A collapsed main box (space label showing) measures 0: use the
             // visible label instead, which is what defines the chip width.
             FrameworkElement? main = chip.Children[0] as FrameworkElement;

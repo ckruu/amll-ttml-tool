@@ -261,7 +261,12 @@ internal static class EditCheck
             Check("space-esc", seRevert == "", $"box='{seRevert}'");
             // Hug: single glyph + long kana + long romaji units. Box widths
             // equal within 1px; the single glyph stays compact (< 64px, the
-            // old TextBox theme floor).
+            // old TextBox theme floor). Word-roman is forced ON here: the
+            // check needs visible roman boxes and must not depend on the
+            // ambient (persisted) toggle state.
+            var wrHugBefore = await OnUiAsync(window, () => page.Test_ToggleState("wordroman"));
+            await OnUiAsync(window, () => page.Test_SetToggle("wordroman", true));
+            await Task.Delay(450);
             await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s0, false, "キ"));
             await OnUiAsync(window, () => page.Test_CommitChip(0, s0, false));
             await OnUiAsync(window, () => page.Test_SetChipBoxText(0, s1, false, "ハッピーバースデー"));
@@ -278,7 +283,7 @@ internal static class EditCheck
                 && double.TryParse(uS0, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var unitW)
                 && unitW < 64;
-            Check("chip-hug", hugOk, $"widths=[{wS0}][{wS1}][{wS2}] unit={uS0}");
+            Check("chip-hug", hugOk, $"widths=[{wS0}][{wS1}][{wS2}] unit={uS0} wrBefore={wrHugBefore}");
             var shotHug = await await OnUiAsync(window, () =>
                 page.Test_ShotCard(0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-hug.png")));
             Check("shot-hug", shotHug.StartsWith("ok:"), shotHug);
@@ -290,6 +295,8 @@ internal static class EditCheck
                     System.Globalization.CultureInfo.InvariantCulture, out var gapV)
                 && Math.Abs(gapV - 6) <= 1.0;
             Check("romaji-gap", gapsOk, $"chip={chipGap} row={rowGap}");
+            await OnUiAsync(window, () => page.Test_SetToggle("wordroman", wrHugBefore));
+            await Task.Delay(350);
             // Card top pad == bottom pad, romaji on and off; "+" centered.
             var padsOn = await OnUiAsync(window, () => page.Test_CardPads(0));
             var dyOn = await OnUiAsync(window, () => page.Test_AddButtonDy(0));
@@ -1573,7 +1580,11 @@ internal static class EditCheck
             // budget): a single congested sample with system stalls must not
             // fail the run; each round drops its first 10 (warmup) as before.
             var p95s = new List<double>();
-            for (var round = 0; round < 3; round++)
+            // Five rounds, drop the highest and lowest round-p95, bar the
+            // middle three (same stall-tolerant pattern as the toggle
+            // budgets: one loaded round must not fail the suite, while the
+            // quiet floor ~4ms keeps the <16ms tripwire meaningful).
+            for (var round = 0; round < 5; round++)
             {
                 var lat = new List<double>();
                 for (var i = 0; i < 100; i++)
@@ -1594,7 +1605,12 @@ internal static class EditCheck
             var breakdown = await OnUiAsync(window, () => page.Test_TypeBreakdown());
             Write(report, $"  note type-breakdown setWall/layout/setCpu ms of last key: [{breakdown}]");
             p95s.Sort();
-            var p95med = p95s.Count > 0 ? p95s[p95s.Count / 2] : -1;
+            var p95med = -1.0;
+            if (p95s.Count >= 3)
+            {
+                var mid = p95s.Skip(1).Take(p95s.Count - 2).ToList();
+                p95med = mid[mid.Count / 2];
+            }
             Check("typing-budget", p95med >= 0 && p95med < 16,
                 $"median-p95={p95med:F2}ms rounds=[{string.Join(",", p95s.Select(v => v.ToString("F2")))}]");
             var wEq = await OnUiAsync(window, () => page.Test_ChipWidths(150, 5));

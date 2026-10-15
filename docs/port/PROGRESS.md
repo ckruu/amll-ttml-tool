@@ -858,3 +858,97 @@ Phase-3-fix groups: selection (`sel-*`, `visible-selection`,
 `insert-*`), tooltips (`tooltip-audit`), ribbon (`ribbon-*`,
 `word-grid-geometry`), duet (`duet-*`), plus the untouched baseline
 (`card-*`, `chip-*`, `drag-*`, `ribbon-*`, `perf-*`, `stress-200`).
+
+---
+
+# Phase 3 fix round 2 — host-reported residuals (13 items re-driven)
+
+Branch `winui-port`, commits `c93afcd`→`28e25d6` + step-8 (this step).
+All runs project-build `--no-incremental` with DLL timestamp checked;
+stray `AmllTtmlTool.WinUI` processes killed before building (one lock hit).
+`edit-test` fixture: staged temp copy of `C:\Lyrics\broken_Down.ttml`
+(88 lines); run WITHOUT `-Args` once loaded the report file itself as the
+doc (2 garbage lines) — always pass `-Args @('<staged copy>')`.
+
+Root causes found (beyond the previous round):
+
+1. **Unreadable selection (Dark): code-created chip brushes bypassed
+   theme resolution.** Line tint/pill are XAML `{ThemeResource}` (correct);
+   chip outline/wash/space-label used
+   `(Brush)Application.Current.Resources[…]` (`EditPage.xaml.cs`
+   `BuildChip`), which returns Light values in Dark/HC. Fix: theme-aware
+   resolver (`ResolveThemeColor` walks merged `ThemeDictionaries` for the
+   live theme/HC, `MakeThemeBrush` at chip build, `RefreshChipThemeBrushes`
+   on `ActualThemeChanged` + `UISettings.ColorValuesChanged`; selection
+   passes touch visibility only). Key probe lesson: the card dictionary
+   color is TRANSLUCENT (`#0DFFFFFF` — a layer over the page), so contrast
+   math must composite card-over-page first (as `sel-contrast` does); the
+   first `sel-chip-contrast` probe composited over the raw color and read
+   1.17. Fixed probe: text `#FFFFFF` vs 15% `#F46762` wash over `#2B2B2B`
+   → **11.52** (bar ≥ 4.5:1). Theme-debug pin: `Test_ThemeDebug`.
+2. **Keyboard range missing:** pointer Ctrl/Shift complete; `Shift+Up/Down`
+   did nothing. Added `ExtendLineSelection` (anchor..primary via
+   `SelectLineRange`, same convergence as Shift+click) + `sel-keyboard-range`
+   check (`2,3` / `2,3,4` / `2,3`).
+3. **Space edit box ~18px for 1 space:** caret technically visible but
+   cramped. `ShowChipEditor` now floors `MinWidth=40` (reset to 0 on return
+   to label so SELECT hug is untouched); `space-edit-width` pins
+   `visible:1;width:40.00`.
+4. **Line numbers:** prepare now derives from
+   `_store.Document.Lines.IndexOf(line)` (container index can lag during
+   structural layout) with container-index fallback; recycle clears the
+   number so pooled cards never flash another line's digits.
+   `line-numbers-200` (seed 20261015) green.
+5. **Accelerator audit:** only 8 accelerators exist app-wide, all Page-owned
+   `Hidden` (verified by XAML grep); new `tooltip-no-local-accel` guard
+   walks the whole Edit subtree asserting zero container-owned
+   accelerators (`ok:8912` nodes).
+6. **Word grid at 672:** Tiny tier collapses the group by design; the check
+   now asserts `vis:0` in BOTH roman states (not just the last).
+7. **Duet export:** added byte-equality `exp2 == exp0` across the
+   off+on toggle cycle (stash is display-only) — holds.
+8. **Drag Ctrl poll:** 16ms `DispatcherTimer` runs during pointer drags and
+   the drop reads live state (≤16ms < 50ms budget); the *test hooks*
+   created the timer but never started it — fixed to match the pointer
+   path, pinned by `drag-ctrl-timer` (`interval:16;running:1`).
+9. **Harness load flakes:** `card-gaps` gets one settle retry (mid-settle
+   virtualization measures too few pairs); full-suite wall time varies
+   ~2x with VM load (a no-`-Args` garbage-doc run and a 1200s-timeout run
+   both traced to environment, not product).
+
+Final results (binary `AmllTtmlTool.WinUI.dll` 2026-10-15 05:41:22Z):
+
+| Suite | Result |
+|---|---|
+| Core `dotnet test` | **430/431** (1 pre-existing `Fractional_Ms…`, clean-tree too) |
+| `edit-test` full | verdict below (was 1 FAIL `drag-ctrl-timer` pre-fix; re-run here) |
+| `lyrics-test` apple / broken / subete | **PASS** 39.2s / 40.9s / 18.4s |
+| `selftest` | **PASS** 4.3s |
+| `perf-report` (VM, advisory) | OK 40.4s; frames UNRELIABLE here (occluded), walls: move-line ~192ms, drag-5 ~585ms, wordroman-300 ~219ms, scroll ~540ms |
+| `ui-edit` / `ui-lyrics` / `ui-tests` / `ui-tests-playerbar` | **BLOCKED** (no `winapp` CLI — host-manual) |
+
+Host commands (ONE per need):
+
+- Perf report: `pwsh scripts/run-harness.ps1 -Mode perf-report -Args @('<path>') -TimeoutSec 900`
+- Full edit verification: stage fixture first —
+  `Copy-Item 'C:\Lyrics\broken_Down.ttml' "$env:TEMP\edit-fixture.ttml"; pwsh scripts/run-harness.ps1 -Mode edit-test -Args @("$env:TEMP\edit-fixture.ttml") -TimeoutSec 2400`
+- Real-input UI batches need `winapp` CLI 0.7+ on the host (absent in VM):
+  `winapp ui click/drag/send-keys --via send-input`, `hover` + popup
+  enumeration for the 25-element tooltip sweep, screenshots per gesture.
+
+Contrast table (live Dark probe; Light rows from the previous round):
+
+| Theme | Accent | Ratio |
+|---|---|---|
+| Dark | salmon `#F46762` line 20% | 10.67 (`sel-contrast`) |
+| Dark | salmon `#F46762` chip 15% | **11.52** (`sel-chip-contrast`, card `#2B2B2B`) |
+| Light | salmon | 13.47 |
+| Light | blue | 12.75 |
+| Light | yellow | 15.45 |
+| Dark | blue | 11.80 |
+| Dark | yellow | 8.50 |
+
+Blue/yellow rows are accent-swap computations from the prior round, not
+re-probed live here (accent is a host setting; VM accent is salmon).
+High Contrast needs an OS-level pass (theme-dictionary + system-color
+paths are wired; not eyeballed).
