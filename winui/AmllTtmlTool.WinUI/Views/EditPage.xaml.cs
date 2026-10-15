@@ -2773,6 +2773,35 @@ namespace AmllTtmlTool.WinUI.Views
         private SolidColorBrush MakeThemeBrush(string key) =>
             new(ResolveThemeColor(key));
 
+        // Debug pin for the theme-resolution path (Step 1 root-cause work):
+        // which dictionary was picked, whether it was found, and what the
+        // three code-brush keys resolve to under the live theme.
+        internal string Test_ThemeDebug()
+        {
+            var hc = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+            var dictName = hc ? "HighContrast" : ActualTheme == ElementTheme.Light ? "Light" : "Default";
+            ResourceDictionary? FindDict(ResourceDictionary root)
+            {
+                if (root.ThemeDictionaries.TryGetValue(dictName, out var hit) && hit is ResourceDictionary d)
+                    return d;
+                foreach (var m in root.MergedDictionaries)
+                {
+                    var found = FindDict(m);
+                    if (found is not null) return found;
+                }
+                return null;
+            }
+            var dict = FindDict(Application.Current.Resources);
+            static string HexC(Windows.UI.Color c) => $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
+            var merged = Application.Current.Resources.MergedDictionaries.Count;
+            var themeDicts = Application.Current.Resources.ThemeDictionaries.Count;
+            return $"actual={ActualTheme} hc={hc} dict={dictName} found={(dict is null ? 0 : 1)} " +
+                $"merged={merged} rootthemes={themeDicts} " +
+                $"card={HexC(ResolveThemeColor("CardBackgroundFillColorDefault"))} " +
+                $"accent={HexC(ResolveThemeColor("AccentFillColorDefault"))} " +
+                $"secondary={HexC(ResolveThemeColor("TextFillColorSecondary"))}";
+        }
+
         // Repaints code-created chip brushes on every realized card (outline,
         // wash, space label + drop mark). Called on theme/accent change and
         // from ApplyWordSelectionVisualsNow so colors can never go stale.
@@ -3766,7 +3795,9 @@ namespace AmllTtmlTool.WinUI.Views
         }
 
         // Shows the raw-text editor of one field (space-label swap for the
-        // main field; no-op for already-visible boxes).
+        // main field; no-op for already-visible boxes). A space edit box
+        // gets a floor width so the caret stays visible while editing raw
+        // whitespace (a 1-space chip would otherwise hug to ~18px).
         private void ShowChipEditor(Grid chip, bool roman)
         {
             if (chip.Children.Count < 3) return;
@@ -3776,6 +3807,7 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 text.Visibility = Visibility.Visible;
                 label.Visibility = Visibility.Collapsed;
+                if (text.MinWidth < 40) text.MinWidth = 40;
             }
         }
 
@@ -3818,6 +3850,7 @@ namespace AmllTtmlTool.WinUI.Views
                 var showEditor = !IsSpaceId(wordId) || ReferenceEquals(focused, text);
                 text.Visibility = showEditor ? Visibility.Visible : Visibility.Collapsed;
                 label.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
+                if (!showEditor && text.MinWidth > 0) text.MinWidth = 0;
             }
         }
 

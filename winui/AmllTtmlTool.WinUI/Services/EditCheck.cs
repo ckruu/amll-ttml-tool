@@ -1047,6 +1047,10 @@ internal static class EditCheck
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out chipRatio);
             Check("sel-chip-contrast", chipRatio >= 4.5, $"[{chipContrast}]");
+            // Theme-resolution debug pin (which dict, what the code brushes
+            // resolve to under the live theme).
+            var themeDbg = await OnUiAsync(window, () => page.Test_ThemeDebug());
+            Write(report, $"  note theme-debug [{themeDbg}]");
             // Keyboard Shift+Up/Down range from the anchor (same convergence
             // as Shift+click). Select line 2, extend down twice, up once.
             await OnUiAsync(window, () => page.Test_ClearEditSelection());
