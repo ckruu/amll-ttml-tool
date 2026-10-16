@@ -293,12 +293,16 @@ internal static class EditCheck
                 page.Test_ShotCard(0, System.IO.Path.Combine(shotDir, $"{shotPrefix}-hug.png")));
             Check("shot-hug", shotHug.StartsWith("ok:"), shotHug);
             // Gaps: chip main<->romaji == card Trans<->Roman (shared 6px).
+            // Numeric (not string) equality: sub-pixel text metrics may read
+            // 6.38 vs 6.00 for the same 6px spacing resource.
             var chipGap = await OnUiAsync(window, () => page.Test_ChipGap(0, s2));
             var rowGap = await OnUiAsync(window, () => page.Test_RowGap(0));
-            var gapsOk = chipGap == rowGap
-                && double.TryParse(chipGap, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var gapV)
-                && Math.Abs(gapV - 6) <= 1.0;
+            var gapsOk = double.TryParse(chipGap, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var gapChipV)
+                && double.TryParse(rowGap, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var gapRowV)
+                && Math.Abs(gapChipV - gapRowV) <= 1.0
+                && Math.Abs(gapChipV - 6) <= 1.0;
             Check("romaji-gap", gapsOk, $"chip={chipGap} row={rowGap}");
             await OnUiAsync(window, () => page.Test_SetToggle("wordroman", wrHugBefore));
             await OnUiAsync(window, () => page.Test_SetToggle("trans", trHugBefore));
@@ -392,11 +396,13 @@ internal static class EditCheck
             var romOn = await OnUiAsync(window, () => page.Test_RowVisibility(0, 2));
             await OnUiAsync(window, () => page.Test_SetToggle("wordroman", wordRomanBefore));
             await Task.Delay(450);
-            // Visibility enum: Visible=0, Collapsed=1. children = words + box.
+            // Visibility enum: Visible=0, Collapsed=1. Step-2: the panel
+            // holds chips only (the editor is a page overlay), so children
+            // == chips; "open" is the insert session state.
             Check("romaji-plus-visibility",
                 romOff0 == 1 && romOff1 == 1 && gapPlus == "collapsed" && romOn == 0
-                && insInfo == $"open:1;children:{insCount0 + 1};chips:{insCount0}"
-                && insInfo2 == $"open:1;children:{insCount0 + 2};chips:{insCount0 + 1}",
+                && insInfo == $"open:1;children:{insCount0};chips:{insCount0}"
+                && insInfo2 == $"open:1;children:{insCount0 + 1};chips:{insCount0 + 1}",
                 $"rows={romOff0}/{romOff1}/{romOn} gap={gapPlus} info=[{insInfo}]/[{insInfo2}]");
             // Lifetime: Enter keeps it open (empty box, focus); leaving the
             // line (gesture, focus/tab, selection move) or empty-Enter closes

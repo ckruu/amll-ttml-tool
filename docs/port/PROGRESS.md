@@ -1031,3 +1031,57 @@ empty viewport — realization can't keep up; move ~1s explains "2 seconds
 before anything moves"). `PrimaryAgent`/`IndexOf` fears UNFOUNDED
 (flags 0.11ms). Step 2 follows the data: kill per-word TextBoxes (shared
 editor), kill re-measure storms, kill sync full layouts.
+
+## Step 2 — lightweight chips + shared editor (commit: this step)
+
+Chips are one TextBlock (main [+ newline + roman] Runs) + outline/wash/
+dropMark borders; editing goes through the page-level shared editor.
+Validates: `edit-test` PASS 123.1s, `--profile` below, real-input matrix
+(click/dblclick/type/Enter/Ctrl+Z/Esc on words + space edit-mode), Core
+430/431 (1 pre-existing LyricAdapter fail, unchanged).
+
+Bugs found by validation, all fixed:
+1. **Invisible word text (all chips rendered `Space x1`).** `SetChipContent`
+   assigned `Foreground = null` for words. The getter returns the
+   INHERITED brush, so the Equals-guard misfired once and the local null
+   stuck, blocking inheritance (transparent glyphs); space chips (real
+   brush) rendered. Proved via `chipall-` probe (`frun=null-local`).
+   Fix: never assign null — spaces get the secondary brush, words
+   `ClearValue` (pure inheritance). Same pattern in
+   `RefreshChipThemeBrushes`.
+2. **Wash/dropMark child-index skew.** Consumers assumed
+   0=text,1=outline,2=wash,3=dropMark but BuildChip added dropMark before
+   wash, so selection showed the (invisible) drop mark instead of the
+   wash. Fix: reorder to the documented order.
+3. **Romaji gap 0.** Single block tiles glyph lines edge-to-edge; the
+   check requires the shared 6px. Fix: explicit `LineHeight = 25`
+   (`BlockLineHeight`) on the chip block; `ChipGap` now reports the added
+   leading over the runtime-measured natural pitch
+   (`chip=6.00 row=6.00`). `SpaceLabel` returns the main run only
+   (TextBlock.Text spans the roman line break).
+4. **Native AV in `OpenInsertBox` (`UpdateLayout`) under the 200-op
+   stress** (deterministic at seeded step 170). Fix: suppress list
+   entrance transitions for the forced pass (same as `RunWithMoveFlip`)
+   and skip the second `ScrollIntoView` when the container is already
+   realized (the stress/menu always scrolled there first).
+
+`--profile` after-table, same doc/fixture (before: Step 1 table above):
+
+| Stage | n | median | before |
+|---|---|---|---|
+| prepare.total / card | 85 | 11.65ms | 65.21ms (5.6x) |
+| prepare.chips (of total) | 85 | 11.25ms | 62.78ms (5.6x) |
+| prepare.chipword (per word) | 85 | 0.89ms | 4.92ms (5.5x) |
+| realize.scrollStep | 88 | 18.85ms | 194.87ms (10x) |
+| scroll.into-view + sync layout | 22 | 69.85ms | 2158.22ms (31x) |
+| pipe.move-up cmd / frame | 5 | 45.71 / 2.55ms | 1159.08 / 224.84ms |
+| panel measure / call | 87 | 1.98ms | ~114ms (57x) |
+| live TextBoxes (was 216) / elements (was 3628) | — | 6-10 / 414-670 | ~25x / ~6x fewer |
+
+Infra added: `chipall-`, `scroll-`, `insbefore-`, `selline-`,
+`movelines-` input-hold verbs + `Test_ChipAll` (per-chip render state:
+width/visibility/opacity/local-foreground/text); `input.ps1` key scancode
+cast `[uint]` -> `[uint32]` (PS 5.1 has no `uint` accelerator; broke
+`type`/`key` verbs). One timing flake noted: `duet-display-badges`
+failed once on a slow realization (passed clean on re-run, no code
+change).

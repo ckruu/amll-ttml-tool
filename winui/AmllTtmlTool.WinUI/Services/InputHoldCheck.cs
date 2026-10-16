@@ -106,6 +106,110 @@ internal static class InputHoldCheck
                             System.IO.File.WriteAllText(
                                 System.IO.Path.Combine(dir, name + ".res"), res + "\n");
                         }
+                        else if (name.StartsWith("ed-"))
+                        {
+                            var res = await OnUiAsync(window, () => Task.FromResult(page.Test_EditorState()));
+                            Write(report, $"res {name} [{res}]");
+                            System.IO.File.WriteAllText(
+                                System.IO.Path.Combine(dir, name + ".res"), res + "\n");
+                        }
+                        else if (name.StartsWith("txt-"))
+                        {
+                            // txt-<line>-<word>-<0|1> -> raw model text via editor retarget.
+                            var rest = name.Substring("txt-".Length);
+                            var li = -1; var wi = -1; var ro = 0;
+                            var p = rest.Split('-');
+                            if (p.Length == 3 && int.TryParse(p[0], out var a0)
+                                && int.TryParse(p[1], out var b0) && int.TryParse(p[2], out var c0))
+                            { li = a0; wi = b0; ro = c0; }
+                            var res = li < 0 ? "badreq"
+                                : await OnUiAsync(window, () => Task.FromResult(page.Test_ChipBoxText(li, wi, ro != 0)));
+                            Write(report, $"res {name} [{res}]");
+                            System.IO.File.WriteAllText(
+                                System.IO.Path.Combine(dir, name + ".res"), res + "\n");
+                        }
+                        else if (name.StartsWith("chipdbg-"))
+                        {
+                            // chipdbg-<line>-<word>.req -> geometry readout.
+                            var rest = name.Substring("chipdbg-".Length);
+                            var li = -1; var wi = -1;
+                            var dash = rest.IndexOf('-');
+                            if (dash > 0 && int.TryParse(rest[..dash], out var l0)
+                                && int.TryParse(rest[(dash + 1)..], out var w0))
+                            { li = l0; wi = w0; }
+                        var res = li < 0 ? "badreq"
+                            : await OnUiAsync(window, () => Task.FromResult(page.Test_ChipDebug(li, wi)));
+                            Write(report, $"res {name} [{res}]");
+                            System.IO.File.WriteAllText(
+                                System.IO.Path.Combine(dir, name + ".res"), res + "\n");
+                        }
+                        else if (name.StartsWith("chipall-"))
+                        {
+                            // chipall-<line>.req -> per-chip render-state dump.
+                            var rest = name.Substring("chipall-".Length);
+                            var li = int.TryParse(rest, out var l0) ? l0 : -1;
+                            var res = li < 0 ? "badreq"
+                                : await OnUiAsync(window, () => Task.FromResult(page.Test_ChipAll(li)));
+                            Write(report, $"res {name} [{res}]");
+                            System.IO.File.WriteAllText(
+                                System.IO.Path.Combine(dir, name + ".res"), res + "\n");
+                        }
+                        else if (name.StartsWith("scroll-"))
+                        {
+                            // scroll-<line>.req -> ScrollLineIntoView.
+                            var li = int.TryParse(name.Substring("scroll-".Length), out var l0) ? l0 : -1;
+                            var res = "badreq";
+                            if (li >= 0)
+                            {
+                                await OnUiAsync(window, () => page.Test_ScrollLineIntoView(li));
+                                res = "ok";
+                            }
+                            Write(report, $"res {name} [{res}]");
+                            System.IO.File.WriteAllText(
+                                System.IO.Path.Combine(dir, name + ".res"), res + "\n");
+                        }
+                        else if (name.StartsWith("insbefore-"))
+                        {
+                            // insbefore-<line>.req -> InsertLineBefore (open insert box).
+                            var li = int.TryParse(name.Substring("insbefore-".Length), out var l0) ? l0 : -1;
+                            var res = "badreq";
+                            if (li >= 0)
+                            {
+                                await OnUiAsync(window, () => page.Test_InsertLineBefore(li));
+                                res = "ok";
+                            }
+                            Write(report, $"res {name} [{res}]");
+                            System.IO.File.WriteAllText(
+                                System.IO.Path.Combine(dir, name + ".res"), res + "\n");
+                        }
+                        else if (name.StartsWith("selline-"))
+                        {
+                            // selline-<line>.req -> select line.
+                            var li = int.TryParse(name.Substring("selline-".Length), out var l0) ? l0 : -1;
+                            var res = "badreq";
+                            if (li >= 0)
+                            {
+                                await OnUiAsync(window, () => page.Test_SelectLine(li));
+                                res = "ok";
+                            }
+                            Write(report, $"res {name} [{res}]");
+                            System.IO.File.WriteAllText(
+                                System.IO.Path.Combine(dir, name + ".res"), res + "\n");
+                        }
+                        else if (name.StartsWith("movelines-"))
+                        {
+                            // movelines-<-1|1>.req -> MoveSelectedLines.
+                            var d = int.TryParse(name.Substring("movelines-".Length), out var d0) ? d0 : 0;
+                            var res = "badreq";
+                            if (d != 0)
+                            {
+                                await OnUiAsync(window, () => page.Test_MoveSelectedLines(d));
+                                res = "ok";
+                            }
+                            Write(report, $"res {name} [{res}]");
+                            System.IO.File.WriteAllText(
+                                System.IO.Path.Combine(dir, name + ".res"), res + "\n");
+                        }
                     }
                     catch (Exception ex)
                     {

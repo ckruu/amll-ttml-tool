@@ -2911,6 +2911,10 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.SpaceLabel(line, word) ?? "nopage";
         internal string Test_ChipUnitWidth(int line, int word) =>
             _attachedEditPage?.ChipUnitWidth(line, word) ?? "nopage";
+        internal string Test_ChipDebug(int line, int word) =>
+            _attachedEditPage?.Test_ChipDebug(line, word) ?? "nopage";
+        internal string Test_ChipAll(int line) =>
+            _attachedEditPage?.Test_ChipAll(line) ?? "nopage";
         internal string Test_CardPads(int line) =>
             _attachedEditPage?.CardPads(line) ?? "nopage";
         internal string Test_AddButtonDy(int line) =>
@@ -3006,6 +3010,8 @@ namespace AmllTtmlTool.WinUI.Views
             _attachedEditPage?.Test_ThemeDebug() ?? "nopage";
         internal void Test_SetInputTrace(string path) =>
             _attachedEditPage?.SetInputTrace(path);
+        internal string Test_EditorState() =>
+            _attachedEditPage?.Test_EditorState() ?? "nopage";
         internal Task<string> Test_PixelSelectionAsync() =>
             _attachedEditPage?.Test_PixelSelectionAsync() ?? Task.FromResult("nopage");
         internal bool Test_SetChipBoxText(int line, int word, bool roman, string text) =>

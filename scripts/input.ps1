@@ -33,6 +33,10 @@ param(
     [int]$SettleMs = 30
 )
 $ErrorActionPreference = 'Stop'
+# NOTE: all INPUT structs are built inside C# helpers below. PowerShell
+# CANNOT write nested struct fields ($k.u.ki.wVk = x silently writes a
+# temporary copy — proven by byte dump: every field arrived zero). Plain
+# ints cross the boundary; C# does exact struct assignment.
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -51,13 +55,24 @@ public static class RealInput {
     [StructLayout(LayoutKind.Sequential)] public struct INPUT {
         public int type; public INPUTUNION u;
     }
-    public const int INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
-    public const int M_MOVE = 0x0001, M_LEFTDOWN = 0x0002, M_LEFTUP = 0x0004;
-    public const int M_RIGHTDOWN = 0x0008, M_RIGHTUP = 0x0010;
-    public const int M_MIDDLEDOWN = 0x0020, M_MIDDLEUP = 0x0040;
-    public const int M_WHEEL = 0x0800, M_ABSOLUTE = 0x8000;
-    public const int K_KEYUP = 0x0002, K_UNICODE = 0x0004, K_SCANCODE = 0x0008;
-    [DllImport("user32.dll", SetLastError = true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+    [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+    private static int InSize() { return Marshal.SizeOf(typeof(INPUT)); }
+    public static uint SendMouseMoveAbs(int nx, int ny) {
+        var i = new INPUT(); i.type = 0;
+        i.u.mi.dx = nx; i.u.mi.dy = ny;
+        i.u.mi.dwFlags = 0x0001 | 0x8000;
+        return SendInput(1, new INPUT[] { i }, InSize());
+    }
+    public static uint SendKey(int vk, int scan, int flags) {
+        var i = new INPUT(); i.type = 1;
+        i.u.ki.wVk = (short)vk; i.u.ki.wScan = (short)scan; i.u.ki.dwFlags = flags;
+        return SendInput(1, new INPUT[] { i }, InSize());
+    }
+    public static uint SendWheel(int delta) {
+        var i = new INPUT(); i.type = 0;
+        i.u.mi.mouseData = delta; i.u.mi.dwFlags = 0x0800;
+        return SendInput(1, new INPUT[] { i }, InSize());
+    }
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int nIndex);
@@ -67,9 +82,9 @@ public static class RealInput {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint uCode, uint uMapType);
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L; public int T; public int R; public int B; }
-    public static int InSize() { return Marshal.SizeOf(typeof(INPUT)); }
 }
 '@
 Add-Type -AssemblyName System.Drawing
@@ -87,13 +102,9 @@ function Norm-XY([int]$px, [int]$py) {
     $vw = [RealInput]::GetSystemMetrics(78); $vh = [RealInput]::GetSystemMetrics(79)
     return @([int](($px - $vx) * 65535.0 / $vw), [int](($py - $vy) * 65535.0 / $vh))
 }
-function Send-MouseAbs([int]$nx, [int]$ny, [int]$flags, [int]$data = 0) {
-    $in = New-Object RealInput+INPUT
-    $in.type = 0
-    $in.u.mi.dx = $nx; $in.u.mi.dy = $ny
-    $in.u.mi.mouseData = $data; $in.u.mi.dwFlags = $flags
-    $n = [RealInput]::SendInput(1, @($in), [RealInput]::InSize())
-    if ($n -ne 1) { throw "SendInput mouse failed flags=$flags" }
+function Send-MouseAbs([int]$nx, [int]$ny) {
+    $n = [RealInput]::SendMouseMoveAbs($nx, $ny)
+    if ($n -ne 1) { throw "SendInput mouse move failed" }
 }
 # Proven pattern (seek-drag-test.ps1 + desktop-menu proof): SetCursorPos
 # first, then mouse_event button events. SendInput moves/keys are fine, but
@@ -115,7 +126,7 @@ function Move-Path([int]$x1, [int]$y1, [int]$x2, [int]$y2, [int]$steps) {
         $x = [int]($x1 + ($x2 - $x1) * $i / $steps)
         $y = [int]($y1 + ($y2 - $y1) * $i / $steps)
         $nn = Norm-XY $x $y
-        Send-MouseAbs $nn[0] $nn[1] (0x0001 -bor 0x8000)
+        Send-MouseAbs $nn[0] $nn[1]
         Start-Sleep -Milliseconds 5
     }
     [void][RealInput]::SetCursorPos($x2, $y2)
@@ -142,10 +153,12 @@ $VK = @{
     f2 = 0x71; a = 0x41; c = 0x43; d = 0x44; v = 0x56; x = 0x58; y = 0x59; z = 0x5A; o = 0x4F;
 }
 function Send-Key([int]$vk, [bool]$up) {
-    $k = New-Object RealInput+INPUT
-    $k.type = 1; $k.u.ki.wVk = $vk
-    $k.u.ki.dwFlags = if ($up) { 0x0002 } else { 0 }
-    $n = [RealInput]::SendInput(1, @($k), [RealInput]::InSize())
+    # Real keyboards always carry a scancode: without KEYEVENTF_SCANCODE
+    # WinUI reports Key=None for keys like Enter/Escape (proven by trace).
+    $scan = [RealInput]::MapVirtualKey([uint32]$vk, 0)
+    $flags = 0x0008
+    if ($up) { $flags = $flags -bor 0x0002 }
+    $n = [RealInput]::SendKey($vk, $scan, $flags)
     if ($n -ne 1) { throw "SendInput key vk=$vk up=$up failed" }
 }
 function Invoke-Chord([string]$spec) {
@@ -163,13 +176,19 @@ function Invoke-Chord([string]$spec) {
     for ($i = $mods.Count - 1; $i -ge 0; $i--) { Send-Key $VK[$mods[$i]] $true; Start-Sleep -Milliseconds 12 }
 }
 function Invoke-Type([string]$text) {
+    # VK path for ASCII alphanumerics/space (KEYEVENTF_UNICODE was proven
+    # silently swallowed here: injected but never inserted). en-US layout.
     foreach ($ch in $text.ToCharArray()) {
-        $k = New-Object RealInput+INPUT
-        $k.type = 1; $k.u.ki.wVk = 0; $k.u.ki.wScan = [int]$ch; $k.u.ki.dwFlags = 0x0004
-        [void][RealInput]::SendInput(1, @($k), [RealInput]::InSize())
-        $k.u.ki.dwFlags = 0x0004 -bor 0x0002
-        [void][RealInput]::SendInput(1, @($k), [RealInput]::InSize())
-        Start-Sleep -Milliseconds 8
+        $vk = -1; $shift = $false
+        if ($ch -ge 'a' -and $ch -le 'z') { $vk = [int][char]::ToUpper($ch) }
+        elseif ($ch -ge 'A' -and $ch -le 'Z') { $vk = [int]$ch; $shift = $true }
+        elseif ($ch -ge '0' -and $ch -le '9') { $vk = [int]$ch }
+        elseif ($ch -eq ' ') { $vk = 0x20 }
+        if ($vk -lt 0) { throw "type: unsupported char '$ch' (extend map as needed)" }
+        if ($shift) { Send-Key 0x10 $false; Start-Sleep -Milliseconds 8 }
+        Send-Key $vk $false; Start-Sleep -Milliseconds 12
+        Send-Key $vk $true; Start-Sleep -Milliseconds 8
+        if ($shift) { Send-Key 0x10 $true; Start-Sleep -Milliseconds 8 }
     }
 }
 function Save-Shot([IntPtr]$hwnd, [string]$path) {
@@ -265,9 +284,8 @@ switch ($Verb.ToLower()) {
         Write-Host "drag $Button $X1,$Y1 -> $X2,$Y2 steps=$Steps"
     }
     'wheel' {
-        $in = New-Object RealInput+INPUT
-        $in.type = 0; $in.u.mi.mouseData = $Delta; $in.u.mi.dwFlags = 0x0800
-        [void][RealInput]::SendInput(1, @($in), [RealInput]::InSize())
+        $n = [RealInput]::SendWheel($Delta)
+        if ($n -ne 1) { throw "SendInput wheel failed" }
         Write-Host "wheel $Delta"
     }
     'key' { Invoke-Chord $Keys; Write-Host "key $Keys" }

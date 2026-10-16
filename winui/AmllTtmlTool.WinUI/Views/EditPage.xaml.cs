@@ -7,6 +7,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -182,6 +183,33 @@ namespace AmllTtmlTool.WinUI.Views
                     : new TransitionCollection();
             LineList.ItemsSource = _store.Document.Lines;
             RefreshEmptyState();
+            HookEditorScroll();
+        }
+
+        private ScrollViewer? _editorScroller;
+
+        // While the shared editor is open, scrolling repositions it over its
+        // target (no commit, no text change).
+        private void HookEditorScroll()
+        {
+            if (_editorScroller is not null) return;
+            if (FindScroller() is not ScrollViewer sv) return;
+            _editorScroller = sv;
+            sv.ViewChanged += OnEditorScrollViewChanged;
+        }
+
+        private void OnEditorScrollViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+        {
+            if (!EditorOpen || _store is null) return;
+            if (_editorKind == EditorKind.Insert)
+            {
+                var at = _store.Document.Lines.ToList()
+                    .FindIndex(l => l.Id == _insertLineId);
+                if (at >= 0) PositionEditorForInsert(at);
+                return;
+            }
+            if (_editorWordId is string wid)
+                PositionEditorForChip(wid, _editorKind == EditorKind.WordRoman);
         }
 
         private EditDocument? _watchedDoc;
@@ -247,27 +275,18 @@ namespace AmllTtmlTool.WinUI.Views
             if (index >= 0) RebuildLinePanel(index);
         }
 
-        // Rebuilds one line's chip row (word add/remove/split/merge/undo).
-        // Uncommitted text commits first; if the focused box lived in this
-        // row, focus returns to the same word+field with the caret clamped.
-        private void RebuildLinePanel(int index)
-        {
-            if (_store is null || index < 0 || index >= _store.Document.Lines.Count) return;
-            if (LineList.ContainerFromIndex(index) is not ListViewItem container) return;
-            if (container.ContentTemplateRoot is not Grid card) return;
-            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return;
-            var focused = FocusManager.GetFocusedElement(XamlRoot) as TextBox;
-            string? focusWord = null;
-            bool focusRoman = false;
-            int caret = 0;
-            if (focused is not null && _sessions.ContainsKey(focused) && IsIn(panel, focused))
-            {
-                CommitBoxIfDirty(focused);
-                focusWord = focused.Tag as string;
-                focusRoman = Grid.GetRow(focused) == 1;
-                caret = focused.SelectionStart;
-            }
-            // FLIP snapshot: word-id -> position, so surviving chips glide
+    // Rebuilds one line's chip row (word add/remove/split/merge/undo).
+    // Uncommitted text commits first (same as Tab-away).
+    private void RebuildLinePanel(int index)
+    {
+        if (_store is null || index < 0 || index >= _store.Document.Lines.Count) return;
+        if (LineList.ContainerFromIndex(index) is not ListViewItem container) return;
+        if (container.ContentTemplateRoot is not Grid card) return;
+        if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return;
+        // The shared editor is page-level (never rebuilt): commit any
+        // in-progress word edit first, like a Tab-away would.
+        CommitSharedEditorIfDirty();
+        // FLIP snapshot: word-id -> position, so surviving chips glide
             // to their new spots after the rebuild (same 150ms decelerate
             // as the toggle animations). Typing never rebuilds: unaffected.
             var before = new Dictionary<string, Windows.Foundation.Point>();
@@ -284,16 +303,6 @@ namespace AmllTtmlTool.WinUI.Views
             // Panel-level layout only: a list-wide UpdateLayout on a large
             // doc costs ~100ms+ per structural op for no benefit here.
             panel.UpdateLayout();
-            if (focusWord is not null)
-            {
-                var line = _store.Document.Lines[index];
-                var wi = line.Words.ToList().FindIndex(w => w.Id == focusWord);
-                if (wi >= 0 && FindChipBox(index, wi, focusRoman) is TextBox box)
-                {
-                    box.Focus(FocusState.Programmatic);
-                    box.SelectionStart = Math.Min(caret, box.Text.Length);
-                }
-            }
             if (AnimationsOn()) AnimatePanelFlip(panel, before);
         }
 
@@ -354,54 +363,30 @@ namespace AmllTtmlTool.WinUI.Views
         }
 
         private string? _insertLineId;
-        private TextBox? _insertBox;
         private string _insertTextStash = "";
 
         private void BuildLinePanel(LyricWrapPanel panel, EditLine line, int index)
         {
+            // Step-2: chips are session-less TextBlock units; only the
+            // persistent Trans/Roman boxes carry sessions (DropSessions
+            // commits those when dirty). The shared editor is page-level and
+            // never recycled; staleness is guarded in HideEditorIfStale.
             foreach (var child in panel.Children.OfType<Grid>().ToList())
                 DropSessions(child);
-            if (_insertBox is not null && IsIn(panel, _insertBox))
-            {
-                _insertTextStash = _insertBox.Text;
-                _insertBox.KeyDown -= OnInsertKeyDown;
-                _insertBox.LostFocus -= OnInsertLostFocus;
-            }
-            _insertBox = null;
             panel.Children.Clear();
             for (var i = 0; i < line.Words.Count; i++)
                 panel.Children.Add(BuildChip(line, line.Words[i], i, index));
             // The "+" lives in XAML beside the panel (centered on the whole
             // chip row, not its top row); only its Tag/Name are refreshed
             // per prepare in OnLineContainerChanging.
-            // Inline "Insert word here..." box (original insertWordField):
-            // open at the row end while adding; Enter commits a new word
-            // (default 0/0 timing) and keeps focus for repeat adds.
-            if (_insertLineId == line.Id)
-            {
-                var insert = new TextBox
-                {
-                    PlaceholderText = "Insert word here...",
-                    AcceptsReturn = false,
-                    IsSpellCheckEnabled = false,
-                    IsTextPredictionEnabled = false,
-                    MinWidth = 120,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Text = _insertTextStash,
-                };
-                AutomationProperties.SetAutomationId(insert, $"InsertBox{index + 1}");
-                AutomationProperties.SetName(insert, $"Insert word into line {index + 1}");
-                insert.KeyDown += OnInsertKeyDown;
-                insert.LostFocus += OnInsertLostFocus;
-                _insertBox = insert;
-                panel.Children.Add(insert);
-            }
+            // The "Insert word here..." box is the shared editor in insert
+            // mode (positioned at the row end, not a panel child).
             // Per-word romaji visibility is owned SOLELY by the master toggle:
             // freshly built chips default to visible romans, so snap them here
             // (the "+" rebuild must never force them on while the toggle is
             // off). Same snap as container prepare, no animation.
             if (FindCardOfPanel(panel) is Grid builtCard)
-                ApplyCardVisibility(builtCard,
+                ApplyCardVisibility(builtCard, line,
                     _viewState?.ShowTranslation ?? true,
                     _viewState?.ShowRomanization ?? true,
                     _viewState?.ShowWordRomanization ?? true,
@@ -419,35 +404,97 @@ namespace AmllTtmlTool.WinUI.Views
             if (_insertLineId == line.Id)
             {
                 CloseInsertBox();
-                RebuildLinePanel(index);
                 return;
             }
             CommitActiveBox();
+            OpenInsertEditor(index);
+        }
+
+        // Shows the shared editor in insert mode at the row end. The
+        // session commit only stashes (generic commit paths like
+        // CommitActiveBox must never turn a draft into a word); explicit
+        // Enter calls DoInsertCommit.
+        private bool OpenInsertEditor(int lineIndex)
+        {
+            if (_store is null || lineIndex < 0 || lineIndex >= _store.Document.Lines.Count) return false;
+            var line = _store.Document.Lines[lineIndex];
             _insertLineId = line.Id;
             _insertTextStash = "";
-            RebuildLinePanel(index);
-            _insertBox?.Focus(FocusState.Programmatic);
+            var lid = line.Id;
+            RetargetEditor(lid, null, EditorKind.Insert,
+                () => _insertTextStash,
+                text => _insertTextStash = text,
+                "Insert word here...");
+            AutomationProperties.SetAutomationId(SharedEditor, $"InsertBox{lineIndex + 1}");
+            AutomationProperties.SetName(SharedEditor, $"Insert word into line {lineIndex + 1}");
+            if (!PositionEditorForInsert(lineIndex)) return false;
+            ShowSharedEditor();
+            SharedEditor.Focus(FocusState.Programmatic);
+            return true;
+        }
+
+        // Anchors the insert editor at the row end (after the last chip,
+        // wrapping like a panel child would).
+        private bool PositionEditorForInsert(int lineIndex)
+        {
+            if (_store is null) return false;
+            if (LineList.ContainerFromIndex(lineIndex) is not ListViewItem container) return false;
+            if (container.ContentTemplateRoot is not Grid card) return false;
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return false;
+            panel.UpdateLayout();
+            var origin = panel.TransformToVisual(EditorOverlay)
+                .TransformPoint(new Windows.Foundation.Point(0, 0));
+            double x = origin.X, y = origin.Y, rowH = 32;
+            var last = panel.Children.OfType<Grid>().LastOrDefault();
+            if (last is not null)
+            {
+                var lp = last.TransformToVisual(EditorOverlay)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0));
+                rowH = Math.Max(24, last.ActualHeight);
+                x = lp.X + last.ActualWidth + ChipRowGap;
+                y = lp.Y;
+                if (x + 120 > origin.X + panel.ActualWidth && panel.ActualWidth > 0)
+                {
+                    x = origin.X;
+                    y = lp.Y + last.ActualHeight + ChipRowGap;
+                }
+            }
+            PositionEditor(x, y, 120, rowH);
+            return true;
         }
 
         internal bool OpenInsertBox(int lineIndex)
         {
             if (_store is null || lineIndex < 0 || lineIndex >= _store.Document.Lines.Count) return false;
             CommitActiveBox();
-            _insertLineId = _store.Document.Lines[lineIndex].Id;
-            _insertTextStash = "";
-            LineList.ScrollIntoView(LineList.Items[lineIndex]);
-            LineList.UpdateLayout();
-            RebuildLinePanel(lineIndex);
-            if (_insertBox is null) return false;
-            _insertBox.Focus(FocusState.Programmatic);
-            return true;
+            // Forced sync layout right after insert+scroll races the list's
+            // entrance transitions natively (AccessViolation in UpdateLayout
+            // under stress). Suppress transitions for the forced pass, same
+            // as RunWithMoveFlip; the insert editor appears regardless.
+            // Callers (suite stress, line menu) virtually always scrolled to
+            // this index just before, so a second ScrollIntoView would stack
+            // a new async scroll onto the in-flight one: skip it when the
+            // container is already realized and only settle layout.
+            var saved = LineList.ItemContainerTransitions;
+            try
+            {
+                LineList.ItemContainerTransitions = new TransitionCollection();
+                if (LineList.ContainerFromIndex(lineIndex) is null)
+                    LineList.ScrollIntoView(LineList.Items[lineIndex]);
+                LineList.UpdateLayout();
+            }
+            finally
+            {
+                LineList.ItemContainerTransitions = saved;
+            }
+            return OpenInsertEditor(lineIndex);
         }
 
         private void CloseInsertBox()
         {
             _insertLineId = null;
             _insertTextStash = "";
-            _insertBox = null;
+            if (_editorKind == EditorKind.Insert) HideSharedEditor();
         }
 
         // Selection-driven insert lifetime: leaving the insert's line closes
@@ -457,37 +504,43 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (_insertLineId is null || _store is null || _selection is null) return;
             if (_selection.SelectedLineId == _insertLineId) return;
-            var lineId = _insertLineId;
             CloseInsertBox();
-            var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == lineId);
-            if (at >= 0) RebuildLinePanel(at);
         }
 
-        // Insert-box probe: "open:0/1;children:N;chips:G" (children = chips +
-        // the box; exactly one non-chip child while open).
+        // Insert-box probe: "open:0/1;children:N;chips:N". Step-2: the panel
+        // holds chips only (the editor is a page overlay), so children ==
+        // chips; "open" is the insert session state.
         internal string Test_InsertInfo()
         {
-            if (_insertBox is null) return "open:0";
-            var panel = VisualTreeHelper.GetParent(_insertBox) as LyricWrapPanel;
-            if (panel is null) return "open:1;detached";
+            if (_insertLineId is null) return "open:0";
+            if (_store is null) return "open:1;detached";
+            var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == _insertLineId);
+            if (at < 0 || LineList.ContainerFromIndex(at) is not ListViewItem container) return "open:1;detached";
+            if (container.ContentTemplateRoot is not Grid card) return "open:1;detached";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "open:1;detached";
             var grids = panel.Children.OfType<Grid>().Count();
             return $"open:1;children:{panel.Children.Count};chips:{grids}";
         }
 
         internal bool CommitInsertBox()
         {
-            if (_store is null || _insertBox is null) return false;
+            // The hidden-after-blur editor keeps its draft text: commit works
+            // from the session state, not visibility.
+            if (_store is null || _insertLineId is null) return false;
+            return DoInsertCommit(SharedEditor.Text);
+        }
+
+        private bool DoInsertCommit(string raw)
+        {
+            if (_store is null) return false;
             var lineId = _insertLineId;
             var line = lineId is null ? null
                 : _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
             if (line is null) return false;
-            var raw = _insertBox.Text;
-            var at = _store.Document.Lines.IndexOf(line);
             // An empty insert box closes instead of adding an empty word.
             if (raw.Length == 0)
             {
                 CloseInsertBox();
-                if (at >= 0) RebuildLinePanel(at);
                 return true;
             }
             // Trailing "|" seeds ruby (model: empty == absent, so strip).
@@ -496,42 +549,16 @@ namespace AmllTtmlTool.WinUI.Views
             word.Text = text;
             _store.Execute(new AddWordCommand(line.Id, line.Words.Count, word));
             // Service-only selection (SelectionMode=None): the new word is
-            // selected, no ListView mirror exists.
+            // selected, no ListView mirror exists. Same-line reselect keeps
+            // the insert session alive for repeat adds.
             _selection?.SelectWord(line.Id, word.Id);
-            _insertBox.Text = "";
+            SharedEditor.Text = "";
             _insertTextStash = "";
-            _insertBox.Focus(FocusState.Programmatic);
+            if (_sessions.TryGetValue(SharedEditor, out var session))
+                session.LastSeenModel = "";
+            PositionEditorForInsert(_store.Document.Lines.IndexOf(line));
+            SharedEditor.Focus(FocusState.Programmatic);
             return true;
-        }
-
-        private void OnInsertKeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            if (_store is null) return;
-            if (e.Key == Windows.System.VirtualKey.Enter)
-            {
-                // Enter commits (empty closes); the box stays open with focus
-                // for repeat adds, exactly like the original insert field.
-                CommitInsertBox();
-                e.Handled = true;
-            }
-            else if (e.Key == Windows.System.VirtualKey.Escape)
-            {
-                var lineId = _insertLineId;
-                CloseInsertBox();
-                if (lineId is not null)
-                {
-                    var idx = _store.Document.Lines.ToList().FindIndex(l => l.Id == lineId);
-                    if (idx >= 0) RebuildLinePanel(idx);
-                }
-                e.Handled = true;
-            }
-        }
-
-        private void OnInsertLostFocus(object sender, RoutedEventArgs e)
-        {
-            // Blur keeps the draft (stash) but closes nothing: re-opening
-            // restores it. The box commits only on Enter, like the original.
-            if (sender is TextBox box) _insertTextStash = box.Text;
         }
 
         public void Detach()
@@ -539,6 +566,12 @@ namespace AmllTtmlTool.WinUI.Views
             // Never leak a drag session (timer/visuals) across navigation.
             try { CleanupDrag(); } catch { }
             DisarmDrag();
+            HideSharedEditor();
+            if (_editorScroller is not null)
+            {
+                _editorScroller.ViewChanged -= OnEditorScrollViewChanged;
+                _editorScroller = null;
+            }
             UnwatchLines();
             if (_store is not null)
             {
@@ -628,50 +661,71 @@ namespace AmllTtmlTool.WinUI.Views
             LineList.UpdateLayout();
         }
 
-        // which: 0 = translation row, 1 = romanization row, 2 = first chip's
-        // romaji box. Returns (int)Visibility or -1 when not realized.
+        // which: 0 = translation row, 1 = romanization row, 2 = per-word
+        // romaji rows. Returns (int)Visibility or -1 when not realized.
+        // Step-2: chip roman lives in the single text block (second line);
+        // its visibility IS the master toggle state.
         internal int RowVisibility(int line, int which)
         {
             if (LineList.ContainerFromIndex(line) is not ListViewItem container) return -1;
             if (container.ContentTemplateRoot is not Grid card) return -1;
+            if (which == 2)
+                return (_viewState?.ShowWordRomanization ?? true) ? 0 : 1;
             FrameworkElement? el = which switch
             {
                 0 => (card.FindName("TransLabel") as FrameworkElement) ?? card.FindName("TransBox") as FrameworkElement,
-                1 => (card.FindName("RomanLabel") as FrameworkElement) ?? card.FindName("RomanBox") as FrameworkElement,
-                _ => FirstChipRoman(card),
+                _ => (card.FindName("RomanLabel") as FrameworkElement) ?? card.FindName("RomanBox") as FrameworkElement,
             };
             return el is null ? -1 : (int)el.Visibility;
         }
 
-        private static FrameworkElement? FirstChipRoman(Grid card)
-        {
-            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return null;
-            foreach (var child in panel.Children)
-            {
-                if (child is Grid chip && chip.Children.Count >= 2
-                    && chip.Children[1] is FrameworkElement roman)
-                    return roman;
-            }
-            return null;
-        }
-
         // --- Step-1 edit hooks (UI thread) ----------------------------------
+        // Step-2: the "chip box" IS the shared editor. Targeting it at
+        // (line, word, field) retargets (committing a dirty other target
+        // first) WITHOUT showing or focusing; callers that need EDIT call
+        // FocusChip/EnterWordEdit. Null when the line/word isn't realized.
         internal TextBox? FindChipBox(int line, int word, bool roman)
         {
             if (_store is null || line < 0 || line >= _store.Document.Lines.Count) return null;
-            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return null;
-            if (container.ContentTemplateRoot is not Grid card) return null;
-            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return null;
+            if (LineList.ContainerFromIndex(line) is not ListViewItem) return null;
             var docLine = _store.Document.Lines[line];
             if (word < 0 || word >= docLine.Words.Count) return null;
             var wordId = docLine.Words[word].Id;
-            foreach (var child in panel.Children)
+            var kind = roman ? EditorKind.WordRoman : EditorKind.WordMain;
+            if (!EditorTargets(docLine.Id, wordId, kind))
             {
-                if (child is Grid chip && chip.Tag is string tag && tag == wordId
-                    && chip.Children.Count >= 2)
-                    return chip.Children[roman ? 1 : 0] as TextBox;
+                var lid = docLine.Id;
+                if (kind == EditorKind.WordRoman)
+                {
+                    RetargetEditor(lid, wordId, kind,
+                        () => FindWord(lid, wordId).word?.RomanWord ?? "",
+                        text =>
+                        {
+                            var (ln, w) = FindWord(lid, wordId);
+                            if (ln is not null && w is not null) CommitWordRomanBox(ln, wordId, text);
+                        }, "");
+                }
+                else
+                {
+                    var w0 = docLine.Words[word];
+                    RetargetEditor(lid, wordId, kind,
+                        () => FindWord(lid, wordId).word?.Text ?? "",
+                        text =>
+                        {
+                            var (ln, w) = FindWord(lid, wordId);
+                            if (ln is not null && w is not null) CommitWordTextBox(ln, wordId, text);
+                        },
+                        IsSpaceWord(w0) ? $"Space \u00D7{w0.Text.Length}" : "");
+                }
             }
-            return null;
+            return SharedEditor;
+        }
+
+        // Live id-based lookup (never a captured stale line object).
+        private (EditLine? line, EditWord? word) FindWord(string lineId, string wordId)
+        {
+            var line = _store?.Document.Lines.FirstOrDefault(l => l.Id == lineId);
+            return (line, line?.Words.FirstOrDefault(w => w.Id == wordId));
         }
 
         internal TextBox? FindLineFieldBox(int line, bool translation)
@@ -683,15 +737,12 @@ namespace AmllTtmlTool.WinUI.Views
 
         internal bool FocusChip(int line, int word, bool roman)
         {
-            var box = FindChipBox(line, word, roman);
-            if (box is null) return false;
-            // A space label cannot take focus: swap in its editor first so
-            // keyboard users can always reach every chip.
-            if (box.Visibility == Visibility.Collapsed
-                && _store is not null && line >= 0 && line < _store.Document.Lines.Count
-                && word >= 0 && word < _store.Document.Lines[line].Words.Count)
-                EnterSpaceEdit(_store.Document.Lines[line].Words[word].Id);
-            return box.Focus(FocusState.Programmatic);
+            // Focus without select-all (unlike EnterWordEdit): the shared
+            // editor opens on the field; GotFocus anchors as usual.
+            if (_store is null || line < 0 || line >= _store.Document.Lines.Count) return false;
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return false;
+            return OpenEditorForWord(docLine.Words[word].Id, roman, selectAll: false);
         }
 
         internal string ChipBoxText(int line, int word, bool roman) =>
@@ -759,10 +810,18 @@ namespace AmllTtmlTool.WinUI.Views
             box.Text += ch;
             _lastSetMs = sw.Elapsed.TotalMilliseconds;
             _lastSetCpuMs = cpu0 < 0 ? -1 : CurrentThreadCpuMs() - cpu0;
-            var parent = VisualTreeHelper.GetParent(box);
-            while (parent is not null && parent is not LyricWrapPanel)
-                parent = VisualTreeHelper.GetParent(parent);
-            if (parent is FrameworkElement panel) panel.UpdateLayout();
+            // Panel-level layout only (the editor lives in the page overlay,
+            // not the panel): re-layout the target chip's row.
+            FrameworkElement? panel = null;
+            if (box.Tag is string wid)
+            {
+                foreach (var chip in FindChips(wid))
+                {
+                    panel = VisualTreeHelper.GetParent(chip) as FrameworkElement;
+                    break;
+                }
+            }
+            if (panel is not null) panel.UpdateLayout();
             else LineList.UpdateLayout();
             _lastLayoutMs = sw.Elapsed.TotalMilliseconds - _lastSetMs;
             sw.Stop();
@@ -784,11 +843,6 @@ namespace AmllTtmlTool.WinUI.Views
             if (FindChipBox(line, word, roman) is not TextBox box) return false;
             var before = _store?.Document.UndoDepth ?? -1;
             CommitBoxIfDirty(box);
-            // A no-op commit leaves focus (and EDIT) in place; refreshes
-            // already re-sync the label after real commits.
-            if (_store is not null && line >= 0 && line < _store.Document.Lines.Count
-                && word >= 0 && word < _store.Document.Lines[line].Words.Count)
-                SyncSpaceVisual(_store.Document.Lines[line].Words[word].Id);
             var after = _store?.Document.UndoDepth ?? -1;
             return after != before;
         }
@@ -804,9 +858,6 @@ namespace AmllTtmlTool.WinUI.Views
                 session.LastSeenModel = model;
             }
             catch { }
-            if (_store is not null && line >= 0 && line < _store.Document.Lines.Count
-                && word >= 0 && word < _store.Document.Lines[line].Words.Count)
-                SyncSpaceVisual(_store.Document.Lines[line].Words[word].Id);
         }
 
         internal int ChipCaret(int line, int word, bool roman) =>
@@ -878,23 +929,19 @@ namespace AmllTtmlTool.WinUI.Views
             if (container.ContentTemplateRoot is not Grid card) return "nocard";
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
             if (word < 0 || word >= panel.Children.Count) return "norow";
-            if (panel.Children[word] is not Grid chip || chip.Children.Count < 2) return "nochip";
+            if (panel.Children[word] is not Grid chip || chip.Children.Count < 1) return "nochip";
             // Settle layout first (sibling probes UpdateLayout too): under
             // load a just-committed box can otherwise still read 0.00.
+            // Single-TextBlock chip: both rows share the block width by
+            // construction, so both report the unit width.
             card.UpdateLayout();
-            // A collapsed main box (space label showing) measures 0: use the
-            // visible label instead, which is what defines the chip width.
-            FrameworkElement? main = chip.Children[0] as FrameworkElement;
-            if (main is not null && main.Visibility == Visibility.Collapsed
-                && chip.Children.Count >= 3 && chip.Children[2] is FrameworkElement labelEl)
-                main = labelEl;
-            var tw = main?.ActualWidth ?? double.NaN;
-            var rw = (chip.Children[1] as FrameworkElement)?.ActualWidth ?? double.NaN;
-            return $"{F2(tw)},{F2(rw)}";
+            var tw = (chip.Children[0] as FrameworkElement)?.ActualWidth ?? double.NaN;
+            return $"{F2(tw)},{F2(tw)}";
         }
 
-        // Space-label text for a chip ("Space xN" when the label shows,
-        // "hidden" while its editor is open, "notspace" for normal words).
+        // Space-label text for a chip ("Space xN" idle, "notspace" for
+        // normal words). Step-2: the label IS the main row (shared editor
+        // covers it while editing).
         internal string SpaceLabel(int line, int word)
         {
             if (_store is null || line < 0 || line >= _store.Document.Lines.Count) return "noline";
@@ -908,11 +955,97 @@ namespace AmllTtmlTool.WinUI.Views
             foreach (var child in panel.Children)
             {
                 if (child is Grid chip && chip.Tag is string tag && tag == wordId
-                    && chip.Children.Count >= 3 && chip.Children[2] is TextBlock label)
-                    return label.Visibility == Visibility.Visible ? label.Text : "hidden";
+                    && chip.Children.Count >= 1 && chip.Children[0] is TextBlock main)
+                {
+                    // The label is the MAIN run only: TextBlock.Text also
+                    // spans the LineBreak + roman run ("Space x1\r\n").
+                    foreach (var inline in main.Inlines)
+                        if (inline is Run r) return r.Text;
+                    return "";
+                }
             }
             return "nolabel";
         }
+
+        // Chip layout debug: single text block width + per-line rects.
+        internal string Test_ChipDebug(int line, int word)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            if (word < 0 || word >= panel.Children.Count) return "norow";
+            if (panel.Children[word] is not ChipGrid chip || chip.Children.Count < 1) return "nochip";
+            if (chip.Children[0] is not TextBlock text) return "notext";
+            card.UpdateLayout();
+            string R(Windows.Foundation.Rect r) =>
+                $"({F2(r.X)},{F2(r.Y)},{F2(r.Width)}x{F2(r.Height)})";
+            var lineCount = text.Text.Split('\n').Length;
+            var first = ChipCharRect(text, 0);
+            var gap = "n/a";
+            if (lineCount > 1)
+            {
+                    var lastFirst = ChipCharRect(text, text.Text.IndexOf('\n') - 1);
+                    var firstSecond = ChipCharRect(text, text.Text.IndexOf('\n') + 1);
+                if (lastFirst.HasValue && firstSecond.HasValue)
+                    gap = F2(firstSecond.Value.Top - (lastFirst.Value.Top + lastFirst.Value.Height));
+            }
+            var shown = text.Text.Replace("\r", "\\r").Replace("\n", "\\n");
+            if (shown.Length > 40) shown = shown.Substring(0, 40);
+            return $"chipw={F2(chip.ActualWidth)} lines={lineCount} text=[{shown}] " +
+                $"line0={R(first ?? default)} gap={gap}";
+        }
+
+        // Full per-chip render-state dump for a line (diagnoses invisible
+        // text): local (non-inherited) Foreground at each level. "unset"
+        // means pure inheritance; any local brush (esp. transparent) blocks
+        // it and explains invisible glyphs with correct layout text.
+        internal string Test_ChipAll(int line)
+        {
+            if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
+            if (container.ContentTemplateRoot is not Grid card) return "nocard";
+            if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
+            card.UpdateLayout();
+            string Brush(object? v)
+            {
+                if (v is null) return "null-local";
+                if (ReferenceEquals(v, DependencyProperty.UnsetValue)) return "unset";
+                if (v is Microsoft.UI.Xaml.Media.SolidColorBrush b)
+                    return $"#{b.Color.A:X2}{b.Color.R:X2}{b.Color.G:X2}{b.Color.B:X2}";
+                return v.GetType().Name;
+            }
+            var fp = $"panel:{Brush(panel.ReadLocalValue(Control.ForegroundProperty))}";
+            var parts = new System.Collections.Generic.List<string> { $"n={panel.Children.Count} {fp}" };
+            for (var i = 0; i < panel.Children.Count; i++)
+            {
+                if (panel.Children[i] is not Grid chip) { parts.Add($"{i}:notgrid"); continue; }
+                var kinds = string.Join(",", chip.Children.Select(c => c.GetType().Name));
+                var op = F2(chip.Opacity);
+                var fc = Brush(chip.ReadLocalValue(Control.ForegroundProperty));
+                var t = "";
+                var textTag = "?";
+                if (chip.Children.Count > 0 && chip.Children[0] is TextBlock text)
+                {
+                    textTag = text.Tag as string ?? "?";
+                    string? main = null;
+                    var frun = "norun";
+                    foreach (var inline in text.Inlines)
+                    {
+                        if (inline is not Run r) continue;
+                        main ??= r.Text.Replace("\r", "\\r").Replace("\n", "\\n");
+                        if (frun == "norun")
+                            frun = Brush(r.ReadLocalValue(
+                                Microsoft.UI.Xaml.Documents.TextElement.ForegroundProperty));
+                    }
+                    if (main is not null && main.Length > 14) main = main.Substring(0, 14);
+                    var ftext = Brush(text.ReadLocalValue(TextBlock.ForegroundProperty));
+                    t = $" txt=[{main}] frun={frun} ftext={ftext}";
+                }
+                parts.Add($"{i}:w={F2(chip.ActualWidth)} vis={chip.Visibility} op={op} " +
+                    $"kids=[{kinds}] fchip={fc} tag={chip.Tag as string ?? "?"} ttag={textTag}{t}");
+            }
+            return string.Join(" | ", parts);
+        }
+
 
         // Full chip-unit width (hug check: must be small for one glyph).
         internal string ChipUnitWidth(int line, int word)
@@ -1287,9 +1420,13 @@ namespace AmllTtmlTool.WinUI.Views
 
         // Gap between a chip's main box (or its space label) and its romaji
         // box, in px. "collapsed" when the romaji row is toggled off.
+        // Step-2: inter-line gap inside the single chip TextBlock, measured
+        // between the last char of line 1 and the first char of line 2.
+        // "collapsed" when the master toggle hides the roman row.
         internal string ChipGap(int line, int word)
         {
             if (_store is null || line < 0 || line >= _store.Document.Lines.Count) return "noline";
+            if (!(_viewState?.ShowWordRomanization ?? true)) return "collapsed";
             if (LineList.ContainerFromIndex(line) is not ListViewItem container) return "unrealized";
             if (container.ContentTemplateRoot is not Grid card) return "nocard";
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return "nopanel";
@@ -1298,22 +1435,82 @@ namespace AmllTtmlTool.WinUI.Views
             var wordId = docLine.Words[word].Id;
             foreach (var child in panel.Children)
             {
-                if (child is not Grid chip || chip.Tag is not string tag || tag != wordId) continue;
-                if (chip.Children.Count < 2 || chip.Children[1] is not FrameworkElement roman) return "noroman";
-                if (roman.Visibility == Visibility.Collapsed) return "collapsed";
+                if (child is not ChipGrid chip || chip.Tag as string != wordId) continue;
+                if (chip.Children.Count < 1 || chip.Children[0] is not TextBlock text) return "notext";
                 card.UpdateLayout();
-                FrameworkElement? main = chip.Children[0] as FrameworkElement;
-                if (main is not null && main.Visibility == Visibility.Collapsed
-                    && chip.Children.Count >= 3 && chip.Children[2] is FrameworkElement labelEl)
-                    main = labelEl;
-                if (main is null) return "nomain";
-                var mainBottom = main.TransformToVisual(card)
-                    .TransformPoint(new Windows.Foundation.Point(0, main.ActualHeight)).Y;
-                var romanTop = roman.TransformToVisual(card)
-                    .TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
-                return $"{F2(romanTop - mainBottom)}";
+                // Run-anchored rects: integer offsets into TextBlock.Text do
+                // NOT map 1:1 to TextPointers (the "\r\n" is one LineBreak
+                // element), so anchor to the runs themselves. Both rects live
+                // in the same text space, so plain subtraction is the gap.
+                Run? mainRun = null;
+                Run? romanRun = null;
+                foreach (var inline in text.Inlines)
+                {
+                    if (inline is not Run r) continue;
+                    if (mainRun is null) mainRun = r;
+                    else romanRun = r;
+                }
+                if (mainRun is null || romanRun is null) return "noroman";
+                if (mainRun.Text.Length == 0 || romanRun.Text.Length == 0) return "empty";
+                if (text.LineHeight > 0
+                    && text.LineStackingStrategy == LineStackingStrategy.BlockLineHeight)
+                {
+                    // Explicit pitch: glyph rects report full line boxes
+                    // (always tiling, gap 0), so the gap IS the added
+                    // leading over the natural single-line pitch, measured
+                    // at runtime from a reference block in the chip's font.
+                    var probe = new TextBlock
+                    {
+                        FontFamily = text.FontFamily,
+                        FontSize = text.FontSize,
+                        FontStyle = text.FontStyle,
+                        FontWeight = text.FontWeight,
+                        Text = "X",
+                    };
+                    probe.Measure(new Windows.Foundation.Size(
+                        double.PositiveInfinity, double.PositiveInfinity));
+                    return F2(text.LineHeight - probe.DesiredSize.Height);
+                }
+                var lastFirst = MainLastCharRect(mainRun);
+                var firstSecond = FirstCharRect(romanRun);
+                if (lastFirst is null || firstSecond is null) return "norange";
+                var gap = firstSecond.Value.Top - (lastFirst.Value.Top + lastFirst.Value.Height);
+                return F2(gap);
             }
             return "nochip";
+        }
+
+        // First-glyph rect of a run (roman row start for the gap check).
+        private static Windows.Foundation.Rect? FirstCharRect(Run run)
+        {
+            try { return run.ContentStart.GetCharacterRect(LogicalDirection.Forward); }
+            catch { return null; }
+        }
+
+        // Last-glyph rect of a run (main row end for the gap check).
+        private static Windows.Foundation.Rect? MainLastCharRect(Run run)
+        {
+            try
+            {
+                var tp = run.ContentEnd.GetPositionAtOffset(-1, LogicalDirection.Backward);
+                if (tp is null) return null;
+                return tp.GetCharacterRect(LogicalDirection.Forward);
+            }
+            catch { return null; }
+        }
+
+        // Character rects via TextPointer (TextBlock has no
+        // GetRectFromCharacterIndex; offsets walk runs + the line break).
+        private static Windows.Foundation.Rect? ChipCharRect(TextBlock text, int index)
+        {
+            try
+            {
+                if (index < 0 || index >= text.Text.Length) return null;
+                var tp = text.ContentStart.GetPositionAtOffset(index, LogicalDirection.Forward);
+                if (tp is null) return null;
+                return tp.GetCharacterRect(LogicalDirection.Forward);
+            }
+            catch { return null; }
         }
 
         // Gap between the card Translation and Romanization rows, in px.
@@ -1671,9 +1868,10 @@ namespace AmllTtmlTool.WinUI.Views
                 && _store.Document.Lines.All(l => l.Id != _insertLineId))
             {
                 // Its line is gone (delete/undo/combine): drop the dangling
-                // insert box instead of pointing at a dead line.
+                // insert session instead of pointing at a dead line.
                 CloseInsertBox();
             }
+            HideEditorIfStale();
             if (DispatcherQueue.HasThreadAccess) { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); RefreshRealizedNumbers(); }
             else DispatcherQueue.TryEnqueue(() => { RefreshEmptyState(); RefreshBoxTexts(); RefreshFlagVisuals(); RefreshRealizedNumbers(); });
         }
@@ -1681,6 +1879,10 @@ namespace AmllTtmlTool.WinUI.Views
         // Pushes model text into every realized box WITHOUT stealing focus:
         // text is only assigned when it differs, and the caret is restored
         // clamped, so typing never loses caret/focus on model notify.
+        // Step-2: idle chips are TextBlocks (no caret/focus to preserve), so
+        // model refresh is a plain text assignment. The shared editor keeps
+        // its own session: a clean (unmodified) editor re-syncs, a dirty one
+        // keeps the user's text (commit-on-blur resolves it).
         private void RefreshBoxTexts()
         {
             if (_store is null) return;
@@ -1700,23 +1902,29 @@ namespace AmllTtmlTool.WinUI.Views
                     if (chip.Children.Count < 2) continue;
                     var word = line.Words.FirstOrDefault(w => w.Id == wordId);
                     if (word is null) continue;
-                    if (chip.Children[0] is TextBox text)
-                        SyncBox(text, word.Text);
-                    if (chip.Children[1] is TextBox rom)
-                        SyncBox(rom, word.RomanWord);
-                    // Space chips keep the dim "Space xN" label in sync with
-                    // the model count (typing spaces changes N live); the
-                    // dim cue is the secondary-brush label itself, so the
-                    // chip stays full-opacity and legible.
-                    var space = IsSpaceWord(word);
+                    // Step-2: one TextBlock per chip (no caret/focus to
+                    // preserve); SetChipContent no-ops when nothing changed.
                     chip.Opacity = 1;
-                    if (chip.Children.Count >= 3 && chip.Children[2] is TextBlock label && space)
-                    {
-                        label.Text = SpaceLabelFor(word);
-                        AutomationProperties.SetName(label, $"Space \u00D7{word.Text.Length}");
-                    }
-                    SyncSpaceVisual(wordId);
+                    if (chip is ChipGrid cg && chip.Children[0] is TextBlock text)
+                        SetChipContent(cg, text, word, line.Words.IndexOf(word),
+                            _viewState?.ShowWordRomanization ?? true);
                 }
+            }
+            // A clean shared editor follows the model; a dirty one keeps
+            // the user's uncommitted text.
+            if (_editorKind != EditorKind.None
+                && _sessions.TryGetValue(SharedEditor, out var es))
+            {
+                try
+                {
+                    var model = es.GetModel();
+                    if (SharedEditor.Text == es.LastSeenModel && SharedEditor.Text != model)
+                    {
+                        SharedEditor.Text = model;
+                        es.LastSeenModel = model;
+                    }
+                }
+                catch { }
             }
         }
 
@@ -1792,6 +2000,9 @@ namespace AmllTtmlTool.WinUI.Views
             { TraceEvent("card-pressed-outcome", $"ignored=bad-index {index}"); return; }
             var line = _store.Document.Lines[index];
             var (ctrl, shift) = PointerModifiers(e);
+            // Pressing away from an open word edit commits it first (the
+            // insert draft is only stashed); then the gesture proceeds.
+            CommitSharedEditorIfDirty();
             // Plain press on an unselected line selects immediately;
             // modified presses and presses inside the selection defer to
             // release/dragstart (multi-selections survive).
@@ -2010,11 +2221,9 @@ namespace AmllTtmlTool.WinUI.Views
         // ContextFlyout replaces the native one, including for Shift+F10.
         // One instance per element (never shared): reparenting a single
         // open flyout across elements is a needless crash risk.
-        private void AttachWordMenu(Grid chip, TextBox text, TextBox roman, string lineId, string wordId)
+        private void AttachWordMenu(Grid chip, string lineId, string wordId)
         {
             chip.ContextFlyout = MakeWordMenuFlyout(lineId, wordId);
-            text.ContextFlyout = MakeWordMenuFlyout(lineId, wordId);
-            roman.ContextFlyout = MakeWordMenuFlyout(lineId, wordId);
         }
 
         private MenuFlyout MakeWordMenuFlyout(string lineId, string wordId)
@@ -2322,6 +2531,16 @@ namespace AmllTtmlTool.WinUI.Views
             _selection?.Clear();
         }
 
+        // Editor introspection for real-input drivers (kind, visibility,
+        // focus, text, target): "kind;visible;focused;text".
+        internal string Test_EditorState()
+        {
+            var focused = ReferenceEquals(
+                FocusManager.GetFocusedElement(XamlRoot), SharedEditor);
+            return $"{_editorKind};{(SharedEditor.Visibility == Visibility.Visible ? 1 : 0)};" +
+                $"{(focused ? 1 : 0)};{SharedEditor.Text}";
+        }
+
         internal bool ToggleChipWord(int line, int word)
         {
             if (_store is null || _selection is null) return false;
@@ -2333,26 +2552,37 @@ namespace AmllTtmlTool.WinUI.Views
             return true;
         }
 
-        internal bool InsertBoxOpen() => _insertBox is not null;
+        internal bool InsertBoxOpen() => _insertLineId is not null;
 
         internal void SetInsertText(string text)
         {
-            if (_insertBox is not null) _insertBox.Text = text;
+            // Re-shows a blur-hidden insert session (draft intact) so the
+            // text always lands in the insert box.
+            if (_editorKind != EditorKind.Insert && _insertLineId is string lid
+                && _store is not null)
+            {
+                var at = _store.Document.Lines.ToList().FindIndex(l => l.Id == lid);
+                if (at < 0) return;
+                RetargetEditor(lid, null, EditorKind.Insert,
+                    () => _insertTextStash,
+                    t => _insertTextStash = t,
+                    "Insert word here...");
+                AutomationProperties.SetAutomationId(SharedEditor, $"InsertBox{at + 1}");
+                AutomationProperties.SetName(SharedEditor, $"Insert word into line {at + 1}");
+                if (!PositionEditorForInsert(at)) return;
+                ShowSharedEditor();
+            }
+            if (_editorKind == EditorKind.Insert) SharedEditor.Text = text;
         }
 
-        internal string InsertText() => _insertBox?.Text ?? "nobox";
+        internal string InsertText() =>
+            _editorKind == EditorKind.Insert ? SharedEditor.Text : "nobox";
 
         internal bool EscapeInsertBox()
         {
-            // Same path as the Esc key: close + rebuild (drops the box).
-            if (_insertBox is null) return false;
-            var lineId = _insertLineId;
+            // Same path as the Esc key: close (drops the draft).
+            if (_insertLineId is null) return false;
             CloseInsertBox();
-            if (_store is not null && lineId is not null)
-            {
-                var idx = _store.Document.Lines.ToList().FindIndex(l => l.Id == lineId);
-                if (idx >= 0) RebuildLinePanel(idx);
-            }
             return true;
         }
 
@@ -2366,6 +2596,7 @@ namespace AmllTtmlTool.WinUI.Views
         {
             if (sender is not TextBox box) return;
             if (!_sessions.TryGetValue(box, out var session)) return;
+            var isEditor = ReferenceEquals(box, SharedEditor);
             TraceEvent("edit-keydown",
                 $"key={e.Key} orig={e.OriginalKey} composing={session.Composing} sel-before=[{TraceSel()}]");
             if (e.Key == Windows.System.VirtualKey.Enter)
@@ -2375,9 +2606,31 @@ namespace AmllTtmlTool.WinUI.Views
                 // take one anyway). Only the next Enter commits.
                 if (session.Composing)
                 { TraceEvent("edit-keydown-outcome", "ignored=ime-composing"); return; }
+                // Insert mode: empty Enter closes, else commit-and-stay-open.
+                if (isEditor && _editorKind == EditorKind.Insert)
+                {
+                    if (box.Text.Length == 0) CloseInsertBox();
+                    else CommitInsertBox();
+                    e.Handled = true;
+                    return;
+                }
                 CommitBoxIfDirty(box);
-                // Enter returns to SELECT: focus back on the line container.
-                FindListViewItem(box)?.Focus(FocusState.Programmatic);
+                if (isEditor)
+                {
+                    var doneWord = _editorWordId;
+                    var doneLine = _editorLineId;
+                    HideSharedEditor();
+                    if (FindListViewItemForWord(doneWord) is ListViewItem c0)
+                        c0.Focus(FocusState.Programmatic);
+                    else if (doneLine is string lid
+                        && FindListViewItemForLine(lid) is ListViewItem c1)
+                        c1.Focus(FocusState.Programmatic);
+                }
+                else
+                {
+                    // Enter returns to SELECT: focus back on the line container.
+                    FindListViewItem(box)?.Focus(FocusState.Programmatic);
+                }
                 e.Handled = true;
             }
             else if (e.Key == Windows.System.VirtualKey.Escape)
@@ -2389,6 +2642,12 @@ namespace AmllTtmlTool.WinUI.Views
                     e.Handled = true;
                     return;
                 }
+                if (isEditor && _editorKind == EditorKind.Insert)
+                {
+                    CloseInsertBox();
+                    e.Handled = true;
+                    return;
+                }
                 try
                 {
                     var model = session.GetModel();
@@ -2396,22 +2655,353 @@ namespace AmllTtmlTool.WinUI.Views
                     session.LastSeenModel = model;
                 }
                 catch { }
+                var escWord = _editorWordId;
+                if (isEditor) HideSharedEditor();
                 // Esc returns to SELECT (reverted): focus back on the line.
-                FindListViewItem(box)?.Focus(FocusState.Programmatic);
+                (FindListViewItemForWord(escWord) as ListViewItem
+                    ?? FindListViewItem(box))?.Focus(FocusState.Programmatic);
                 e.Handled = true;
             }
+            else if (e.Key == Windows.System.VirtualKey.Tab && isEditor
+                && _editorKind != EditorKind.Insert)
+            {
+                // Tab commits and advances to the next/previous editable
+                // field (original roman-row behavior); Shift+Tab goes back.
+                AdvanceEditor(IsShiftDown() ? -1 : 1);
+                e.Handled = true;
+            }
+        }
+
+        private ListViewItem? FindListViewItemForWord(string? wordId)
+        {
+            if (_store is null || wordId is null) return null;
+            foreach (var line in _store.Document.Lines)
+            {
+                if (!line.Words.Any(w => w.Id == wordId)) continue;
+                var at = _store.Document.Lines.IndexOf(line);
+                if (LineList.ContainerFromIndex(at) is ListViewItem c) return c;
+            }
+            return null;
         }
 
         private void OnEditLostFocus(object sender, RoutedEventArgs e)
         {
             // Tab/Shift+Tab commit on the way out through this same path.
-            // Blur also returns space chips to their label (SELECT).
-            if (sender is TextBox box)
+            if (sender is not TextBox box) return;
+            TraceEvent("edit-lostfocus",
+                $"box={TraceSrc(box)} text='{box.Text}' sel=[{TraceSel()}]");
+            if (ReferenceEquals(box, SharedEditor) && _editorKind == EditorKind.Insert)
             {
-                CommitBoxIfDirty(box);
-                if (box.Tag is string wordId && IsSpaceId(wordId))
-                    SyncSpaceVisual(wordId);
+                // Insert blur keeps the draft (stash) but commits nothing,
+                // like the original; the session stays open for re-entry.
+                _insertTextStash = box.Text;
+                if (_sessions.TryGetValue(box, out var insertSession))
+                    insertSession.LastSeenModel = _insertTextStash;
+                HideSharedEditor();
+                return;
             }
+            CommitBoxIfDirty(box);
+            // Blurring the shared editor ends the edit (commit above already
+            // ran); line-field boxes stay put.
+            if (ReferenceEquals(box, SharedEditor))
+                HideSharedEditor();
+        }
+
+        // --- Shared chip editor (Step 2): ONE TextBox overlays the chip/row
+        // being edited. Idle chips are TextBlocks (no per-word focus, caret,
+        // IME or template cost); all word edits flow through this box and its
+        // single BoxSession, so commit/IME/caret/undo semantics are identical
+        // everywhere. Line Trans/Roman boxes stay real TextBoxes (<=2/card).
+        private enum EditorKind { None, WordMain, WordRoman, Insert }
+        private EditorKind _editorKind = EditorKind.None;
+        private string? _editorLineId;
+        private string? _editorWordId;
+        private bool _editorScrolled;
+
+        private bool EditorOpen => _editorKind != EditorKind.None
+            && SharedEditor.Visibility == Visibility.Visible;
+        private bool EditorTargets(string? lineId, string? wordId, EditorKind kind) =>
+            _editorKind == kind && _editorLineId == lineId && _editorWordId == wordId;
+
+        // Retargets the shared editor (committing a dirty current target
+        // first, like clicking another chip), wires its session to the new
+        // model accessors, and syncs its text. Does NOT show or focus.
+        private bool RetargetEditor(string? lineId, string? wordId, EditorKind kind,
+            Func<string> getModel, Action<string> commit, string placeholder)
+        {
+            if (_store is null) return false;
+            if (EditorTargets(lineId, wordId, kind))
+            {
+                // Same target: refresh delegates (line may have been
+                // rebuilt) without touching text or focus.
+                WireBox(SharedEditor, getModel, commit);
+                return true;
+            }
+            // Insert drafts are NEVER auto-committed (original: blur keeps
+            // the draft, Enter commits). Stash the text; reopening restores.
+            if (_editorKind == EditorKind.Insert && kind != EditorKind.Insert)
+            {
+                _insertTextStash = SharedEditor.Text;
+                if (_sessions.TryGetValue(SharedEditor, out var insertSession))
+                    insertSession.LastSeenModel = _insertTextStash;
+            }
+            else
+            {
+                CommitBoxIfDirty(SharedEditor);
+            }
+            _editorKind = kind;
+            _editorLineId = lineId;
+            _editorWordId = wordId;
+            SharedEditor.Tag = wordId;
+            SharedEditor.PlaceholderText = placeholder;
+            // Right-click inside the editor gets the same word menu (the
+            // chip menu can't fire from the page-level overlay).
+            SharedEditor.ContextFlyout = kind == EditorKind.Insert || lineId is null || wordId is null
+                ? null
+                : MakeWordMenuFlyout(lineId, wordId);
+            WireBox(SharedEditor, getModel, commit);
+            return true;
+        }
+
+        // Commits a dirty WORD edit (insert drafts are stashed by the
+        // retarget path, never auto-committed — original blur behavior).
+        private void CommitSharedEditorIfDirty()
+        {
+            if (_editorKind == EditorKind.WordMain || _editorKind == EditorKind.WordRoman)
+                CommitBoxIfDirty(SharedEditor);
+        }
+
+        private void PositionEditor(double x, double y, double width, double height)
+        {
+            Canvas.SetLeft(SharedEditor, Math.Max(0, x));
+            Canvas.SetTop(SharedEditor, Math.Max(0, y));
+            SharedEditor.Width = Math.Max(40, width);
+            SharedEditor.Height = Math.Max(0, height);
+            SharedEditor.MinWidth = 40;
+        }
+
+        // Locate a realized chip and its model triple.
+        private (ChipGrid? chip, EditLine? line, EditWord? word, int lineIndex) FindChip(string wordId)
+        {
+            if (_store is null) return (null, null, null, -1);
+            var lines = _store.Document.Lines;
+            for (var li = 0; li < lines.Count; li++)
+            {
+                var wi = lines[li].Words.ToList().FindIndex(w => w.Id == wordId);
+                if (wi < 0) continue;
+                if (LineList.ContainerFromIndex(li) is not ListViewItem container)
+                    return (null, lines[li], null, li);
+                if (container.ContentTemplateRoot is not Grid card)
+                    return (null, lines[li], null, li);
+                if (card.FindName("ChipPanel") is not LyricWrapPanel panel)
+                    return (null, lines[li], null, li);
+                foreach (var child in panel.Children)
+                    if (child is ChipGrid chip && chip.Tag as string == wordId)
+                        return (chip, lines[li], lines[li].Words[wi], li);
+                return (null, lines[li], lines[li].Words[wi], li);
+            }
+            return (null, null, null, -1);
+        }
+
+        // Position the shared editor over a chip field: the main row, or the
+        // roman row (second line) when editing roman. Falls back to halves.
+        private bool PositionEditorForChip(string wordId, bool roman)
+        {
+            var (chip, _, word, _) = FindChip(wordId);
+            if (chip is null || word is null) return false;
+            if (chip.Children.Count < 1 || chip.Children[0] is not TextBlock text) return false;
+            chip.UpdateLayout();
+            double fx = 0, fy = 0, fw = Math.Max(40, chip.ActualWidth), fh = 24;
+                if (roman && (_viewState?.ShowWordRomanization ?? true))
+                {
+                    var mainText = IsSpaceWord(word) ? SpaceLabelFor(word) : word.Text;
+                    var r = ChipCharRect(text, Math.Min(mainText.Length + 1, Math.Max(0, text.Text.Length - 1)));
+                    if (r is not null)
+                {
+                    var o = text.TransformToVisual(chip).TransformPoint(new Windows.Foundation.Point(0, 0));
+                    fx = o.X + r.Value.X; fy = o.Y + r.Value.Y;
+                    fw = Math.Max(40, chip.ActualWidth); fh = Math.Max(16, r.Value.Height);
+                }
+                else
+                {
+                    fx = 0; fy = chip.ActualHeight / 2;
+                    fw = Math.Max(40, chip.ActualWidth); fh = Math.Max(16, chip.ActualHeight / 2);
+                }
+                AutomationProperties.SetAutomationId(SharedEditor, "ChipRomanBox");
+                AutomationProperties.SetName(SharedEditor, "Romanization of word");
+            }
+            else
+            {
+                var r = ChipCharRect(text, 0);
+                var o = text.TransformToVisual(chip).TransformPoint(new Windows.Foundation.Point(0, 0));
+                fx = o.X + (r?.X ?? 0); fy = o.Y + (r?.Top ?? 0);
+                fw = Math.Max(40, chip.ActualWidth); fh = Math.Max(16, r?.Height ?? chip.ActualHeight);
+                AutomationProperties.SetAutomationId(SharedEditor, "ChipTextBox");
+                AutomationProperties.SetName(SharedEditor, "Word text");
+            }
+            var origin = chip.TransformToVisual(EditorOverlay).TransformPoint(new Windows.Foundation.Point(0, 0));
+            PositionEditor(origin.X + fx, origin.Y + fy, fw, fh);
+            return true;
+        }
+
+        private void ShowSharedEditor()
+        {
+            SharedEditor.Visibility = Visibility.Visible;
+        }
+
+        private void HideSharedEditor()
+        {
+            SharedEditor.Visibility = Visibility.Collapsed;
+            _editorKind = EditorKind.None;
+            _editorLineId = null;
+            _editorWordId = null;
+        }
+
+        // Opens the editor on a word field: retarget + position + focus +
+        // select-all. Selection itself is left alone (focus anchors it).
+        private bool OpenEditorForWord(string wordId, bool roman, bool selectAll)
+        {
+            if (_store is null || _selection is null) return false;
+            var line = _store.Document.Lines
+                .FirstOrDefault(l => l.Words.Any(w => w.Id == wordId));
+            if (line is null) return false;
+            var word = line.Words.First(w => w.Id == wordId);
+            var lineId = line.Id;
+            var kind = roman ? EditorKind.WordRoman : EditorKind.WordMain;
+            if (roman)
+            {
+                RetargetEditor(lineId, wordId, kind,
+                    () => FindWord(lineId, wordId).word?.RomanWord ?? "",
+                    text =>
+                    {
+                        var (ln, w) = FindWord(lineId, wordId);
+                        if (ln is not null && w is not null) CommitWordRomanBox(ln, wordId, text);
+                    }, "");
+            }
+            else
+            {
+                RetargetEditor(lineId, wordId, kind,
+                    () => FindWord(lineId, wordId).word?.Text ?? "",
+                    text =>
+                    {
+                        var (ln, w) = FindWord(lineId, wordId);
+                        if (ln is not null && w is not null) CommitWordTextBox(ln, wordId, text);
+                    },
+                    IsSpaceWord(word) ? $"Space \u00D7{word.Text.Length}" : "");
+            }
+            if (!PositionEditorForChip(wordId, roman)) return false;
+            // Space chips edit raw whitespace: the editor always holds the
+            // exact N space characters with a visible caret (Step 2b).
+            ShowSharedEditor();
+            HookEditorScroll();
+            var focused = SharedEditor.Focus(FocusState.Programmatic);
+            TraceEvent("editor-focus-result", $"focused={focused}");
+            if (selectAll)
+            {
+                SharedEditor.SelectionStart = 0;
+                SharedEditor.SelectionLength = SharedEditor.Text.Length;
+            }
+            TraceEvent("editor-open",
+                $"word={TraceWordLoc(wordId)} roman={roman} sel=[{TraceSel()}]");
+            return true;
+        }
+
+        private void CommitWordTextBox(EditLine line, string wordId, string raw)
+        {
+            // Trailing "|" seeds an (empty) ruby list, like the original's
+            // parseRubyShortcut (model: empty == absent, so strip).
+            var text = raw.EndsWith("|") ? raw[..^1] : raw;
+            var word = line.Words.FirstOrDefault(w => w.Id == wordId);
+            if (word is null || _store is null) return;
+            if (text != word.Text)
+                _store.Execute(new SetWordTextCommand(line.Id, wordId, text));
+        }
+
+        private void CommitWordRomanBox(EditLine line, string wordId, string raw)
+        {
+            var word = line.Words.FirstOrDefault(w => w.Id == wordId);
+            if (word is null || _store is null) return;
+            if (raw != word.RomanWord)
+                _store.Execute(new SetWordRomanCommand(line.Id, wordId, raw));
+        }
+
+        // Hides the editor when its target died (line/word deleted, undo,
+        // combine): the draft is dropped, never committed to a dead target.
+        private void HideEditorIfStale()
+        {
+            if (_store is null || _editorKind == EditorKind.None) return;
+            if (_editorKind == EditorKind.Insert)
+            {
+                if (_insertLineId is null
+                    || _store.Document.Lines.All(l => l.Id != _insertLineId))
+                {
+                    _insertLineId = null;
+                    HideSharedEditor();
+                }
+                return;
+            }
+            var ok = false;
+            if (_editorLineId is string lid && _editorWordId is string wid)
+            {
+                var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lid);
+                ok = line is not null && line.Words.Any(w => w.Id == wid);
+            }
+            if (!ok) HideSharedEditor();
+        }
+
+        // Tab / Shift+Tab inside the shared editor: commit, then advance to
+        // the next/previous editable field in reading order (chip mains,
+        // then romans, then the line Trans/Roman boxes, then the next line).
+        // At the document ends the editor hides and the container is focused.
+        private void AdvanceEditor(int delta)
+        {
+            if (_store is null || _selection is null) return;
+            CommitBoxIfDirty(SharedEditor);
+            if (_editorKind != EditorKind.WordMain && _editorKind != EditorKind.WordRoman)
+            {
+                HideSharedEditor();
+                return;
+            }
+            var lines = _store.Document.Lines.ToList();
+            var li = lines.FindIndex(l => l.Id == _editorLineId);
+            if (li < 0) { HideSharedEditor(); return; }
+            var roman = _editorKind == EditorKind.WordRoman;
+            var wi = lines[li].Words.ToList().FindIndex(w => w.Id == _editorWordId);
+            wi += delta;
+            var nli = li;
+            if (wi < 0 || wi >= lines[li].Words.Count)
+            {
+                // Across line boxes and into the next line (original advances
+                // within its own row; line boxes are reached in order).
+                if (!roman && delta > 0 && wi >= lines[li].Words.Count)
+                {
+                    if (FocusLineField(li, translation: true)) return;
+                }
+                nli = li + delta;
+                if (nli < 0 || nli >= lines.Count || lines[nli].Words.Count == 0)
+                {
+                    HideSharedEditor();
+                    if (LineList.ContainerFromIndex(li) is ListViewItem c)
+                        c.Focus(FocusState.Programmatic);
+                    return;
+                }
+                wi = delta > 0 ? 0 : lines[nli].Words.Count - 1;
+            }
+            var target = lines[nli].Words[wi];
+            OpenEditorForWord(target.Id, roman, selectAll: true);
+        }
+
+        private bool FocusLineField(int lineIndex, bool translation)
+        {
+            if (LineList.ContainerFromIndex(lineIndex) is not ListViewItem container) return false;
+            if (container.ContentTemplateRoot is not Grid card) return false;
+            if (card.FindName(translation ? "TransBox" : "RomanBox") is TextBox box)
+            {
+                HideSharedEditor();
+                box.Focus(FocusState.Programmatic);
+                return true;
+            }
+            return false;
         }
 
         // GotFocus delivery counter (test hook: proves the event reached the
@@ -2442,9 +3032,6 @@ namespace AmllTtmlTool.WinUI.Views
                 var line = _store.Document.Lines.FirstOrDefault(l => l.Id == lineId);
                 if (line is null) return;
                 _selection.AnchorWord(lineId, wordId);
-                // A space label can only be reached via its box: focusing it
-                // swaps in the editor (double-click/F2/Tab all land here).
-                if (IsSpaceId(wordId)) SyncSpaceVisual(wordId);
                 LineList.ScrollIntoView(line);
                 return;
             }
@@ -2465,25 +3052,6 @@ namespace AmllTtmlTool.WinUI.Views
             var index = LineList.IndexFromContainer(container);
             return index < 0 || index >= _store.Document.Lines.Count
                 ? null : _store.Document.Lines[index];
-        }
-
-        private void CommitWordTextBox(TextBox box, EditLine line, string wordId, bool roman)
-        {
-            var word = line.Words.FirstOrDefault(w => w.Id == wordId);
-            if (word is null || _store is null) return;
-            var raw = box.Text;
-            if (roman)
-            {
-                if (raw != word.RomanWord)
-                    _store.Execute(new SetWordRomanCommand(line.Id, wordId, raw));
-                return;
-            }
-            // Trailing "|" seeds an (empty) ruby list, like the original's
-            // parseRubyShortcut. The C# model holds Ruby as a collection
-            // where empty == absent, so stripping the suffix is the whole op.
-            var text = raw.EndsWith("|") ? raw[..^1] : raw;
-            if (text != word.Text)
-                _store.Execute(new SetWordTextCommand(line.Id, wordId, text));
         }
 
         private void CommitLineFieldBox(TextBox box, EditLine line, bool translation)
@@ -2660,7 +3228,7 @@ namespace AmllTtmlTool.WinUI.Views
             // Rows snap to the current toggle state on realization;
             // off-screen lines never animate (AnimateToggleStates covers
             // only realized containers).
-            ApplyCardVisibility(card,
+            ApplyCardVisibility(card, line,
                 _viewState?.ShowTranslation ?? true,
                 _viewState?.ShowRomanization ?? true,
                 _viewState?.ShowWordRomanization ?? true,
@@ -2690,13 +3258,13 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
                 if (container.ContentTemplateRoot is not Grid card) continue;
-                ApplyCardVisibility(card, showTrans, showRoman, showWordRoman, animate, collapseNow: false);
+                ApplyCardVisibility(card, _store.Document.Lines[i], showTrans, showRoman, showWordRoman, animate, collapseNow: false);
             }
             CompensateSelected(anchor);
             if (animate) StartShowAnimations();
         }
 
-        private void ApplyCardVisibility(Grid card, bool showTrans, bool showRoman, bool showWordRoman, bool animate, bool collapseNow)
+        private void ApplyCardVisibility(Grid card, EditLine line, bool showTrans, bool showRoman, bool showWordRoman, bool animate, bool collapseNow)
         {
             SetRow(card, "TransLabel", "TransBox", showTrans, animate, collapseNow);
             SetRow(card, "RomanLabel", "RomanBox", showRoman, animate, collapseNow);
@@ -2711,12 +3279,16 @@ namespace AmllTtmlTool.WinUI.Views
                 if (subRows.RowSpacing != subGap) subRows.RowSpacing = subGap;
             }
             if (card.FindName("ChipPanel") is not LyricWrapPanel panel) return;
-            var chipGap = showWordRoman ? ChipRowGap : 0;
+            // Step-2: roman visibility lives in the chip text (second line
+            // added/dropped); re-derive content per chip so toggles, imports
+            // and undo apply to realized cards without rebuilding them.
             foreach (var child in panel.Children)
             {
-                if (child is not Grid chip || chip.Children.Count < 2) continue;
-                if (chip.RowSpacing != chipGap) chip.RowSpacing = chipGap;
-                if (chip.Children[1] is FrameworkElement roman) SetElement(roman, showWordRoman, animate, collapseNow);
+                if (child is not ChipGrid chip || chip.Tag is not string wordId) continue;
+                var word = line.Words.FirstOrDefault(w => w.Id == wordId);
+                if (word is null) continue;
+                if (chip.Children[0] is TextBlock text)
+                    SetChipContent(chip, text, word, line.Words.IndexOf(word), showWordRoman);
             }
         }
 
@@ -3133,34 +3705,51 @@ namespace AmllTtmlTool.WinUI.Views
         }
 
         // Repaints code-created chip brushes on every realized card (outline,
-        // wash, space label + drop mark). Called on theme/accent change only
+        // wash, drop mark). Called on theme/accent change only
         // (ActualThemeChanged + UISettings.ColorValuesChanged): selection
         // passes touch visibility alone, and (re)built chips resolve fresh
         // brushes at build time, so colors can never go stale and selection
         // stays O(realized) cheap even in scroll/selection storms.
-        // Children order is fixed in BuildChip: 0 text, 1 roman, 2 label,
-        // 3 outline, 4 dropMark, 5 wash.
+        // Children order is fixed in BuildChip: 0 = single TextBlock,
+        // 1 = outline, 2 = wash, 3 = dropMark. Per-run text colors are
+        // re-derived by SetChipContent (space dim vs default).
         private void RefreshChipThemeBrushes()
         {
             if (_store is null) return;
             var accent = ResolveThemeColor("AccentFillColorDefault");
-            var secondary = ResolveThemeColor("TextFillColorSecondary");
             for (var i = 0; i < _store.Document.Lines.Count; i++)
             {
                 if (LineList.ContainerFromIndex(i) is not ListViewItem container) continue;
                 if (container.ContentTemplateRoot is not Grid card) continue;
                 if (card.FindName("ChipPanel") is not LyricWrapPanel panel) continue;
+                var docLine = _store.Document.Lines[i];
                 foreach (var child in panel.Children)
                 {
-                    if (child is not Grid chip) continue;
-                    if (chip.Children.Count > 2 && chip.Children[2] is TextBlock label)
-                        label.Foreground = new SolidColorBrush(secondary);
-                    if (chip.Children.Count > 3 && chip.Children[3] is Border outline)
+                    if (child is not ChipGrid chip) continue;
+                    if (chip.Children.Count > 1 && chip.Children[1] is Border outline)
                         outline.BorderBrush = new SolidColorBrush(accent);
-                    if (chip.Children.Count > 4 && chip.Children[4] is Border mark)
-                        mark.BorderBrush = new SolidColorBrush(accent);
-                    if (chip.Children.Count > 5 && chip.Children[5] is Border wash)
+                    if (chip.Children.Count > 2 && chip.Children[2] is Border wash)
                         wash.Background = new SolidColorBrush(accent);
+                    if (chip.Children.Count > 3 && chip.Children[3] is Border mark)
+                        mark.BorderBrush = new SolidColorBrush(accent);
+                    // Space dim lives on the main run (theme-resolved here).
+                    if (chip.Tag is string cwid
+                        && chip.Children.Count > 0 && chip.Children[0] is TextBlock text
+                        && text.Inlines.Count > 0 && text.Inlines[0] is Run mainRun)
+                    {
+                        // Same no-local-null rule as SetChipContent: spaces
+                        // get the dim brush, words inherit (ClearValue).
+                        var w = docLine.Words.FirstOrDefault(x => x.Id == cwid);
+                        if (w is not null && IsSpaceWord(w))
+                        {
+                            var want = MakeThemeBrush("TextFillColorSecondary");
+                            if (!Equals(mainRun.ReadLocalValue(TextElement.ForegroundProperty), want))
+                                mainRun.Foreground = want;
+                        }
+                        else if (mainRun.ReadLocalValue(TextElement.ForegroundProperty)
+                            != DependencyProperty.UnsetValue)
+                            mainRun.ClearValue(TextElement.ForegroundProperty);
+                    }
                 }
             }
         }
@@ -3214,9 +3803,9 @@ namespace AmllTtmlTool.WinUI.Views
                     if (child is not Grid chip || chip.Tag is not string wordId) continue;
                     if (!line.Words.Any(w => w.Id == wordId)) continue;
                     var on = selected.Contains(wordId);
-                    if (chip.Children.Count >= 4 && chip.Children[3] is Border outline)
+                    if (chip.Children.Count >= 2 && chip.Children[1] is Border outline)
                         outline.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-                    if (chip.Children.Count >= 6 && chip.Children[5] is Border wash)
+                    if (chip.Children.Count >= 3 && chip.Children[2] is Border wash)
                         wash.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
                 }
             }
@@ -3248,116 +3837,99 @@ namespace AmllTtmlTool.WinUI.Views
                 Windows.System.VirtualKey.Shift)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
+        // Step-2 lightweight chip: ONE TextBlock with main + roman Runs
+        // (children: 0 = text, 1 = outline, 2 = wash, 3 = dropMark). Both
+        // rows share the unit width BY CONSTRUCTION — the block sizes to the
+        // widest line (bug #1) with no Width/MinWidth/Stretch plumbing.
+        // Space words render the dim "Space xN" first line (Step 2b).
         private Grid BuildChip(EditLine line, EditWord word, int index, int lineIndex)
         {
-            var chip = new Grid
+            var isSpace = IsSpaceWord(word);
+            var chip = new Controls.ChipGrid
             {
-                // No minimum: a chip unit hugs max(main, romaji). The old
+                // No minimum: a chip unit hugs the widest line. The old
                 // MinWidth=44 plus the TextBox theme floors (MinWidth 64 +
                 // padding) turned "キ" into a huge box.
+                // Transparent (not null) background: hit-testable everywhere
+                // for press/drag/right-click, visually unchanged.
                 MinWidth = 0,
                 Tag = word.Id,
-                RowSpacing = ChipRowGap,
-            };
-            chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            chip.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var isSpace = IsSpaceWord(word);
-            // Spellcheck/prediction off: lyric text is often non-dictionary
-            // (and CJK); predictions interfere with commit/IME flows and add
-            // per-keystroke text-service cost. IME composition itself is
-            // unaffected (guarded separately via TextComposition events).
-            // MinWidth/MinHeight/Padding override the TextBox theme floors
-            // so single glyphs stay compact (item 8).
-            var text = new TextBox
-            {
-                Text = word.Text,
-                AcceptsReturn = false,
                 IsTabStop = true,
-                IsSpellCheckEnabled = false,
-                IsTextPredictionEnabled = false,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Center,
-                MinWidth = 0,
-                MinHeight = 0,
-                Padding = new Thickness(6, 3, 6, 3),
-                Tag = word.Id,
+                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)),
             };
-            var roman = new TextBox
+            var text = new TextBlock
             {
-                Text = word.RomanWord,
-                AcceptsReturn = false,
-                IsTabStop = true,
-                IsSpellCheckEnabled = false,
-                IsTextPredictionEnabled = false,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                VerticalAlignment = VerticalAlignment.Center,
-                MinWidth = 0,
-                MinHeight = 0,
-                Padding = new Thickness(6, 3, 6, 3),
-                Tag = word.Id,
-            };
-            Grid.SetRow(roman, 1);
-            // Raw model text stays in the box (never the "Space xN" display
-            // label: committing that label would write it into the model).
-            // The label is a separate dim TextBlock overlaying row 0 while
-            // the box is collapsed; AT still gets "Space ×N" on both.
-            var label = new TextBlock
-            {
-                Text = SpaceLabelFor(word),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Center,
                 Padding = new Thickness(6, 3, 6, 3),
-                Foreground = MakeThemeBrush("TextFillColorSecondary"),
-                IsHitTestVisible = false,
-                Tag = word.Id,
+                // Inter-row pitch for main<->romaji: the romaji-gap check
+                // requires that glyph gap to equal the card
+                // Translation<->Romanization RowSpacing (ChipRowSpacing = 6).
+                // Natural 14px pitch is ~18.62 with glyphs tiling
+                // edge-to-edge (gap 0), so an explicit 25px block pitch
+                // yields ~6.4px between the rows, like the old two-box
+                // chips. Single-line chips (roman hidden) grow by the same
+                // pitch, matching the old single-box height.
+                LineHeight = 25,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
             };
-            // SELECT state (unfocused box) shows the dim label for space
-            // words; EDIT state (focused box) shows the raw-text box. Boxes
-            // are always editable: the two states are focus location (item =
-            // select, box = edit), never a property toggle — so commit, IME,
-            // caret and undo paths stay byte-identical to Phase 3.
-            var showLabel = isSpace;
-            text.Visibility = showLabel ? Visibility.Collapsed : Visibility.Visible;
-            label.Visibility = showLabel ? Visibility.Visible : Visibility.Collapsed;
-            // The two boxes share the chip width (grid = max child width,
-            // both stretch): widths hug the wider content instantly while
-            // typing, with no animation and no rebuild, so caret/focus stay.
-            // A collapsed main box is replaced by the label for measuring.
-            AutomationProperties.SetAutomationId(text, $"ChipText{lineIndex + 1}_{index + 1}");
-            AutomationProperties.SetName(text, isSpace
-                ? $"Word {index + 1}: Space \u00D7{word.Text.Length}"
-                : $"Word {index + 1}: {word.Text}");
-            AutomationProperties.SetAutomationId(roman, $"ChipRoman{lineIndex + 1}_{index + 1}");
-            AutomationProperties.SetName(roman, $"Romanization of word {index + 1}");
-            AutomationProperties.SetAutomationId(label, $"SpaceLabel{lineIndex + 1}_{index + 1}");
-            AutomationProperties.SetName(label, isSpace
-                ? $"Space \u00D7{word.Text.Length}"
-                : $"Word {index + 1}");
+            var mainRun = new Run();
+            var lineBreak = new LineBreak();
+            var romanRun = new Run();
+            text.Inlines.Add(mainRun);
+            text.Inlines.Add(lineBreak);
+            text.Inlines.Add(romanRun);
+            SetChipContent(chip, text, word, index,
+                _viewState?.ShowWordRomanization ?? true);
+            // AutomationIds live on the chip itself (stable across idle/edit;
+            // uia-rect keeps working) with the same names as before. The
+            // roman row has no separate element anymore; it is announced
+            // through the chip's accessible name.
+            AutomationProperties.SetAutomationId(chip, $"ChipText{lineIndex + 1}_{index + 1}");
             var wordId = word.Id;
-            WireBox(text,
-                () => line.Words.FirstOrDefault(w => w.Id == wordId)?.Text ?? "",
-                _ => CommitWordTextBox(text, line, wordId, roman: false));
-            WireBox(roman,
-                () => line.Words.FirstOrDefault(w => w.Id == wordId)?.RomanWord ?? "",
-                _ => CommitWordTextBox(roman, line, wordId, roman: true));
-            // handledEventsToo: TextBoxes mark pointer input handled, which
-            // would otherwise starve both this handler and item select.
+            var lineId = line.Id;
+            var wordIndex = index;
+            chip.GetLabel = () =>
+            {
+                var w = _store?.Document.Lines
+                    .FirstOrDefault(l => l.Id == lineId)?.Words
+                    .FirstOrDefault(x => x.Id == wordId);
+                if (w is null) return $"Word {wordIndex + 1}";
+                return IsSpaceWord(w)
+                    ? $"Space \u00D7{w.Text.Length}"
+                    : w.Text;
+            };
+            chip.GetSelected = () =>
+                _selection?.SelectedWordIds.Contains(wordId) == true;
+            chip.InvokeSelect = () =>
+            {
+                if (_selection is null || _store is null) return;
+                CommitSharedEditorIfDirty();
+                _selection.SelectWord(lineId, wordId);
+                if (LineList.ContainerFromIndex(
+                    _store.Document.Lines.ToList().FindIndex(l => l.Id == lineId))
+                    is ListViewItem container)
+                    container.Focus(FocusState.Programmatic);
+            };
             // Press arms (selection on release, like the original's
             // pointerdown/up split); release completes the click gesture.
+            // No TextBox children exist to swallow presses anymore; the
+            // shared editor (page overlay) takes its own presses for caret.
             chip.AddHandler(UIElement.PointerPressedEvent,
                 new PointerEventHandler(OnChipPointerPressed), true);
 
-            // Double-click enters EDIT (focuses the box); single click stays
-            // SELECT (PointerPressed selects + focuses the item, no caret).
+            // Double-click enters EDIT (shared editor over the field); single
+            // click stays SELECT (PointerPressed selects + focuses the item).
+            // Lower-half taps edit the roman row when it is shown.
             chip.DoubleTapped += (_, e) =>
             {
                 if (IsCtrlDown() || IsShiftDown()) return;
-                var (tappedId, tappedRoman) = ChipFieldFromSource(e.OriginalSource);
-                if (tappedId is not null) EnterWordEdit(tappedId, tappedRoman);
+                if (chip.Tag is not string tappedId) return;
+                var pos = e.GetPosition(chip);
+                var romanShown = _viewState?.ShowWordRomanization ?? true;
+                EnterWordEdit(tappedId, TapIsRoman(pos.Y, chip.ActualHeight, romanShown));
             };
             chip.Children.Add(text);
-            chip.Children.Add(roman);
-            chip.Children.Add(label);
             // Selected-word outline: accent border over the unit (the wash is
             // a separate behind-content overlay, so text stays crisp).
             var selOutline = new Border
@@ -3370,8 +3942,24 @@ namespace AmllTtmlTool.WinUI.Views
                     ? Visibility.Visible : Visibility.Collapsed,
                 IsHitTestVisible = false,
             };
-            Grid.SetRowSpan(selOutline, 2);
             chip.Children.Add(selOutline);
+            // Selected-word wash: translucent live-accent fill BEHIND the chip
+            // content (Canvas.ZIndex -1 renders it below the text regardless
+            // of child order, so text stays crisp). Opacity 0.15 ≈ the faint
+            // fill from the spec; the card never changes its own Background.
+            // Child order is fixed: 0 = text, 1 = outline, 2 = wash,
+            // 3 = dropMark (all selection/drop visuals index into this).
+            var selWash = new Border
+            {
+                Background = MakeThemeBrush("AccentFillColorDefault"),
+                Opacity = 0.15,
+                CornerRadius = new CornerRadius(4),
+                Visibility = _selection?.SelectedWordIds.Contains(wordId) == true
+                    ? Visibility.Visible : Visibility.Collapsed,
+                IsHitTestVisible = false,
+            };
+            Canvas.SetZIndex(selWash, -1);
+            chip.Children.Add(selWash);
             // Drop mark: vertical accent bar on the chip's left/right edge
             // (dropLeft/dropRight in the original). Border-only overlay, no
             // layout shift; side set per hover half.
@@ -3384,43 +3972,77 @@ namespace AmllTtmlTool.WinUI.Views
                 Visibility = Visibility.Collapsed,
                 IsHitTestVisible = false,
             };
-            Grid.SetRowSpan(dropMark, 2);
             chip.Children.Add(dropMark);
-            // Selected-word wash: translucent live-accent fill BEHIND the chip
-            // content (Canvas.ZIndex -1 renders it below the boxes regardless
-            // of child order, so text stays crisp). Opacity 0.15 ≈ the faint
-            // fill from the spec; the card never changes its own Background.
-            var selWash = new Border
-            {
-                Background = MakeThemeBrush("AccentFillColorDefault"),
-                Opacity = 0.15,
-                CornerRadius = new CornerRadius(4),
-                Visibility = _selection?.SelectedWordIds.Contains(wordId) == true
-                    ? Visibility.Visible : Visibility.Collapsed,
-                IsHitTestVisible = false,
-            };
-            Grid.SetRowSpan(selWash, 2);
-            Canvas.SetZIndex(selWash, -1);
-            chip.Children.Add(selWash);
-            AttachWordMenu(chip, text, roman, line.Id, wordId);
+            AttachWordMenu(chip, line.Id, wordId);
             return chip;
         }
 
-        // Resolves (wordId, romanField) from a DoubleTapped OriginalSource:
-        // a box gives its field, the space label (hit-transparent, so the
-        // source is the chip) gives the main field.
-        private static (string? WordId, bool Roman) ChipFieldFromSource(object source)
+        // Resolves roman vs main for a tap at a Y offset within the chip:
+        // lower half edits roman (when shown), else the main field.
+        private static bool TapIsRoman(double tapY, double chipHeight, bool romanShown) =>
+            romanShown && chipHeight > 0 && tapY >= chipHeight / 2;
+
+
+        // Single-TextBlock chip content (main [+ newline + roman] when the
+        // master toggle is on). Run shapes: expanded [main, break, roman],
+        // collapsed [main]. The break + roman run are dropped when roman is
+        // hidden so the unit collapses to one row with no phantom gap.
+        private void SetChipContent(ChipGrid chip, TextBlock text, EditWord word, int wordIndex, bool showRoman)
         {
-            var current = source as DependencyObject;
-            while (current is not null)
+            var isSpace = IsSpaceWord(word);
+            var wantMain = isSpace ? SpaceLabelFor(word) : word.Text;
+            // Find or create the runs (structure may be expanded or not).
+            Run? mainRun = null;
+            Run? romanRun = null;
+            foreach (var inline in text.Inlines)
             {
-                if (current is TextBox box && box.Tag is string boxId)
-                    return (boxId, Grid.GetRow(box) == 1);
-                if (current is Grid grid && grid.Tag is string gridId)
-                    return (gridId, false);
-                current = VisualTreeHelper.GetParent(current);
+                if (inline is Run r)
+                {
+                    if (mainRun is null) mainRun = r;
+                    else romanRun = r;
+                }
             }
-            return (null, false);
+            if (mainRun is null) return;
+            if (mainRun.Text != wantMain) mainRun.Text = wantMain;
+            // NEVER assign a null brush: a local null BLOCKS property
+            // inheritance (transparent glyphs) while the Foreground getter
+            // returns the inherited brush, so an Equals-guard against null
+            // misfires once and the null then sticks (words were invisible
+            // while space chips, with a real brush, rendered). Words use
+            // pure inheritance (ClearValue); spaces get the dim brush.
+            if (isSpace)
+            {
+                var wantFg = MakeThemeBrush("TextFillColorSecondary");
+                if (!Equals(mainRun.ReadLocalValue(TextElement.ForegroundProperty), wantFg))
+                    mainRun.Foreground = wantFg;
+            }
+            else if (mainRun.ReadLocalValue(TextElement.ForegroundProperty)
+                != DependencyProperty.UnsetValue)
+                mainRun.ClearValue(TextElement.ForegroundProperty);
+            if (showRoman)
+            {
+                if (romanRun is null)
+                {
+                    romanRun = new Run();
+                    text.Inlines.Add(new LineBreak());
+                    text.Inlines.Add(romanRun);
+                }
+                if (romanRun.Text != word.RomanWord) romanRun.Text = word.RomanWord;
+            }
+            else if (romanRun is not null)
+            {
+                text.Inlines.Remove(romanRun);
+                foreach (var inline in text.Inlines.ToList())
+                    if (inline is LineBreak) text.Inlines.Remove(inline);
+                romanRun.Text = "";
+            }
+            if ((text.Tag as string) != (isSpace ? "sp" : "tx"))
+                text.Tag = isSpace ? "sp" : "tx";
+            AutomationProperties.SetName(chip, isSpace
+                ? $"Word {wordIndex + 1}: Space \u00D7{word.Text.Length}"
+                : showRoman && word.RomanWord.Length > 0
+                    ? $"Word {wordIndex + 1}: {word.Text}, romanization {word.RomanWord}"
+                    : $"Word {wordIndex + 1}: {word.Text}");
         }
 
         private bool IsSpaceId(string wordId)
@@ -3434,9 +4056,9 @@ namespace AmllTtmlTool.WinUI.Views
             return false;
         }
 
-        // EDIT entry (double-click / F2 / Enter / Test hook): swaps a space
-        // label for its raw-text box if needed, focuses the box and selects
-        // its content. Selection is left alone (focus only anchors it).
+        // EDIT entry (double-click / F2 / Enter / Test hook): opens the
+        // shared editor over the field with the model text selected.
+        // Selection is left alone (focus only anchors it).
         internal bool EnterWordEdit(string wordId, bool roman)
         {
             if (_store is null || _selection is null) return false;
@@ -3448,28 +4070,22 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 _selection.AnchorWord(lineId, wordId);
             }
-            foreach (var chip in FindChips(wordId))
-                ShowChipEditor(chip, roman);
-            var box = FindChipBoxById(wordId, roman);
-            if (box is null) return false;
-            box.Focus(FocusState.Programmatic);
-            box.SelectionStart = 0;
-            box.SelectionLength = box.Text.Length;
-            return true;
+            return OpenEditorForWord(wordId, roman, selectAll: true);
         }
 
         // Drives the real GotFocus handler directly (same logic as keyboard
         // Tab focus; Focus() event delivery itself is observed separately
         // since inactive headless windows route focus state without events).
-        // The box is focused first so the handler's stale-event guard (which
-        // drops GotFocus for a box that is no longer focused) lets it through
-        // deterministically.
+        // The editor is focused first so the handler's stale-event guard
+        // (which drops GotFocus for a box that is no longer focused) lets it
+        // through deterministically.
         internal bool Test_AnchorBox(int line, int word, bool roman)
         {
-            var box = FindChipBox(line, word, roman);
-            if (box is null) return false;
-            box.Focus(FocusState.Programmatic);
-            OnEditGotFocus(box, new RoutedEventArgs());
+            if (_store is null || line < 0 || line >= _store.Document.Lines.Count) return false;
+            var docLine = _store.Document.Lines[line];
+            if (word < 0 || word >= docLine.Words.Count) return false;
+            if (!OpenEditorForWord(docLine.Words[word].Id, roman, selectAll: false)) return false;
+            OnEditGotFocus(SharedEditor, new RoutedEventArgs());
             return true;
         }
 
@@ -3480,6 +4096,7 @@ namespace AmllTtmlTool.WinUI.Views
         // session before this is called.
         internal void ExitWordEdit(string wordId)
         {
+            HideSharedEditor();
             foreach (var chip in FindChips(wordId))
             {
                 var container = FindListViewItem(chip);
@@ -3610,7 +4227,10 @@ namespace AmllTtmlTool.WinUI.Views
             {
                 _selection.SelectLine(line.Id);
             }
-            if (FindListViewItemForLine(line.Id) is ListViewItem container)
+            // Never yank focus out of an open edit (double-click's release
+            // lands after DoubleTapped opens the editor; focusing the
+            // container would blur-commit and hide it instantly).
+            if (!EditorOpen && FindListViewItemForLine(line.Id) is ListViewItem container)
                 container.Focus(FocusState.Programmatic);
             e.Handled = true;
         }
@@ -3681,6 +4301,10 @@ namespace AmllTtmlTool.WinUI.Views
             }
             _drag = session;
             _drag.ShownCopy = IsCtrlDown();
+            // A drag must not leave the editor floating over a moving
+            // layout: commit word edits, drop insert drafts into the stash.
+            CommitSharedEditorIfDirty();
+            HideSharedEditor();
             TraceEvent("drag-begin",
                 $"words={words} ids={session.Ids.Count} shownCopy={_drag.ShownCopy} " +
                 $"sel=[{TraceSel()}]");
@@ -3872,7 +4496,7 @@ namespace AmllTtmlTool.WinUI.Views
         private void ShowChipMark(Grid chip, bool after)
         {
             HideChipMark();
-            if (chip.Children.Count >= 5 && chip.Children[4] is Border mark)
+            if (chip.Children.Count >= 4 && chip.Children[3] is Border mark)
             {
                 mark.BorderThickness = after
                     ? new Thickness(0, 0, 3, 0) : new Thickness(3, 0, 0, 0);
@@ -3884,7 +4508,7 @@ namespace AmllTtmlTool.WinUI.Views
         private void HideChipMark()
         {
             if (_drag?.MarkChip is Grid chip
-                && chip.Children.Count >= 5 && chip.Children[4] is Border mark)
+                && chip.Children.Count >= 4 && chip.Children[3] is Border mark)
                 mark.Visibility = Visibility.Collapsed;
             if (_drag is not null) _drag.MarkChip = null;
         }
@@ -4139,19 +4763,6 @@ namespace AmllTtmlTool.WinUI.Views
         // main field; no-op for already-visible boxes). A space edit box
         // gets a floor width so the caret stays visible while editing raw
         // whitespace (a 1-space chip would otherwise hug to ~18px).
-        private void ShowChipEditor(Grid chip, bool roman)
-        {
-            if (chip.Children.Count < 3) return;
-            if (roman) return;
-            if (chip.Children[0] is TextBox text
-                && chip.Children[2] is TextBlock label)
-            {
-                text.Visibility = Visibility.Visible;
-                label.Visibility = Visibility.Collapsed;
-                if (text.MinWidth < 40) text.MinWidth = 40;
-            }
-        }
-
         private List<Grid> FindChips(string wordId)
         {
             var found = new List<Grid>();
@@ -4166,33 +4777,6 @@ namespace AmllTtmlTool.WinUI.Views
                         found.Add(chip);
             }
             return found;
-        }
-
-        private TextBox? FindChipBoxById(string wordId, bool roman)
-        {
-            foreach (var chip in FindChips(wordId))
-                if (chip.Children.Count >= 2 && chip.Children[roman ? 1 : 0] is TextBox box)
-                    return box;
-            return null;
-        }
-
-        // Applies label-vs-editor visibility for one chip's word: the editor
-        // shows while its main box is focused (EDIT), otherwise a space word
-        // shows its dim "Space xN" label (SELECT). Non-space words always
-        // show the editor.
-        private void SyncSpaceVisual(string wordId)
-        {
-            var focused = FocusManager.GetFocusedElement(XamlRoot) as TextBox;
-            foreach (var chip in FindChips(wordId))
-            {
-                if (chip.Children.Count < 3) continue;
-                if (chip.Children[0] is not TextBox text) continue;
-                if (chip.Children[2] is not TextBlock label) continue;
-                var showEditor = !IsSpaceId(wordId) || ReferenceEquals(focused, text);
-                text.Visibility = showEditor ? Visibility.Visible : Visibility.Collapsed;
-                label.Visibility = showEditor ? Visibility.Collapsed : Visibility.Visible;
-                if (!showEditor && text.MinWidth > 0) text.MinWidth = 0;
-            }
         }
 
         private static bool IsCtrlDown() =>
@@ -4246,6 +4830,9 @@ namespace AmllTtmlTool.WinUI.Views
             TraceEvent("chip-pressed-mods",
                 $"eventMods={e.KeyModifiers} threadCtrl={IsCtrlDown()} " +
                 $"threadShift={IsShiftDown()} resolved ctrl={ctrl} shift={shift}");
+            // Clicking another chip while editing commits the word edit
+            // first (insert drafts only stash); the gesture then proceeds.
+            CommitSharedEditorIfDirty();
             // Select-first only for a plain press on an unselected word
             // (instant feedback + focus for keys). Modified presses and
             // presses inside the selection defer to release/dragstart, so a
@@ -4359,10 +4946,10 @@ namespace AmllTtmlTool.WinUI.Views
                     var wordId = lines[li].Words[wi].Id;
                     foreach (var child in panel.Children)
                     {
-                        if (child is Grid chip && chip.Tag is string tag && tag == wordId
-                            && chip.Children.Count >= 4 && chip.Children[3] is Border outline
-                            && outline.Visibility == Visibility.Visible)
-                            parts.Add($"{li}:{wi}");
+                    if (child is Grid chip && chip.Tag is string tag && tag == wordId
+                        && chip.Children.Count >= 2 && chip.Children[1] is Border outline
+                        && outline.Visibility == Visibility.Visible)
+                        parts.Add($"{li}:{wi}");
                     }
                 }
             }
@@ -4447,14 +5034,18 @@ namespace AmllTtmlTool.WinUI.Views
                 {
                     foreach (var child in panel.Children)
                     {
-                        if (child is Grid chip && chip.Children.Count >= 1
-                            && chip.Children[0] is TextBox textBox
-                            && textBox.Foreground is SolidColorBrush fgb)
-                        {
-                            tr = fgb.Color.R; tg = fgb.Color.G; tb = fgb.Color.B;
-                            haveText = true;
-                            break;
-                        }
+                        // Unset (inherited) foreground resolves to the theme
+                        // primary; use it directly for contrast math. Prefer
+                        // a non-space chip so the dim space label never stands
+                        // in for normal text.
+                        if (child is not Grid chip || chip.Children.Count < 1
+                            || chip.Children[0] is not TextBlock textBlock) continue;
+                        if (textBlock.Tag as string == "sp") continue;
+                        var fgb = textBlock.Foreground as SolidColorBrush;
+                        var c = fgb?.Color ?? ResolveThemeColor("TextFillColorPrimary");
+                        tr = c.R; tg = c.G; tb = c.B;
+                        haveText = true;
+                        break;
                     }
                 }
                 if (haveAccent && haveText) break;
@@ -4624,7 +5215,7 @@ namespace AmllTtmlTool.WinUI.Views
             var wordId = docLine.Words[word].Id;
             foreach (var child in panel.Children)
                 if (child is Grid chip && chip.Tag is string tag && tag == wordId
-                    && chip.Children.Count >= 4 && chip.Children[3] is Border outline)
+                    && chip.Children.Count >= 2 && chip.Children[1] is Border outline)
                     return outline.Visibility == Visibility.Visible ? "shown" : "hidden";
             return "nochip";
         }
@@ -4651,10 +5242,13 @@ namespace AmllTtmlTool.WinUI.Views
             var wordId = docLine.Words[word].Id;
             foreach (var child in panel.Children)
             {
-                if (child is not Grid chip || chip.Tag is not string tag || tag != wordId) continue;
-                if (chip.Children.Count < 6) return "nochildren";
-                if (chip.Children[0] is not TextBox tb || tb.Foreground is not SolidColorBrush fg) return "notext";
-                if (chip.Children[5] is not Border wash || wash.Background is not SolidColorBrush wb) return "nowash";
+                if (child is not ChipGrid chip || chip.Tag is not string tag || tag != wordId) continue;
+                if (chip.Children.Count < 3) return "nochildren";
+                if (chip.Children[0] is not TextBlock tb) return "notext";
+                if (chip.Children[2] is not Border wash || wash.Background is not SolidColorBrush wb) return "nowash";
+                // Unset (inherited) foreground resolves to the theme primary.
+                var fg = (tb.Foreground as SolidColorBrush)?.Color
+                    ?? ResolveThemeColor("TextFillColorPrimary");
                 // Chip base = the card fill as rendered: the card dictionary
                 // color is TRANSLUCENT (theme-debug shows alpha 0x0D — a layer
                 // over the page), so composite card-over-page first (same as
@@ -4673,10 +5267,10 @@ namespace AmllTtmlTool.WinUI.Views
                 var fr = (byte)Math.Round(cardBase.R * 0.85 + wb.Color.R * 0.15);
                 var fg2 = (byte)Math.Round(cardBase.G * 0.85 + wb.Color.G * 0.15);
                 var fb = (byte)Math.Round(cardBase.B * 0.85 + wb.Color.B * 0.15);
-                var l1 = Lum(fg.Color.R, fg.Color.G, fg.Color.B);
+                var l1 = Lum(fg.R, fg.G, fg.B);
                 var l2 = Lum(fr, fg2, fb);
                 var ratio = (Math.Max(l1, l2) + 0.05) / (Math.Min(l1, l2) + 0.05);
-                return $"theme={ActualTheme} text=#{fg.Color.R:X2}{fg.Color.G:X2}{fg.Color.B:X2} " +
+                return $"theme={ActualTheme} text=#{fg.R:X2}{fg.G:X2}{fg.B:X2} " +
                     $"wash=#{wb.Color.R:X2}{wb.Color.G:X2}{wb.Color.B:X2} " +
                     $"card=#{cardBase.R:X2}{cardBase.G:X2}{cardBase.B:X2} ratio={F2(ratio)}";
             }
@@ -4697,7 +5291,14 @@ namespace AmllTtmlTool.WinUI.Views
                     {
                         var wi = lines[li].Words.ToList().FindIndex(w => w.Id == wordId);
                         if (wi >= 0)
-                            return $"chipbox {li}:{wi}:{(Grid.GetRow(box) == 1 ? "R" : "M")}";
+                        {
+                            // Shared editor: field from its target kind, not
+                            // a grid row (it lives in the page overlay).
+                            var field = ReferenceEquals(box, SharedEditor)
+                                ? (_editorKind == EditorKind.WordRoman ? "R" : "M")
+                                : (Grid.GetRow(box) == 1 ? "R" : "M");
+                            return $"chipbox {li}:{wi}:{field}";
+                        }
                     }
                 }
                 if (FindListViewItem(box) is ListViewItem container)

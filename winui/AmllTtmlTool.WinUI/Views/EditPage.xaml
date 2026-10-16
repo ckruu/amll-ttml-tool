@@ -258,6 +258,19 @@
                 </DataTemplate>
             </ListView.ItemTemplate>
         </ListView>
+            <!-- Shared chip editor (Step 2): ONE TextBox for the whole
+                 surface, positioned over the chip/row being edited. Same cell
+                 as the list so coordinates match 1:1. Hit-testable (it takes
+                 its own presses for caret business); collapsed when idle so
+                 chips receive presses directly. -->
+            <Canvas x:Name="EditorOverlay">
+                <TextBox
+                    x:Name="SharedEditor"
+                    AcceptsReturn="False"
+                    IsSpellCheckEnabled="False"
+                    IsTextPredictionEnabled="False"
+                    Visibility="Collapsed" />
+            </Canvas>
             <!-- Drag overlay: insertion line, ghost label. Hit-transparent;
                  same cell as the list so coordinates match 1:1. -->
             <Canvas x:Name="DragOverlay" IsHitTestVisible="False">
